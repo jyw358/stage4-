@@ -120,7 +120,7 @@ from plugins import evidence, results_store
 print("evidence.utcnow", evidence.utcnow())
 print("final-only predicate:", evidence.official(1, 0), evidence.official(0, 0))
 PY
-python3 -m unittest discover -s tests     # 133 项（含 R3 与 R3 复审回归）
+python3 -m unittest discover -s tests     # 137 项（含 R3 / R3.1 复审回归）
 ```
 
 ## 3. 数据目录与 queue

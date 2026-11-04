@@ -56,6 +56,11 @@ if [ -z "$C_SHA" ] || [ "$A_SHA" != "$C_SHA" ]; then
   echo "REFUSE: submit.sh sha256 mismatch (control=$C_SHA actual=$A_SHA); regenerate the task dir" >&2
   exit 4
 fi
+C_TREE="$(cat "$CONTROL/task_sha256" 2>/dev/null || true)"
+if [ -z "$C_TREE" ]; then
+  echo "REFUSE: control plane has no task_sha256 (pre-R3.1 task dir); regenerate" >&2
+  exit 4
+fi
 AGENT_UID="$(python3 "$AG/scripts/validate_agent_uid.py" \
     --control "$CONTROL/agent_uid" \
     --env-uid "${S4_AGENT_UID:-}" \
@@ -189,8 +194,24 @@ except Exception:
     print("")
 PY
 )
+# R3.1: the prepared dir must be THIS run's task dir -- a wrapper pointed at
+# an arbitrary path (other run's tasks, /home/naco, ...) is refused, so
+# CG_TASK_DIR handed to the agent is always inside <out>/tasks.
+TDIR_REAL="$(readlink -f "$TDIR" 2>/dev/null || echo "$TDIR")"
+TASKS_REAL="$(readlink -f "$OUT/tasks" 2>/dev/null || echo "$OUT/tasks")"
+case "$TDIR_REAL" in
+  "$TASKS_REAL"/*) : ;;
+  *) echo "REFUSE: task dir $TDIR_REAL is outside $TASKS_REAL" >&2; exit 4 ;;
+esac
+
 C_AGENT_ID="$(cat "$CONTROL/agent_id" 2>/dev/null || true)"
-if [ -n "$C_AGENT_ID" ] && [ "$AGENT_ID" != "$C_AGENT_ID" ]; then
+# R3.1 (review MAJOR): an empty control agent_id must not open the check --
+# a missing binding means the task was not prepared by this run's driver.
+if [ -z "$C_AGENT_ID" ]; then
+  echo "REFUSE: control plane has no agent_id binding for $NAME" >&2
+  exit 4
+fi
+if [ "$AGENT_ID" != "$C_AGENT_ID" ]; then
   echo "REFUSE: submit.sh agent_id=$AGENT_ID != control binding $C_AGENT_ID" >&2
   exit 4
 fi

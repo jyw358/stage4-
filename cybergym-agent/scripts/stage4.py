@@ -151,7 +151,7 @@ def chown_prep(path) -> None:
 
 
 # ---- R3: per-task control-plane binding (<out>/control/<task>/) -----------
-CONTROL_KEYS = ("run_id", "agent_id", "submit_sha256", "agent_uid")
+CONTROL_KEYS = ("run_id", "agent_id", "submit_sha256", "task_sha256", "agent_uid")
 
 
 def control_root(out: Path) -> Path:
@@ -278,6 +278,33 @@ def submit_sha256(tdir: Path) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def task_inputs_sha256(tdir: Path) -> str:
+    """Digest of the WHOLE prepared input tree (relative path, size, content
+    hash), not just submit.sh.
+
+    R3.1 (review MAJOR): binding only submit.sh proved the submission identity
+    but said nothing about description.txt / repo archives / any other input
+    the agent is handed.  A task dir could be edited between prep and reuse
+    and still pass the old binding."""
+    root = Path(tdir)
+    rows = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in sorted(filenames):
+            p = Path(dirpath) / name
+            rel = p.relative_to(root).as_posix()
+            if rel == ".stage4_run_id":
+                continue          # driver-owned legacy marker, not an input
+            st = os.lstat(p)
+            if stat.S_ISLNK(st.st_mode):
+                # a symlink is never a legitimate prepared input
+                rows.append(f"{rel}\tlink\t{os.readlink(p)}")
+                continue
+            h = hashlib.sha256(p.read_bytes()).hexdigest()
+            rows.append(f"{rel}\t{st.st_size}\t{h}")
+    return hashlib.sha256("\n".join(rows).encode()).hexdigest()
+
+
 def submit_agent_id(tdir: Path) -> str:
     """Expected agent_id as baked into submit.sh by gen_task."""
     from plugins.cybergym_runner import parse_submit_sh  # noqa: PLC0415
@@ -317,18 +344,7 @@ def _registry_taken() -> dict:
     under the same uid.  The registry is append-only: a uid, once issued on
     this host, is never issued again, so cross-run isolation holds by
     construction (retired uids simply stay burned)."""
-    p = _registry_path()
-    if not p.exists():
-        return {}
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        # fail-closed: a corrupt registry could silently allow a reuse
-        raise SystemExit(f"uid registry {p} is unreadable/corrupt: {e} "
-                         "(repair it as root before running)")
-    if not isinstance(data, dict):
-        raise SystemExit(f"uid registry {p} is not a JSON object")
-    return data
+    return _load_json_object(_registry_path(), "uid registry")
 
 
 def allocate_agent_uid(out: Path, name: str, run_id: str = "") -> int:
@@ -344,15 +360,12 @@ def allocate_agent_uid(out: Path, name: str, run_id: str = "") -> int:
         registry = _registry_taken()
         taken = {int(k) for k in registry if str(k).isdigit()}
         taken.add(AGENT_UID_BASE - 1)  # keep clear of the pool floor
-        # per-run file kept for operator visibility (not the trust anchor)
+        # per-run file kept for operator visibility (not the trust anchor).
+        # R3.1 MAJOR (review): a corrupt file must NOT be treated as "no
+        # allocations yet" -- that could reissue a uid this run already used.
         run_alloc_path = control_root(out) / "uid_alloc.json"
-        if run_alloc_path.exists():
-            try:
-                taken |= {int(v) for v in
-                          json.loads(run_alloc_path.read_text(encoding="utf-8")).values()
-                          if str(v).isdigit()}
-            except json.JSONDecodeError:
-                pass
+        run_alloc = _load_json_object(run_alloc_path, "per-run uid_alloc")
+        taken |= {int(v) for v in run_alloc.values() if str(v).isdigit()}
         if pwd is not None:
             for pw in pwd.getpwall():
                 taken.add(pw.pw_uid)
@@ -363,17 +376,30 @@ def allocate_agent_uid(out: Path, name: str, run_id: str = "") -> int:
         atomic_write(rp, json.dumps(registry, indent=1, sort_keys=True))
         if os.name == "posix" and euid() == 0:
             os.chmod(rp, 0o600)
-        run_alloc = {}
-        if run_alloc_path.exists():
-            try:
-                run_alloc = json.loads(run_alloc_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                run_alloc = {}
         run_alloc[name] = uid
         atomic_write(run_alloc_path, json.dumps(run_alloc, indent=1, sort_keys=True))
         if os.name == "posix" and euid() == 0:
             os.chmod(run_alloc_path, 0o600)
         return uid
+
+
+def _load_json_object(path: Path, what: str) -> dict:
+    """Read a root-owned JSON object file; missing = {} but CORRUPT = stop.
+
+    R3.1 (review MAJOR): `except JSONDecodeError: pass` silently downgraded a
+    damaged allocation file to "empty", so already-issued uids could be handed
+    out again.  Allocation state is security state: fail closed."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise SystemExit(f"{what} {path} is corrupt: {e} (repair as root; "
+                         "do NOT delete it -- uids already issued would be "
+                         "reissued)")
+    if not isinstance(data, dict):
+        raise SystemExit(f"{what} {path} is not a JSON object")
+    return data
 
 
 def _uid_exists(uid: int) -> bool:
@@ -432,6 +458,15 @@ def validate_reuse(tdir: Path, control: dict, run_id: str) -> tuple:
     if have != want:
         return False, (f"{tdir}/submit.sh changed since prep "
                        f"(sha256 {have} != binding {want}); regenerate")
+    want_tree = control.get("task_sha256")
+    if not want_tree:
+        return False, ("control-plane binding has no task_sha256 (pre-R3.1 "
+                       "task dir); regenerate the task dir")
+    have_tree = task_inputs_sha256(tdir)
+    if have_tree != want_tree:
+        return False, (f"{tdir} inputs changed since prep (tree sha256 "
+                       f"{have_tree[:12]}... != binding {want_tree[:12]}...); "
+                       "regenerate")
     want_agent = control.get("agent_id")
     if want_agent:
         have_agent = submit_agent_id(tdir)
@@ -507,6 +542,7 @@ def prepare_task(tid: str, task_base: Path, out: Path, run_id: str, log) -> tupl
     # bind identity in the control plane FIRST (root-only dir), marker second
     control_write(out, name, "run_id", run_id)
     control_write(out, name, "submit_sha256", submit_sha256(tdir))
+    control_write(out, name, "task_sha256", task_inputs_sha256(tdir))
     control_write(out, name, "agent_id", submit_agent_id(tdir))
     try:
         _marker_write(marker, run_id)

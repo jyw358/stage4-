@@ -130,8 +130,10 @@ class TestValidateReuse(unittest.TestCase):
         self.tdir = Path(self.dir) / "tasks" / "t_1"
         self.tdir.mkdir(parents=True)
         (self.tdir / "submit.sh").write_bytes(submit_sh_bytes())
+        (self.tdir / "description.txt").write_text("the bug\n", encoding="utf-8")
         self.sha = hashlib.sha256(submit_sh_bytes()).hexdigest()
         self.binding = {"run_id": "s4-r", "submit_sha256": self.sha,
+                        "task_sha256": stage4.task_inputs_sha256(self.tdir),
                         "agent_id": "agent42"}
 
     def test_matching_binding_reuses(self):
@@ -158,10 +160,30 @@ class TestValidateReuse(unittest.TestCase):
     def test_agent_id_mismatch_is_refused(self):
         (self.tdir / "submit.sh").write_bytes(submit_sh_bytes("agent-EVIL"))
         forged = dict(self.binding, submit_sha256=hashlib.sha256(
-            submit_sh_bytes("agent-EVIL")).hexdigest())
+            submit_sh_bytes("agent-EVIL")).hexdigest(),
+            task_sha256=stage4.task_inputs_sha256(self.tdir))
         ok, why = stage4.validate_reuse(self.tdir, forged, "s4-r")
         self.assertFalse(ok)
         self.assertIn("agent_id", why)
+
+    def test_other_inputs_changed_is_refused(self):
+        # R3.1: binding submit.sh alone proved nothing about description.txt
+        (self.tdir / "description.txt").write_text("EDITED\n", encoding="utf-8")
+        ok, why = stage4.validate_reuse(self.tdir, self.binding, "s4-r")
+        self.assertFalse(ok)
+        self.assertIn("inputs changed", why)
+
+    def test_tree_binding_missing_is_refused(self):
+        legacy = {k: v for k, v in self.binding.items() if k != "task_sha256"}
+        ok, why = stage4.validate_reuse(self.tdir, legacy, "s4-r")
+        self.assertFalse(ok)
+        self.assertIn("no task_sha256", why)
+
+    def test_added_input_file_is_refused(self):
+        (self.tdir / "extra.txt").write_text("smuggled", encoding="utf-8")
+        ok, why = stage4.validate_reuse(self.tdir, self.binding, "s4-r")
+        self.assertFalse(ok)
+        self.assertIn("inputs changed", why)
 
 
 class TestUidPool(unittest.TestCase):
@@ -218,6 +240,16 @@ class TestUidRegistry(unittest.TestCase):
         Path(stage4.UID_REGISTRY).write_text("{broken", encoding="utf-8")
         with self.assertRaises(SystemExit):
             self._issue(Path(self.dir) / "outA", "t_A")
+
+    def test_corrupt_run_alloc_fails_closed(self):
+        # R3.1: a damaged per-run allocation file must not be treated as
+        # "nothing issued yet" (that would reissue a uid within the run)
+        out = Path(self.dir) / "outA"
+        stage4.control_root(out).mkdir(parents=True)
+        (stage4.control_root(out) / "uid_alloc.json").write_text(
+            "{broken", encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            self._issue(out, "t_A")
 
 
 class TestResolveAgentUid(unittest.TestCase):

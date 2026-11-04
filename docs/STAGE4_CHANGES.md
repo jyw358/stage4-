@@ -81,10 +81,35 @@ MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 
 | R3-M3 | promoter 失败被降级 WARN，仍跑第二段、照常写行 | `promote_or_fail`：失败立即记录 `evidence_error` 行并以 rc=6 终止，**不跑第二段**；verify 把 `evidence_error` 计入 `INFRA_FAILURE`（pilot 必须清零） |
 | R3-M4 | 进程组清理不能证明 setsid 后代已清空 | `kill_task_tree` 在 SIGTERM/SIGKILL 后按**会话号**扫描 `/proc` 补杀并复查，返回残留数（写入 log）；真正 setsid 另开会话的后代仍需 cgroup/systemd scope，已作为残留风险写入部署手册第 9 节 |
 
-新增测试（本轮 +17，共 133 项）：宿主机级 UID 注册表（跨 run 不复用/归属
+新增测试（本轮 +17；当前全量 137 项）：宿主机级 UID 注册表（跨 run 不复用/归属
 记录/损坏 fail-closed）、`resolve_agent_uid` 六种拒绝场景、`/proc` 会话扫描
 （含 comm 内含空格的解析）、任务目录私有化、`evidence_error` 计入覆盖率
 失败。
+
+## 0.7 增量复审（R3.1）修复
+
+复审基于**过期快照**（其引用的 `chmod(tdir, 0o755)`、`S4_AGENT_UID:-…`、
+`uid_alloc.json` 单 run 分配、`WARN: ledger promote` 均已在 `aa3f960` /
+`4de886d` 中不存在）。本轮同时把复审在**当前代码上仍成立**的 MAJOR 项修掉：
+
+| 编号 | 问题 | 处理 |
+|---|---|---|
+| MAJOR-1 | `uid_alloc.json` 损坏时 `except JSONDecodeError: pass` 被当成"尚未分配" | 统一 `_load_json_object()`：缺失 = `{}`，**损坏/非对象 = SystemExit**（注册表与 per-run 分配表都 fail-closed） |
+| MAJOR-2 | `validate_reuse()` 只绑 `submit.sh`，其他准备输入可被改 | 新增 `task_inputs_sha256()`（相对路径+大小+内容哈希的整树摘要，跳过 driver 自有 `.stage4_run_id`），控制面新增 `task_sha256`；复用必须整树一致，新增/修改任一输入都拒绝 |
+| MAJOR-3 | `CG_TASK_DIR` 直接传共享准备目录，未证明 agent 只能访问当前题目录 | wrapper 在入口把 `TDIR` 与 `<out>/tasks` 都 `readlink -f`，真实路径不在 `<out>/tasks/` 下即 `REFUSE`（rc=4） |
+| MAJOR-4 | UID 与 Agent ID 绑定条件不对称：控制面 `agent_id` 为空时门禁放行 | 控制面 `agent_id` 必须非空，且与 `submit.sh` 解析值严格相等，否则 rc=4 |
+| MAJOR-5 | 进程组清理对 setsid 后代无保证 | 保留上一轮的 `/proc` 会话扫描；真正另开会话的后代需 cgroup/systemd scope，作为上机残留项（部署手册第 9 节） |
+
+**版本一致性说明**：本轮以 `4de886dd871633514c1478f0a0d89ad122871b00`
+（GitHub `main` head）为准，已用 GitHub API `contents?ref=<sha>` 拉取同一
+SHA 的 `stage4.py`（934 行）与 `run_agent_task.sh`（241 行），确认
+`harden_task_dir` / `uid_registry` / `validate_agent_uid` / `promote_or_fail`
+在场且旧模式（`chmod(tdir, 0o755)`、`S4_AGENT_UID:-`、`WARN: ledger promote`）
+均不存在。复审若再看到 290 行版本，说明读到的是缓存/旧 commit，请按 SHA
+重新拉取。
+
+测试计数更新：137 项（+4：整树绑定被改/新增文件/旧绑定缺 `task_sha256`、
+per-run 分配表损坏 fail-closed）。
 
 ## 1. 证据模型
 
@@ -201,12 +226,12 @@ MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 
 
 ## 6. 本地验证
 
-- 单元测试：`python -m unittest discover -s tests`（133 项，含第二轮回归、
-  第三轮隔离回归与 R3 复审回归：`tests/test_trusted_boot.py` 覆盖树审计分类
-  规则/控制面绑定/复用校验/uid 池/宿主机 uid 注册表/uid 解析/会话扫描；
-  `tests.test_stage4_driver` 含 promoter 硬化反例；`tests.test_verify_stage4`
-  含控制面/账本冲突/evidence_error 覆盖率反例。Windows 沙箱下需避开既有
-  `tempfile` 测试，见 `tests/_scratch.py`）
+- 单元测试：`python -m unittest discover -s tests`（137 项，含第二轮回归、
+  第三轮隔离回归与 R3/R3.1 复审回归：`tests/test_trusted_boot.py` 覆盖树审计
+  分类规则/控制面绑定/复用校验（含整树哈希）/uid 池/宿主机 uid 注册表/uid
+  解析/会话扫描；`tests.test_stage4_driver` 含 promoter 硬化反例；
+  `tests.test_verify_stage4` 含控制面/账本冲突/evidence_error 覆盖率反例。
+  Windows 沙箱下需避开既有 `tempfile` 测试，见 `tests/_scratch.py`）
 - 端到端评分冒烟：`python smoke_score.py`（本地 HTTP `/query-poc`，验证
   final-only、ledger 对齐、mismatch fail-closed 三个场景 + 受保护账本验收）
 - 工作区/行冒烟：`python smoke_stage4.py`（评分前验收必须失败——B9/B10 语义）

@@ -34,7 +34,7 @@ cybergym-agent/
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（133 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（137 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
@@ -54,8 +54,8 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 133 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
-#       R3 复审回归）
+# 预期：Ran 137 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
+#       R3/R3.1 复审回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -139,4 +139,17 @@ R3 复审修复：
     `evidence_error`、rc=6、不跑第二段（M3）；超时清理追加 `/proc` 会话
     扫描复查（M4，setsid 另开会话仍需 cgroup，见部署手册第 9 节）。
 
+R3.1 增量复审修复：
+
+24. `uid_alloc.json` 与宿主机注册表损坏一律 fail-closed（`SystemExit`），
+    不再重置为空表继续发号（MAJOR-1）。
+25. 题目录复用绑定从“只验 `submit.sh`”扩为整树：`task_inputs_sha256()`
+    逐文件（相对路径 + 大小 + sha256，软链接记目标）生成 `task_sha256`，
+    `validate_reuse()` 缺该字段或树变了都拒绝（MAJOR-2）。
+26. wrapper 在入口处把题目录与 `<out>/tasks` 都 `readlink -f` 收敛，题目录
+    越界即 `REFUSE`（MAJOR-3）；控制面 `agent_id` 为空一律拒绝正式任务
+    （MAJOR-4）。
+
 评审请优先攻击这些主张，而不是重述它们。
+（版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；
+请以该 commit 内容审计，勿混用不同来源/缓存的旧文件快照。）
