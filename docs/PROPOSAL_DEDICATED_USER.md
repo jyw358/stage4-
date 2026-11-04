@@ -51,14 +51,149 @@ chmod -R go-w,a+rX /home/naco/work/cybergym-agent   # 所有人只读
 | GLM 凭据 | 0640 root:s4agent | 读 | 不可见 |
 | 受保护账本 / rows / out 根 | root（不变） | 不可见 | 不可见 |
 
-### 3.2 代码改动点（若评审通过）
+### 3.2 实施补丁预览（未合入；评审通过后按此落地）
 
-1. `stage4.py`：`chown_naco()` → `chown_agent()`（`S4_AGENT_USER` 环境变量，
-   默认 `s4agent`）；gen_task 的 `sudo -u naco` 同步替换；
-2. `run_agent_task.sh`：三处 `sudo -u naco` / `chown naco:naco` 换为
-   `S4_AGENT_USER`；
-3. `STAGE4_DEPLOY.md`：新增建户与属主检查步骤；
-4. 可选加固：每次 run 前断言代码树对 `S4_AGENT_USER` 不可写（启动即拒）。
+#### 补丁 A — `cybergym-agent/scripts/stage4.py`
+
+A1. 用户参数化 + 启动断言（切断 T1）：
+
+```diff
+ AG = os.environ.get("S4_AGENT_HOME", "/home/naco/work/cybergym-agent")
++AGENT_USER = os.environ.get("S4_AGENT_USER", "s4agent")
+ REPO = os.environ.get("S4_REPO", "/home/naco/work/cybergym")
+```
+
+```diff
+-def chown_naco(path) -> None:
+-    """gen_task and the workspace generator run as naco: the dirs they write
+-    into must be owned by naco even though this driver runs as root."""
++def chown_agent(path) -> None:
++    """gen_task and the workspace generator run as AGENT_USER (dedicated,
++    unprivileged, no home history): dirs they write into are owned by that
++    user even though this driver runs as root."""
+     if pwd is None or euid() != 0:
+         return
+     try:
+-        pw = pwd.getpwnam("naco")
++        pw = pwd.getpwnam(AGENT_USER)
+         os.chown(path, pw.pw_uid, pw.pw_gid)
+     except (KeyError, OSError):
+         pass
+```
+
+```python
+# NEW: called first thing in main() on POSIX, before any task starts.
+def assert_code_tree_readonly() -> None:
+    """T1: root-executed code must be writable by root only.  Group/other
+    write on the agent code tree is how an agent session could rewrite the
+    scorers (or these very root-run scripts); refuse to start instead."""
+    import stat as st
+    if pwd is None or euid() != 0:
+        return
+    try:
+        pwd.getpwnam(AGENT_USER)
+    except KeyError:
+        raise SystemExit(f"agent user {AGENT_USER!r} does not exist "
+                         "(create it, see STAGE4_DEPLOY.md s1)")
+    base = Path(__file__).resolve().parents[1]          # .../cybergym-agent
+    for d in (base, base / "scripts", base / "plugins"):
+        m = d.stat().st_mode
+        if m & (st.S_IWGRP | st.S_IWOTH):
+            raise SystemExit(f"{d} is group/other-writable; refusing to run "
+                             "(T1: agent must not be able to rewrite root-run code)")
+```
+
+A2. gen_task 与目录属主改用 AGENT_USER：
+
+```diff
+     tdir.mkdir(parents=True, exist_ok=True)
+-    chown_naco(tdir)
++    chown_agent(tdir)
+     cmd = [
+-        "sudo", "-u", "naco", "env", f"PYTHONPATH={REPO}/src",
++        "sudo", "-u", AGENT_USER, "env", f"PYTHONPATH={REPO}/src",
+         "/usr/bin/python3.12", "-m", "cybergym.task.gen_task",
+```
+
+```diff
+     for d in (out, out / "rows", out / "logs", task_base, ws_root):
+         d.mkdir(parents=True, exist_ok=True)
+-    chown_naco(task_base)
+-    chown_naco(ws_root)
++    chown_agent(task_base)
++    chown_agent(ws_root)
++    assert_code_tree_readonly()        # NEW: start-gate, before the run lock
+```
+
+#### 补丁 B — `cybergym-agent/scripts/run_agent_task.sh`
+
+```diff
+-# Runs as root. The agent and workspace generator still run as naco.
++# Runs as root. The agent and workspace generator run as $S4_AGENT_USER:
++# a dedicated account with no sudo entry, no home history, and no write
++# path to the code tree or <out> (root keeps rows/, ledgers, reports).
++AGENT_USER="${S4_AGENT_USER:-s4agent}"
+```
+
+```diff
+-# the generator runs as naco and must be able to create <ws_root>/<task>
+-[ "$(id -u)" -eq 0 ] && chown naco:naco "$WSROOT" && chmod 755 "$WSROOT"
++# the generator runs as the agent user and must create <ws_root>/<task>
++[ "$(id -u)" -eq 0 ] && chown "$AGENT_USER:$AGENT_USER" "$WSROOT" && chmod 755 "$WSROOT"
+```
+
+```diff
+-if ! sudo -u naco env S4_RUN_ID="$RUN_ID" python3 "$AG/scripts/make_agent_ws.py" \
++if ! sudo -u "$AGENT_USER" env S4_RUN_ID="$RUN_ID" python3 "$AG/scripts/make_agent_ws.py" \
+```
+
+```diff
+ export CLAUDE_CONFIG_DIR="$WS/.claude-config"
+-mkdir -p "$CLAUDE_CONFIG_DIR"; chown naco:naco "$CLAUDE_CONFIG_DIR"; chmod 700 "$CLAUDE_CONFIG_DIR"
++mkdir -p "$CLAUDE_CONFIG_DIR"
++chown "$AGENT_USER:$AGENT_USER" "$CLAUDE_CONFIG_DIR"; chmod 700 "$CLAUDE_CONFIG_DIR"
+```
+
+```diff
+ # pass 1
+-sudo -u naco --preserve-env="$AGENT_ENV" \
++sudo -u "$AGENT_USER" --preserve-env="$AGENT_ENV" \
+     timeout 2400 /home/naco/bin/agcli -p "$(cat "$AG/scripts/agent_mission.txt")" \
+ ...
+ # pass 2
+-sudo -u naco --preserve-env="$AGENT_ENV" \
++sudo -u "$AGENT_USER" --preserve-env="$AGENT_ENV" \
+     timeout 900 /home/naco/bin/agcli -p "$PASS2_PROMPT" \
+```
+
+#### 补丁 C — `docs/STAGE4_DEPLOY.md`（部署前检查新增）
+
+```bash
+id s4agent                                            # 存在、无 sudo、独立主组
+sudo -u s4agent test ! -w /home/naco/work/cybergym-agent/scripts \
+  && echo code-readonly-ok                            # T1 断言的离线版
+sudo -u s4agent test ! -r /home/naco/.claude/projects 2>/dev/null \
+  && echo history-hidden-ok || echo "WARN: naco history visible"   # T2
+stat -c '%U:%G %a %n' /home/naco/work/cybergym-agent  # root:root, 0755
+```
+
+#### 实施时的验证矩阵（上机执行）
+
+| 检查 | 命令（以 s4agent） | 期望 |
+|---|---|---|
+| 代码树只读 | `sudo -u s4agent touch /home/naco/work/cybergym-agent/scripts/x` | Permission denied |
+| out/protected 不可见 | `sudo -u s4agent ls /data/cybergym/stage4/r_engineer/protected_ledger` | Permission denied |
+| naco 历史不可读 | `sudo -u s4agent ls /home/naco/.claude/projects` | No such file or directory |
+| agcli 可执行 | `sudo -u s4agent test -x /home/naco/bin/agcli && echo ok` | ok |
+| GLM 凭据可读 | `sudo -u s4agent cat <key-file>`（0640 root:s4agent） | 输出非空 |
+| 提交链路 | 单题 dry 跑 1 个任务，观察 ledger/promote/verify 全绿 | 0 violations |
+
+#### 已知迁移注意点（评审请补充）
+
+1. agcli 若在 `~/.config` 或 `$HOME` 下有状态，需要为 s4agent 预置（只读分发）；
+2. `/home/naco/bin/agcli` 需 `o+x`；GLM key 文件 `0640 root:s4agent`；
+3. `naco` 用户保留给 gen_task 源码树的日常维护（只读运行不受影响）；
+4. `record_task_row.py`/`promote_ledger.py`/评分链路全部仍以 root 运行，无改动。
 
 ### 3.3 明确不解决的
 
