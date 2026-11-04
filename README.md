@@ -113,9 +113,11 @@ python3 smoke_score.py
 16. 身份三分离且 fail-closed：root（驱动/评分/晋升）、`S4_PREP_USER`（默认
     naco，仅 gen_task——绝不与 agent 同 uid）、每题**唯一数字 uid**
     （池内取号、run 内不复用、跳过 passwd 已有 uid）。
-17. agent 会话以 `sudo -u '#<uid>'` + 显式 env 运行：全新 0700 的私有
-    HOME/TMPDIR/XDG_*/CLAUDE_CONFIG_DIR、umask 077、ws 属主=该 uid、
-    ws 根 root:root 0711（不能列兄弟目录）；`--preserve-env` 已删除。
+17. agent 会话以 `setpriv --reuid/--regid/--clear-groups` + `env -i` 显式环境
+    运行（不用 sudo：本机 sudo 1.9.9 拒绝未注册数字 uid，见部署手册 §9.1）：
+    全新 0700 的私有 HOME/TMPDIR/XDG_*/CLAUDE_CONFIG_DIR、umask 077、
+    ws 属主=该 uid、ws 根 root:root 0711（不能列兄弟目录）；缺 setpriv 即
+    拒跑，绝不回退 root。
 18. 控制面绑定 `<out>/control/<task>/`（root:root 0700，O_NOFOLLOW+原子写）
     锁定 run_id/agent_id/submit.sh sha256/agent_uid；wrapper 消费前逐项校验，
     复用题目录必须哈希+agent_id 全对得上（marker 降级为遗留提示）。
@@ -149,6 +151,9 @@ R3.1 增量复审修复：
 26. wrapper 在入口处把题目录与 `<out>/tasks` 都 `readlink -f` 收敛，题目录
     越界即 `REFUSE`（MAJOR-3）；控制面 `agent_id` 为空一律拒绝正式任务
     （MAJOR-4）。
+27. 上机负向测试（2026-11-04）14/14 通过：跨题读、跨 run uid、wrapper uid
+    冲突、空 agent_id、promoter 失败、降权身份与环境探针；并据此修掉
+    sudo→setpriv 与 `evidence_error` 被改写两处缺陷（部署手册 §9）。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

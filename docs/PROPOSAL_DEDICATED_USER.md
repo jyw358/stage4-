@@ -13,7 +13,7 @@
 > | gen_task 不与 agent 同 UID | 保留独立准备身份 `S4_PREP_USER`（默认 naco）；`chown_prep` fail-closed |
 > | marker 绑定不可替换（软链接窗口/父目录可替换/未绑定 submit.sh） | 控制面 `<out>/control/<task>/` root:root 0700，O_NOFOLLOW+原子写，绑定 run_id+agent_id+submit.sh sha256+agent_uid；wrapper 逐项校验 |
 > | 账本信任描述失实；promoter 保留不可信预写值 | 信任模型重述为“root 封存的不可信提交声明”；promoter 强制覆盖身份值、坏行硬失败、同 ID 异哈希单列 conflicts |
-> | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 116 项单测 + 双 smoke 全过；上机检查清单见部署手册第 9 节（sudo '#uid' 语义/负向读测试等需真实主机验证） |
+> | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 137 项单测 + 双 smoke 全过；上机负向测试 2026-11-04 于 192.168.49.13 跑 14/14 通过（部署手册第 9 节），并据现场证据把降权从 sudo 改为 setpriv |
 >
 > **R3 复审（第二轮）**：裁决 REQUEST CHANGES，唯一 P0 是“准备目录仍可跨题
 > 读取”（R3-B1）。已修复：题目录 prep 后整树归本题 uid + 0700、父级 0711、

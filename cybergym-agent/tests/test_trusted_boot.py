@@ -340,7 +340,10 @@ class TestTaskDirPrivacy(unittest.TestCase):
         # runs on the host (deploy manual section 2/4 negative tests)
         d = scratch_dir()
         self.addCleanup(cleanup, d)
-        stage4.harden_task_dir(Path(d) / "tasks" / "t_1", 30001)  # no raise
+        tdir = Path(d) / "tasks" / "t_1"
+        tdir.mkdir(parents=True)
+        (tdir / "description.txt").write_text("d", encoding="utf-8")
+        stage4.harden_task_dir(tdir, 30001)  # no raise
 
     @unittest.skipUnless(os.name == "posix" and hasattr(os, "geteuid")
                          and os.geteuid() == 0, "needs POSIX root")

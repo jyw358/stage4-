@@ -154,7 +154,10 @@ def main() -> int:
     row["needs_second_pass"] = bool(checks == 0 and not entries and not args.second_pass)
 
     if args.stage == "error":
-        row["status"] = "worker_error"
+        # the caller may name a SPECIFIC infrastructure status (evidence_error
+        # from promote_or_fail); the generic default was worker_error, which
+        # silently relabelled ledger/evidence failures (host negative test T6)
+        row["status"] = args.status or "worker_error"
     elif args.status:
         row["status"] = args.status
     elif entries:

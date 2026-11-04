@@ -111,6 +111,22 @@ SHA 的 `stage4.py`（934 行）与 `run_agent_task.sh`（241 行），确认
 测试计数更新：137 项（+4：整树绑定被改/新增文件/旧绑定缺 `task_sha256`、
 per-run 分配表损坏 fail-closed）。
 
+## 0.8 上机负向测试（R3.2，2026-11-04）
+
+在测试机（内网 `192.168.49.13`，root）对同一 commit 的树跑 14 项负测，
+**14/14 通过**（明细见部署手册第 9 节）。负测暴露出两个此前静态审查
+看不到的真实缺陷：
+
+| 编号 | 缺陷 | 现场证据 | 修复 |
+|---|---|---|---|
+| HOST-1 | `sudo -u '#<uid>'` 在本机无法启动会话 | `sudo 1.9.9` → `sudo: unknown user #30001`；每题 uid 故意不是 passwd 账号，故 **所有题零执行** | wrapper 改用 `setpriv --reuid --regid --clear-groups`；setpriv 不重置环境，因此 `RUN_ENV` 改为 `env -i` 显式注入；缺 setpriv 直接 `REFUSE`（rc=4），不回退 root |
+| HOST-2 | `record_task_row.py` 在 `--stage error` 时无条件写 `worker_error` | promoter 返回 5 后行状态为 `worker_error` 而非 `evidence_error`，吞掉证据链失败的具体语义 | 改为 `row["status"] = args.status or "worker_error"` |
+
+T7 额外验证降权本身：会话内 `id -u`=30001、`id` 显示 `uid=30001 gid=30001`、
+环境仅 9 个变量、无 `S4_*` 与 `SSH_/MAIL/HOSTNAME/PWD=/root` 泄漏。
+
+首页/README 的主张 #17 相应更新：降权不是 sudo，而是 setpriv + 空环境。
+
 ## 1. 证据模型
 
 每题有三份互相独立的记录，评分时**必须一致**：

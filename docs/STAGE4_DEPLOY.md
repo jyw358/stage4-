@@ -16,11 +16,19 @@
 id naco                                # prep 身份必须存在
 id s4agent || useradd -M -N -s /usr/sbin/nologin s4agent   # 基线账号（uid 必须落在池外）
 python3.12 --version
+setpriv --version                      # R3.2 必需：降权不依赖 passwd 条目
 test -f /root/.cybergym_env && echo env-ok
 test -S /root/grader.sock && echo grader-ok
 docker ps >/dev/null && echo docker-ok
 df -h /data | tail -1
 ```
+
+**降权方式（R3.2 上机结论）**：本机 `sudo 1.9.9` 拒绝未注册的数字 uid
+（`sudo -u '#30001'` → `sudo: unknown user #30001`），而每题 uid 故意不是
+passwd 账号，因此 sudo 无法启动任何 agent 会话。wrapper 现用
+`setpriv --reuid --regid --clear-groups`（util-linux，无需 passwd 条目）
+并以 `env -i` 传入显式环境。`setpriv` 缺失时 wrapper 直接 `REFUSE`（rc=4），
+不会回退到 root。
 
 stage-4 依赖与 stage-3 相同：rootless docker、agcli、`/home/naco/work/cybergym`
 （gen_task 源码与 `.env`，保持 naco 属主——root 不执行它）、`/root/.cybergym_env`
@@ -96,8 +104,12 @@ namei -l /data/cybergym/stage4
 # s4agent 不得有任何 sudo 权限（期望 "is not allowed to run sudo"）
 sudo -l -U s4agent
 
-# 每题数字 uid 的 sudo 语法可用（R3 依赖 '#<uid>'，需 sudo >= 1.8.x）
-sudo -u '#30001' id && ! sudo -u '#30001' ls /root && echo sudo-uid-ok
+# 每题数字 uid 的降权可用（R3.2：setpriv，不依赖 passwd 条目）
+setpriv --reuid=30001 --regid=30001 --clear-groups id \
+  && ! setpriv --reuid=30001 --regid=30001 --clear-groups ls /root \
+  && echo setpriv-uid-ok
+# 反例留档：本机 sudo 不支持未注册 uid
+sudo -u '#30001' id 2>&1 | head -1     # 期望 "unknown user #30001"，说明必须用 setpriv
 
 # 宿主机级 uid 注册表位置可写、只增不减（B2）
 mkdir -p /var/lib/cybergym/stage4 && chown root:root /var/lib/cybergym/stage4 \
@@ -110,7 +122,8 @@ PY
 
 # 密钥只测属主/模式/可读性，绝不打印内容
 stat -c '%U:%G %a' /root/.cybergym_env        # 期望 root:root 600
-sudo -u '#30001' test -r /root/.cybergym_env && echo "KEY LEAK" || echo key-protected
+setpriv --reuid=30001 --regid=30001 --clear-groups test -r /root/.cybergym_env \
+  && echo "KEY LEAK" || echo key-protected
 stat -c '%U:%G %a' /home/naco/work/cybergym/.env   # naco 可读，他人不可读
 
 # 代码自检
@@ -231,7 +244,7 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
   stat -c '%a %u' /data/cybergym/stage4/pilot50-ws/<task>
   cat /data/cybergym/stage4/pilot50/control/<task>/agent_uid
   # c. uid A 无法读 uid B 的工作区（拿两题的 uid 实测）
-  sudo -u '#<uidA>' cat /data/cybergym/stage4/pilot50-ws/<taskB>/CLAUDE.md
+  setpriv --reuid=$UID_A --regid=$UID_A --clear-groups cat /data/cybergym/stage4/pilot50-ws/<taskB>/CLAUDE.md
   #   必须报 Permission denied
   ```
 
@@ -245,12 +258,12 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
   # 0. 先证明文件真实存在（否则“路径不存在”会伪装成通过）
   test -e "$OUT/tasks/$TASK_B/description.txt" && echo path-ok
   # 1. A 读自己的材料：必须成功
-  sudo -u "#$UID_A" -- test -r "$OUT/tasks/<taskA>/description.txt"; echo "own_rc=$? (期望 0)"
+  setpriv --reuid="$UID_A" --regid="$UID_A" --clear-groups test -r "$OUT/tasks/<taskA>/description.txt"; echo "own_rc=$? (期望 0)"
   # 2. A 读 B 的 description.txt：必须非零
-  sudo -u "#$UID_A" -- test -r "$OUT/tasks/$TASK_B/description.txt"; echo "cross_rc=$? (期望非 0)"
+  setpriv --reuid="$UID_A" --regid="$UID_A" --clear-groups test -r "$OUT/tasks/$TASK_B/description.txt"; echo "cross_rc=$? (期望非 0)"
   # 3. A 读 B 的 submit.sh / 列 B 目录：必须失败
-  sudo -u "#$UID_A" -- test -r "$OUT/tasks/$TASK_B/submit.sh"; echo "cross_submit_rc=$? (期望非 0)"
-  sudo -u "#$UID_A" -- ls "$OUT/tasks/$TASK_B" >/dev/null 2>&1; echo "cross_ls_rc=$? (期望非 0)"
+  setpriv --reuid="$UID_A" --regid="$UID_A" --clear-groups test -r "$OUT/tasks/$TASK_B/submit.sh"; echo "cross_submit_rc=$? (期望非 0)"
+  setpriv --reuid="$UID_A" --regid="$UID_A" --clear-groups ls "$OUT/tasks/$TASK_B" >/dev/null 2>&1; echo "cross_ls_rc=$? (期望非 0)"
   # 4. 属主/模式断言
   stat -c '%a %u' "$OUT/tasks/$TASK_B"            # 期望 700 + UID_B
   stat -c '%a %u' "$OUT/tasks"                    # 期望 711 + 0
@@ -333,13 +346,14 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
 | `agent uid pool exhausted` | 池耗尽或 passwd 里占用过多 | 调大 `S4_AGENT_UID_SPAN` 或上移 `S4_AGENT_UID_BASE` |
 | `REFUSE: ledger promotion failed rc=<n>` + 行状态 `evidence_error` | promoter 硬失败（坏行/身份串轮/冲突） | 按安全事件核查该题账本；不要手工改受保护账本，重跑该题 |
 | SystemExit `prep user 'naco' does not exist` | `S4_PREP_USER` 指向的账号不存在 | 建账号或改 `S4_PREP_USER` |
-| `sudo -u '#<uid>'` 报 unknown user | sudo 版本过旧（不支持 `#uid`） | 升级 sudo，或为池内 uid 批量建无 shell passwd 条目（不推荐） |
-| agent 会话里 HOME 指向 /root | sudoers `env_reset` 覆盖了显式 env（罕见） | 检查 `/etc/sudoers` 是否有 `always_set_home`/`env_delete=HOME`；wrapper 已显式传 `HOME=`，正常不应出现 |
+| `sudo -u '#<uid>'` 报 unknown user | **本机正常现象**：sudo 1.9.9 只接受 passwd 里存在的数字 uid，而每题 uid 故意不是账号 | 不要改 sudo，也不要批量建账号；wrapper 已改用 `setpriv` |
+| `REFUSE: setpriv (util-linux) is required` | 目标机缺 util-linux/setpriv | 安装 util-linux；wrapper 不会静默回退到 root |
+| agent 会话里 HOME 指向 /root | `env -i` 的显式变量被外层覆盖（异常） | wrapper 用 `env -i` + 显式 `HOME=`，正常不应出现；检查是否有人改回 sudo/`--preserve-env` |
 | 全部 `no_ledger` | `check.py` 没写账本：旧 ws 里残留旧版 check.py | 确认 `<ws>/check.py` 顶部烘焙了 `LEDGER_PATH = r"<ws>/submissions.jsonl"`（生成器写入，env 重定向无效）；重跑该题 |
 | 大面积 `hash_unverified` | 服务器 `poc_hash` 算法/字节范围与 SHA-256 不可比 | **pilot 前必须先做一次受控提交核对哈希语义**；不可比时全部 fail-closed，不会虚增分数 |
 | `WARN: chattr +a unsupported` | `$OUT` 所在 FS 不支持 append-only（如 NFS） | 受保护账本被禁用：评分退回工作区账本+哈希门禁，且验收将报 `ledger_missing`（fail-closed）。必须把 `<out>` 放 ext4/xfs 再跑正式 pilot |
-| `WARN: ledger promote rc=5` | 工作区账本里 run_id/task_id/agent_id 与 root 提供值不一致（篡改或串轮） | 看 wrapper 日志与该行内容；按安全事件处理，不要手工改受保护账本 |
-| `WARN: ledger promote rc=4` | 同 poc_id 不同哈希冲突，已单列 | `protected_ledger/<task>.jsonl.conflicts.jsonl` 有记录；验收会报 `ledger_conflict`（fail-closed） |
+| `REFUSE: ledger promotion failed rc=5` | 工作区账本里 run_id/task_id/agent_id 与 root 提供值不一致（篡改或串轮） | wrapper 以 rc=6 退出、行状态 `evidence_error`，不进入第二段；按安全事件核查，不要手工改受保护账本 |
+| `REFUSE: ledger promotion failed rc=4` | 同 poc_id 不同哈希冲突，已单列 | `protected_ledger/<task>.jsonl.conflicts.jsonl` 有记录；验收报 `ledger_conflict`（fail-closed），wrapper 不再继续 |
 | `another stage4 driver holds ...` | 同一 `--out` 已有 driver 在跑（run 级独占锁） | 不要并发两个 driver；确认前一个进程状态后等它结束或清理 |
 | `--out is on nfs/...` | 多 worker + 网络文件系统，flock 语义不等价 | 把 `--out` 移到本地盘，或单 worker 并接受告警降级 |
 | `task ids ... both map to rows/...` | 队列里两个 task id 在 `:`→`_` 映射后碰撞 | 清理队列（重命名任务或去掉冲突项）后重跑 |
@@ -367,27 +381,54 @@ stage-4 不修改 stage-3 的历史数据目录；回滚只影响代码入口。
 备份时，注意旧 `stage4.sh` 不做树审计、旧 wrapper 用 `sudo -u naco` 跑 agent
 ——那是已知弱隔离形态，不要用于正式跑批。
 
-## 9. 本轮没有覆盖的（上机后必须补验）
+## 9. 上机负向测试记录（2026-11-04，内网 192.168.49.13）
+
+在测试机上以 root 直接跑同一 commit 的树（`/root/s4test`）加 14 项负测，
+**14/14 通过**；同时暴露并修复了两个真实缺陷（见 §9.1）。
+
+| 用例 | 断言 | 结果 |
+|---|---|---|
+| T1a | uid 30001 能读自己的 `tasks/arvo_1` | PASS |
+| T1b | uid 30001 读 `tasks/arvo_2` → Permission denied | PASS |
+| T1c | `tasks` 根 0711，其他 uid 无法列名 | PASS |
+| T2a | 第二个 `--out` 的首题拿到不同 uid | PASS |
+| T2b | 宿主机注册表损坏 → SystemExit（不发号） | PASS |
+| T2c | per-run `uid_alloc.json` 损坏 → SystemExit | PASS |
+| T3a | `S4_AGENT_UID` ≠ 控制面 → rc=4 | PASS |
+| T3b | 一致时通过 uid 门禁并进入会话 | PASS |
+| T4 | 题目录在 `<out>/tasks` 之外 → rc=4 | PASS |
+| T5 | 控制面 `agent_id` 为空 → rc=4 | PASS |
+| T6a–d | promoter rc=5 → wrapper rc=6、行 `evidence_error`、不进第二段 | PASS |
+| T7 | 会话内 `id -u`=30001、无 `S4_*`/root 环境泄漏、env 仅 9 项 | PASS |
+
+### 9.1 测试机暴露的问题（已修）
+
+1. **`sudo -u '#<uid>'` 无法启动会话**：本机 sudo 1.9.9 对未注册数字 uid 报
+   `unknown user`，而每题 uid 故意不是 passwd 账号 —— R3 用 sudo 降权的假设
+   在本机不成立，会令所有题零执行。已改为 `setpriv --reuid/--regid/
+   --clear-groups`，并把环境改为 `env -i` 显式注入（setpriv 不重置环境，
+   否则 root 环境会泄漏）。缺少 setpriv 时 wrapper 拒跑而非回退 root。
+2. **`evidence_error` 被改写成 `worker_error`**：`record_task_row.py` 在
+   `--stage error` 时无条件写 `worker_error`，吞掉了 promoter 失败的具体状态。
+   已改为优先采用调用方显式状态。
+
+## 10. 尚未覆盖的（上机后仍需补验）
 
 以下只能静态实现 + 文档化，**部署后按顺序实测**（结果记入 pilot 复核记录）：
 
-- sudo `'#<uid>'` 语义实测：`sudo -u '#30001' env` 打印完整 env，确认
-  HOME/TMPDIR/XDG_*/CLAUDE_CONFIG_DIR 与 wrapper 传入一致、无 root 泄漏变量；
-- 跨任务准备目录/工作区负向测试（第 4 节 4c 与 B1 四步，必须证明"自己的能读"
-  才排除假通过）；
-- **setsid 逃逸（R3-M4 残留）**：`kill_task_tree` 现在会按会话号扫描 `/proc`
-  补杀，但一个自己调用 `setsid()` 另开新会话的后代仍会逃出。若正式跑批要求
-  "重试前所有 agent 进程必不存在"，需要把每题包进独立 cgroup（systemd
-  `systemd-run --scope --slice=stage4-<task>`，结束时 `systemctl stop`），
-  本轮未实现；当前实现只能保证进程组 + 原会话被清空并记录残留数；
-- umask 077 经 sudo 透传：agent 会话内 `umask` 与新建文件模式抽查；
-- 跨任务负向测试：uid A 读/写 uid B 工作区、读 `/root`、读其他任务
-  `CLAUDE_CONFIG_DIR` 全部 Permission denied（第 4 节 4c 已列一条，建议 3 对）；
+- umask 077 是否在 `setpriv` 会话内生效：agent 会话内 `umask` 与新建文件模式抽查；
+- 跨任务负向测试扩展：uid A 写 uid B 工作区、读 `/root`、读其他任务
+  `CLAUDE_CONFIG_DIR` 全部 Permission denied（§9 只覆盖读，建议补写测试）；
 - assert_code_tree 的边界：ACL（`setfacl`）与 bind mount 不在 stat 可见范围，
   在真实挂载布局上跑一次 `namei -l` + 负向 touch 测试（第 2 节）；
-- agcli 在 `#<uid>` + 私有 HOME 下能真实连上服务器（跑 1 题 smoke）；
+- agcli 在 `setpriv` + 私有 HOME 下能真实连上服务器（跑 1 题 smoke）；
+  §9 的 T3b/T7 用的是 `/bin/true` 与假 agcli，只证明身份与门禁，不证明 CLI 可用；
 - chattr +a 在 `<out>` 实际文件系统上的行为（第 7 节已列告警分支）；
 - docker rootless 隔离的现场验证（沿用 stage-3 `scoring/smoke_isolation.sh`，
   本轮未改，也未在评审机执行）；
+- setsid 逃逸（R3-M4 残留）：`kill_task_tree` 会按会话号扫描 `/proc` 补杀，
+  但自行 `setsid()` 另开新会话的后代仍会逃出。若要求"重试前所有 agent 进程必不存在"，
+  需把每题包进独立 cgroup（`systemd-run --scope --slice=stage4-<task>`），
+  本轮未实现；当前只保证进程组 + 原会话被清空并记录残留数；
 - 服务器 `created_at` 的实际精度与同秒并列分布（部署后跑 5 题即可观察
   `rows/scored/*.json` 与 `poc_records`）。
