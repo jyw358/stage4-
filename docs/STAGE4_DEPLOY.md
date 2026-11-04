@@ -60,7 +60,7 @@ from plugins import evidence, results_store
 print("evidence.utcnow", evidence.utcnow())
 print("final-only predicate:", evidence.official(1, 0), evidence.official(0, 0))
 PY
-python3 -m unittest tests.test_evidence tests.test_results_store tests.test_cybergym_runner
+python3 -m unittest discover -s tests     # 85 项（含第二轮 B7-B12 回归）
 ```
 
 ## 3. 数据目录与 queue
@@ -116,28 +116,40 @@ python3 /home/naco/work/cybergym-agent/scripts/verify_stage4.py \
 
 ### pilot 验收门槛
 
+`stage4.py` 的退出码已经承载 B7/B9/B10 语义：**exit 0 才算整轮通过**（执行
+失败、评分未决、回填/评分/验收任一阶段失败都会 exit 1）。人工复核门槛：
+
 ```bash
 python3 - <<'PY'
 import json
 v = json.load(open("/data/cybergym/stage4/pilot50/verify_stage4.json"))
 print(json.dumps({k: v[k] for k in
       ("rows", "expected", "submitted", "official_success", "score_rate",
-       "total_cost_usd", "rows_without_cost")}, indent=2, ensure_ascii=False))
+       "total_cost_usd", "rows_without_cost", "coverage")}, indent=2,
+      ensure_ascii=False))
 print("violations:", len(v["violations"]))
 for x in v["violations"][:10]:
     print(" ", x)
 PY
+cat /data/cybergym/stage4/pilot50/batch_summary.json
 ```
 
 必须全部满足才进入全量：
 
 - `violations == 0`；
+- `coverage.infra_failed == 0`（gen_fail/worker_error/api_error 为 0——
+  基础设施失败必须重跑，不允许"平均掉"）；
 - 每个 `submissions > 0` 的行都有 `final.poc_id / poc_sha256 / vul_exit /
-  fix_exit / submitted_at / agent_id`；
+  fix_exit / submitted_at / agent_id`（双侧 agent_id 非空且相等）；
 - `score_status` 只有 `ok`（或显式 `no_records` 对应 0 提交）；
-- `results.json` 的 official 计数 == `rows/` 的计数；
-- `find <ws-root> -name 'reference-intel*' | wc -l` 为 0；
-- `rows_without_cost == 0`（agent 异常退出除外，且要有 `status` 解释）。
+- `results.json` 的 official 计数 == `rows/` 的计数，且逐字段一致
+  （status/submissions/cost/score_status/run_id）；
+- 每个 `submissions > 0` 的行有非空、逐行可解析的
+  `protected_ledger/<task>.jsonl`（root 侧 promote 产物）；
+- `find <ws-root> -name 'reference-intel*' -o -name 'reference_intel*' \
+  -o -name 'ref-intel*' -o -name 'ref_intel*' | wc -l` 为 0；
+- `rows_without_cost == 0`；
+- `batch_summary.json` 中 `phase_failures == []`、`scoring_pending == []`。
 
 任何一项不满足：**不要扩大规模**，先按第 7 节定位。
 
@@ -174,15 +186,21 @@ PY
 |---|---|---|
 | 全部 `no_ledger` | `check.py` 没写账本：旧 ws 里残留旧版 check.py | 确认 `<ws>/check.py` 顶部烘焙了 `LEDGER_PATH = r"<ws>/submissions.jsonl"`（生成器写入，env 重定向无效）；重跑该题 |
 | 大面积 `hash_unverified` | 服务器 `poc_hash` 算法/字节范围与 SHA-256 不可比 | **pilot 前必须先做一次受控提交核对哈希语义**；不可比时全部 fail-closed，不会虚增分数 |
-| `WARN: chattr +a unsupported` | `$OUT` 所在 FS 不支持 append-only（如 NFS） | 受保护账本被禁用，评分退回工作区账本+哈希门禁；尽量把 `<out>` 放 ext4/xfs |
+| `WARN: chattr +a unsupported` | `$OUT` 所在 FS 不支持 append-only（如 NFS） | 受保护账本被禁用：评分退回工作区账本+哈希门禁，且验收将报 `ledger_missing`（fail-closed）。必须把 `<out>` 放 ext4/xfs 再跑正式 pilot |
+| `WARN: ledger promote rc=...` | root 侧 `promote_ledger.py` 失败（脚本缺失/非 root/账本不存在） | 看 wrapper 日志；受保护账本未更新时评分退回工作区账本，验收 fail-closed。确认 `scripts/promote_ledger.py` 已部署且 wrapper 以 root 运行 |
+| `another stage4 driver holds ...` | 同一 `--out` 已有 driver 在跑（run 级独占锁） | 不要并发两个 driver；确认前一个进程状态后等它结束或清理 |
+| `--out is on nfs/...` | 多 worker + 网络文件系统，flock 语义不等价 | 把 `--out` 移到本地盘，或单 worker 并接受告警降级 |
+| `task ids ... both map to rows/...` | 队列里两个 task id 在 `:`→`_` 映射后碰撞 | 清理队列（重命名任务或去掉冲突项）后重跑 |
 | 全部 `fix_pending` | 没跑/跑失败 backfill | `/root/backfill_fix_side.sh --dry-run` 看待补数量；完成后再评分 |
 | 个别 `ledger_mismatch` | 服务器有更晚提交，账本没有 | 看 `<out>/scored/<task>.json` 与 `<out>/protected_ledger/<task>.jsonl`；该题 fail-closed，不要手工改分 |
 | 个别 `hash_mismatch` / `ledger_corrupt` | 上传字节与服务器哈希不一致 / 账本中间行被改 | 均按篡改处理：fail-closed 并人工核查该题 |
+| `coverage_infra` violation | 队列里存在 `gen_fail`/`worker_error`/`api_error` 行 | 基础设施失败必须 `--retry-failed` 重跑清零，不允许平均掉 |
 | `REFUSE: workspace ... already exists` | 复用了旧工作区 | 用 `--fresh`（stage4 默认）或手工 `rm -rf` 该题 ws |
-| `REFUSE: cross-task intel` | ws 里残留 `reference-intel*` | 直接删整个 ws 重跑；不要只删文件后复用 |
+| `REFUSE: cross-task intel` | ws 里残留 intel（含 `reference_intel*`/`ref-intel*` 等改名拼写） | 直接删整个 ws 重跑；不要只删文件后复用 |
 | `make_agent_ws failed` | tar/权限/磁盘 | 看 `<out>/logs/<task>.log` 与 ws 生成器 stderr |
 | `refusing to reuse a pre-generated agent_id` | 指向了旧 `--task-base` | 换新 `--out`/`--task-base` 重新 gen_task；不要复用旧题目录 |
-| `stage2.sh is LEGACY` | 误用 stage-3 入口 | 用 `/root/stage4.sh`；只有复现历史波次才 `S2_LEGACY_OK=1` |
+| `.stage4_run_id is not root-owned` | run marker 被非 root 改写 | 重新 gen_task 该题目录（run/agent 绑定不可信） |
+| `stage2.sh is LEGACY` / `cleanpilot.sh is LEGACY` | 误用历史入口（worker 子命令同样被拒） | 用 `/root/stage4.sh`；只有复现历史波次才 `S2_LEGACY_OK=1` |
 | sudo `--preserve-env` 报错 | sudoers 限制 | 检查 wrapper 的 `AGENT_ENV` 列表；check.py 烘焙的账本路径不依赖 env，不受影响 |
 
 ## 8. 回滚

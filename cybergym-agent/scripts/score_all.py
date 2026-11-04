@@ -68,7 +68,18 @@ def main() -> int:
     args = ap.parse_args()
 
     out = Path(args.out)
-    rows = results_store.read_rows(out)
+    try:
+        # R2 MAJOR: a corrupt row file must abort scoring loudly, not shrink
+        # the scored set silently
+        rows = results_store.read_rows(out, strict=True)
+    except results_store.ResultsIntegrityError as e:
+        print(f"[scored] ABORT: {e}", file=sys.stderr)
+        (out / "scoring_report.json").write_text(
+            json.dumps({"generated_at": evidence.utcnow(),
+                        "run_id": args.run_id or None, "tasks": 0,
+                        "aborted": str(e), "infra_errors": 1},
+                       ensure_ascii=False, indent=2), encoding="utf-8")
+        return 2
     if not rows:
         rows = json.load(open(out / "results.json", encoding="utf-8"))
     if args.run_id:

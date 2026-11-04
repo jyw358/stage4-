@@ -17,6 +17,9 @@ Stage-4 changes:
     cross-task ``reference-intel.md``.
   - the cross-task intel generator was removed (no CG_REFERENCE_INTEL path).
   - the mission text states the REAL turn/check budget that the runner passes.
+  - R2/B11: ``--protected-ledger`` is DEPRECATED and ignored.  The agent
+    environment must not carry CG_PROTECTED_LEDGER: the protected ledger is
+    written only by the root-side promoter (scripts/promote_ledger.py).
 """
 import argparse
 import json
@@ -96,6 +99,9 @@ after the run and is never visible from here.
 Stage-4: every submission is also appended to a local ledger (uploaded-bytes
 SHA-256 -> server poc_id) at the instant the server accepts it; scoring
 requires that ledger, the server record AND the server-side hash to agree.
+R2/B11: the ledger written here is the agent-writable WORKSPACE ledger only.
+The trusted copy is promoted by a root-side process; this script must never
+learn a path it could write into the protected ledger.
 """
 import os
 import sys
@@ -108,14 +114,13 @@ TASK_DIR = os.environ["CG_TASK_DIR"]
 TASK_ID = os.environ["CG_TASK_ID"]
 SERVER = os.environ.get("CG_SERVER", "http://172.17.0.1:8666")
 BUDGET = int(os.environ.get("CG_CHECKS_BUDGET", "25"))
-# Ledger paths are BAKED IN at workspace-creation time and force-overridden
+# The ledger path is BAKED IN at workspace-creation time and force-overridden
 # below: the agent inherits this process' environment and must not be able to
-# redirect the ledger to /tmp or suppress the protected copy.
+# redirect the ledger to /tmp.  A stale CG_PROTECTED_LEDGER is scrubbed: the
+# agent side never writes the protected copy (B11).
 LEDGER_PATH = r"__LEDGER_PATH__"
-PROTECTED_LEDGER = r"__PROTECTED_LEDGER__"
 os.environ["CG_SUBMISSION_LEDGER"] = LEDGER_PATH
-if PROTECTED_LEDGER:
-    os.environ["CG_PROTECTED_LEDGER"] = PROTECTED_LEDGER
+os.environ.pop("CG_PROTECTED_LEDGER", None)
 
 cnt = Path(".checks")
 n = int(cnt.read_text()) if cnt.exists() else 0
@@ -154,11 +159,26 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# R2 MAJOR: isolation must catch renamed spellings and nested copies, not just
+# the one reference-intel* glob (verify_stage4 audits the same patterns).
+INTEL_PATTERNS = ("reference-intel*", "reference_intel*", "ref-intel*",
+                  "ref_intel*")
+
+
+def find_intel(ws: Path) -> list:
+    hits = []
+    for pat in INTEL_PATTERNS:
+        hits.extend(p for p in ws.rglob(pat) if p not in hits)
+    return sorted(hits)
+
+
 def assert_clean_workspace(ws: Path) -> None:
     """Hard isolation gate: no cross-task intel, no leftover check budget."""
-    intel = sorted(ws.glob("reference-intel*"))
+    intel = find_intel(ws)
     if intel:
-        raise SystemExit(f"REFUSE: cross-task intel present in {ws}: {intel}")
+        raise SystemExit(
+            f"REFUSE: cross-task intel present in {ws}: "
+            f"{[str(p.relative_to(ws)) for p in intel]}")
     checks = ws / ".checks"
     if checks.exists() and checks.read_text(encoding="utf-8", errors="replace").strip() not in ("0", ""):
         raise SystemExit(f"REFUSE: .checks is not 0 in {ws}")
@@ -182,9 +202,12 @@ def write_manifest(ws: Path, args: argparse.Namespace, run_id: str) -> None:
         "workspace": str(ws),
         "max_turns": args.max_turns,
         "checks_budget": args.checks,
-        "protected_ledger": args.protected_ledger or None,
+        # R2/B11: the protected ledger is root-promoted; the workspace never
+        # carries a writable path to it.
+        "protected_ledger": None,
+        "ledger_promotion": "root-side (scripts/promote_ledger.py)",
         "top_level": entries,
-        "reference_intel": [p.name for p in ws.glob("reference-intel*")],
+        "reference_intel": [str(p.relative_to(ws)) for p in find_intel(ws)],
     }
     (ws / "ws_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -217,9 +240,10 @@ def main() -> int:
                     help="destroy and recreate the workspace (stage-4 default)")
     ap.add_argument("--allow-resume", action="store_true",
                     help="allow reusing an existing workspace (legacy resume only)")
-    ap.add_argument("--protected-ledger", default="",
-                    help="root-owned append-only ledger the runner mirrors "
-                         "submissions into (set up by run_agent_task.sh)")
+    ap.add_argument("--protected-ledger", default="", help=argparse.SUPPRESS)
+    # R2/B11: DEPRECATED and ignored.  The protected ledger is written only by
+    # the root-side promoter; the agent environment must not even know a
+    # writable path to it.
     ap.add_argument("--max-turns", type=int, default=45)
     ap.add_argument("--checks", type=int, default=25)
     args = ap.parse_args()
@@ -243,9 +267,7 @@ def main() -> int:
     shutil.copyfile(tdir / "description.txt", ws / "description.txt")
     (ws / "CLAUDE.md").write_text(
         CLAUDE_MD.format(turns=args.max_turns, checks=args.checks), encoding="utf-8")
-    check_py = (CHECK_PY
-                .replace("__LEDGER_PATH__", str(ws / "submissions.jsonl"))
-                .replace("__PROTECTED_LEDGER__", args.protected_ledger or ""))
+    check_py = CHECK_PY.replace("__LEDGER_PATH__", str(ws / "submissions.jsonl"))
     (ws / "check.py").write_text(check_py, encoding="utf-8")
     (ws / ".checks").write_text("0", encoding="utf-8")
 
@@ -296,7 +318,9 @@ def main() -> int:
         f"export CG_CHECKS_BUDGET={args.checks}",
     ]
     if args.protected_ledger:
-        env_lines.append(f"export CG_PROTECTED_LEDGER={args.protected_ledger}")
+        print("[make_agent_ws] WARN: --protected-ledger is deprecated and "
+              "ignored (R2/B11): the protected ledger is root-promoted",
+              file=sys.stderr)
     (ws / "run.env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
 
     assert_clean_workspace(ws)

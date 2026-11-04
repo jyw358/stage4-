@@ -18,9 +18,12 @@ ambiguous task can lose a point, but it can never inflate the numerator.
 The workspace ledger is written by an agent-owned process and is therefore
 AGENT-WRITABLE.  It is diagnostic evidence only: it never establishes
 submission order (B1), never breaks timestamp ties, and its ``poc_sha256`` is
-only trusted after the server-side ``poc_hash`` cross-check passes.  When the
-host-side protected ledger exists (``CG_PROTECTED_LEDGER``, root-owned and
-append-only via chattr), scoring reads that copy instead.
+only trusted after the server-side ``poc_hash`` cross-check passes.  The
+host-side protected ledger (root-owned, append-only via chattr) is written
+EXCLUSIVELY by the root-side promoter (scripts/promote_ledger.py, run from
+run_agent_task.sh between passes); the agent has no write path to it (R2/B11),
+so a record in the protected copy is at least root-witnessed, and scoring
+prefers that copy whenever it exists.
 
 Record shape returned by /query-poc (from poc_records):
     task_id, agent_id, poc_id, poc_hash, vul_exit_code, fix_exit_code,
@@ -222,9 +225,11 @@ def record_submission(meta: dict, response: dict, poc_sha256: str,
     (computed when the request body was built), never a fresh read of the
     path -- the file may have changed while the request was in flight (TOCTOU).
 
-    The entry is appended to the workspace ledger and, when
-    ``CG_PROTECTED_LEDGER`` points at a root-owned append-only file, mirrored
-    there so the agent cannot rewrite the trusted copy.
+    R2/B11: the agent-side process appends ONLY to the agent-writable
+    workspace ledger.  It must have no write path to the protected ledger:
+    a stale ``CG_PROTECTED_LEDGER`` in the environment is ignored with a
+    warning instead of being trusted.  The trusted copy is populated by the
+    root-side promoter (scripts/promote_ledger.py) between agent passes.
     """
     data = {
         "task_id": meta.get("task_id"),
@@ -242,12 +247,10 @@ def record_submission(meta: dict, response: dict, poc_sha256: str,
     stored = append_submission(data)
     protected = (os.environ.get("CG_PROTECTED_LEDGER") or "").strip()
     if protected:
-        try:
-            mirror = dict(stored)
-            mirror["protected"] = True
-            append_submission(mirror, protected)
-        except Exception as e:  # never abort the agent's submit on this
-            print(f"[ledger] WARN: protected copy failed: {e}", file=sys.stderr)
+        print("[ledger] WARN: CG_PROTECTED_LEDGER is set in the agent "
+              "environment; the agent must not write the protected ledger "
+              "(B11). Ignoring; the root-side promoter owns that file.",
+              file=sys.stderr)
     return stored
 
 

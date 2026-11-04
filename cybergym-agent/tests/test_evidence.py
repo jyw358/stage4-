@@ -244,7 +244,9 @@ class TestLedger(unittest.TestCase):
         self.assertEqual(entry["poc_size"], 8)
         self.assertEqual(entry["exit_code"], 1)
 
-    def test_record_submission_mirrors_to_protected_ledger(self):
+    def test_record_submission_never_writes_protected_ledger(self):
+        # R2/B11: the agent-side hook must have NO write path to the protected
+        # ledger; a stale CG_PROTECTED_LEDGER is ignored (warn only)
         os.environ["CG_SUBMISSION_LEDGER"] = str(self.dir / "submissions.jsonl")
         self.addCleanup(os.environ.pop, "CG_SUBMISSION_LEDGER", None)
         os.environ["CG_PROTECTED_LEDGER"] = str(self.dir / "protected.jsonl")
@@ -252,10 +254,10 @@ class TestLedger(unittest.TestCase):
         evidence.record_submission({"task_id": "t", "agent_id": "a"},
                                    {"poc_id": "p1", "exit_code": 1},
                                    evidence.sha256_bytes(b"AB"), 2)
-        prot = evidence.read_ledger(self.dir / "protected.jsonl")
-        self.assertEqual(len(prot), 1)
-        self.assertTrue(prot[0]["protected"])
-        self.assertEqual(prot[0]["poc_id"], "p1")
+        self.assertFalse((self.dir / "protected.jsonl").exists())
+        ws = evidence.read_ledger(self.dir / "submissions.jsonl")
+        self.assertEqual(len(ws), 1)
+        self.assertEqual(ws[0]["poc_id"], "p1")
 
     def test_merged_ledgers_keep_attempt_order(self):
         old = self.dir / "old.jsonl"

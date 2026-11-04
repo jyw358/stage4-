@@ -28,7 +28,7 @@
 
 具体排除：
 
-- `cybergym-agent/scripts/` 下除本仓库列出的 9 个脚本与 `agent_mission.txt` 外的全部文件；
+- `cybergym-agent/scripts/` 下除本仓库列出的 10 个脚本与 `agent_mission.txt` 外的全部文件；
 - `root_code/` 下除 `stage4.sh`、`score_all.sh`、`backfill_fix_side.sh` 外的全部；
 - `legacy/`（stage-3 隔离脚本，原 `stage3_root/`）；
 - `cybergym-agent/{docs,data,api,bin,kb,roles,agents,sdk,synthetic,supervisor,ui}/`
@@ -52,7 +52,8 @@
 - 服务器 `poc_hash` 的算法与字节范围（是否为上传字节的 SHA-256）——
   pilot 前先做一次受控提交核对，否则评分会大面积 `hash_unverified`
 - `<out>` 所在文件系统是否支持 `chattr +a`（ext4/xfs 支持，NFS 不支持；
-  不支持时受保护账本自动禁用并打印 WARN）
+  不支持时受保护账本自动禁用并打印 WARN，且验收 fail-closed——正式 pilot
+  必须在支持 chattr 的本地盘上跑）
 - `/submit-vul` 是否产生 `vul_exit_code=NULL` 的 fix-only 记录
 - `backfill_fix_side.sh` 对 `fix_exit IS NULL` 的实际回填行为
 - `/tmp` 残留、rootless docker、fix 侧可读性

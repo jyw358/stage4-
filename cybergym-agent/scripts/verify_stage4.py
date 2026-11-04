@@ -1,15 +1,33 @@
 #!/usr/bin/env python3
 """verify_stage4.py -- acceptance checker for a stage-4 run.
 
-Checks the five things the stage-4 protocol promises:
+Two DISTINCT acceptance dimensions (R2/B10):
 
-  1. coverage        every queued task has exactly one terminal row
-  2. evidence        every submission has final poc_id + sha256 + exits + time
-  3. scoring         every scored row is final-only and ledger-bound
-  4. isolation       no reference-intel in any workspace, manifest present
-  5. consistency     results.json aggregate == rows/, costs recorded
+  1. data integrity   every submission has final poc_id + sha256 + exits +
+                      time; scores are final-only and hash-gated; the
+                      aggregate agrees with rows/ field by field; the
+                      authoritative (root-written, append-only) ledger exists
+                      and parses; scored/ cross-checks match the row.
+  2. execution coverage  every queued task ended in an ALLOWED terminal state.
+                      gen_fail / worker_error / api_error are infrastructure
+                      failures: they are explicit coverage violations, so a
+                      "self-consistent" round with zero effective executions
+                      can never pass with 0 violations.
 
 Exit code 1 on any violation unless --soft.  Writes <out>/verify_stage4.json.
+
+R2 changes (B10 + MAJORs):
+  - coverage violations for infra-failure statuses (gen_fail et al.);
+  - agent_id must be present on BOTH sides and strictly equal;
+  - the protected ledger is REQUIRED for any row with submissions (a
+    workspace-ledger-only score is a violation, not a fallback);
+  - isolation audit is recursive and covers renamed intel spellings
+    (reference_intel*, ref-intel*, ...);
+  - aggregate consistency compares status/submissions/cost/run_id per row,
+    not just the success count;
+  - scored/<task>.json is cross-checked against the row;
+  - a missing cost_usd is a violation (not a counter), and the total never
+    silently treats missing costs as 0.
 """
 from __future__ import annotations
 
@@ -24,6 +42,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from plugins import results_store  # noqa: E402
 
 SCORE_OK = "ok"
+
+# execution outcomes that are data-valid end states for a formal pilot
+ALLOWED_FINAL = {"submitted", "no_submission", "submit_error"}
+# infrastructure failures: a formal pilot must have ZERO of these (B10)
+INFRA_FAILURE = {"gen_fail", "worker_error", "api_error"}
+
+INTEL_PATTERNS = ("reference-intel*", "reference_intel*", "ref-intel*",
+                  "ref_intel*")
+
+AGG_FIELDS = ("status", "official_success", "submissions", "cost_usd",
+              "score_status", "run_id")
 
 
 def utcnow() -> str:
@@ -41,16 +70,50 @@ def load_queue(path: Path) -> list:
     return [x.strip() for x in text.splitlines() if x.strip()]
 
 
+def find_intel(ws: Path) -> list:
+    hits = []
+    for pat in INTEL_PATTERNS:
+        hits.extend(p for p in ws.rglob(pat) if p not in hits)
+    return sorted(hits)
+
+
+def protected_ledger_state(out: Path, name: str):
+    """(exists_and_nonempty, parses, detail) for the authoritative ledger."""
+    prot = out / "protected_ledger" / f"{name}.jsonl"
+    if not prot.exists() or prot.stat().st_size == 0:
+        return False, False, str(prot)
+    try:
+        for line in prot.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line:
+                json.loads(line)
+    except json.JSONDecodeError:
+        return True, False, str(prot)
+    return True, True, str(prot)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--queue", default="")
     ap.add_argument("--ws-root", default="")
-    ap.add_argument("--soft", action="store_true")
+    ap.add_argument("--soft", action="store_true",
+                    help="write the report but always exit 0")
     args = ap.parse_args()
 
     out = Path(args.out)
-    rows = results_store.read_rows(out)
+    try:
+        rows = results_store.read_rows(out, strict=True)
+    except results_store.ResultsIntegrityError as e:
+        rows = results_store.read_rows(out)
+        print(f"[verify] VIOLATION results_corrupt: {e}")
+        (out / "verify_stage4.json").write_text(
+            json.dumps({"generated_at": utcnow(), "violations":
+                        [{"kind": "results_corrupt", "task_id": None,
+                          "detail": str(e)}]}, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        return 1 if not args.soft else 0
+
     by_id = {r.get("task_id"): r for r in rows if r.get("task_id")}
     violations = []
     warnings = []
@@ -69,6 +132,11 @@ def main() -> int:
             warnings.append({"kind": "coverage_extra", "task_id": tid,
                              "detail": "row not in queue"})
 
+    # run attribution: all expected rows must belong to ONE run (B10)
+    run_ids = {r.get("run_id") for r in by_id.values() if r.get("run_id")}
+    if len(run_ids) > 1:
+        bad("run_mixed", None, f"rows mix run_ids: {sorted(run_ids)}")
+
     ws_root = Path(args.ws_root) if args.ws_root else None
     for tid, row in by_id.items():
         name = tid.replace(":", "_")
@@ -78,11 +146,21 @@ def main() -> int:
         elif status is None and row.get("official_success") is None:
             bad("row_no_status", tid, "row has neither status nor a score")
 
+        # ---- B10: execution coverage --------------------------------------
+        if status in INFRA_FAILURE:
+            bad("coverage_infra", tid,
+                f"status={status} is an infrastructure failure; a formal "
+                "pilot must retry it, not average over it")
+
         submissions = row.get("submissions") or 0
+        if status == "submitted" and submissions == 0:
+            bad("status_inconsistent", tid,
+                "status=submitted but submissions=0")
         if submissions > 0:
             final = row.get("final") or {}
             if row.get("score_status") != SCORE_OK:
-                bad("score_status", tid, f"submitted but score_status={row.get('score_status')!r}")
+                bad("score_status", tid,
+                    f"submitted but score_status={row.get('score_status')!r}")
             for field in ("poc_id", "poc_sha256", "vul_exit", "submitted_at", "agent_id"):
                 if final.get(field) in (None, ""):
                     bad("evidence_missing", tid, f"final.{field} is empty")
@@ -94,17 +172,37 @@ def main() -> int:
                         f"score_status=ok but final.hash_check={final.get('hash_check')!r}")
                 elif str(final.get("poc_hash", "")).lower() != str(final.get("poc_sha256", "")).lower():
                     bad("hash_mismatch", tid, "final.poc_hash != final.poc_sha256")
-            # V3: run/agent attribution must be explicit and consistent
+            # V3: run/agent attribution must be explicit and consistent.
+            # R2 MAJOR: both sides must be present -- a missing row.agent_id
+            # is a violation, not a skip.
             if not row.get("run_id"):
                 bad("run_unbound", tid, "submitted row has no run_id")
-            if (final.get("agent_id") and row.get("agent_id")
-                    and str(final["agent_id"]) != str(row["agent_id"])):
+            if not row.get("agent_id"):
+                bad("agent_missing_row", tid, "row.agent_id is empty")
+            elif not final.get("agent_id"):
+                bad("agent_missing_final", tid, "final.agent_id is empty")
+            elif str(final["agent_id"]) != str(row["agent_id"]):
                 bad("agent_mismatch", tid,
-                    f"final.agent_id={final.get('agent_id')!r} != row.agent_id={row.get('agent_id')!r}")
+                    f"final.agent_id={final.get('agent_id')!r} != "
+                    f"row.agent_id={row.get('agent_id')!r}")
             if final.get("fix_exit") is None and final.get("vul_exit") not in (0, 300):
                 bad("fix_pending", tid, "vul crashed but fix side was never scored (backfill missing?)")
             if row.get("official_success") not in (True, False):
                 bad("score_undecided", tid, "official_success is not a bool")
+
+            # ---- R2/B11: the authoritative ledger is REQUIRED -----------------
+            prot_ok, prot_parses, prot_path = protected_ledger_state(out, name)
+            if not prot_ok:
+                bad("ledger_missing", tid,
+                    f"protected ledger missing/empty ({prot_path}); the "
+                    "agent-writable workspace ledger is NOT authoritative")
+            elif not prot_parses:
+                bad("ledger_corrupt", tid,
+                    f"protected ledger has unparseable lines ({prot_path})")
+            if row.get("ledger_source") and row["ledger_source"] != "protected":
+                bad("ledger_not_protected", tid,
+                    f"scored from ledger_source={row['ledger_source']!r}; "
+                    "only the root-written protected ledger is authoritative")
         else:
             if row.get("official_success") is not None:
                 bad("no_submission_scored", tid, "no submission but official_success set")
@@ -112,22 +210,43 @@ def main() -> int:
                 warnings.append({"kind": "no_submission_status", "task_id": tid,
                                  "detail": str(row.get("score_status"))})
 
+        # cost accounting: a missing cost is a violation (R2 MINOR), the
+        # total never pretends missing == 0
+        if row.get("cost_usd") is None:
+            bad("cost_missing", tid, "row has no cost_usd")
+
+        # scored/ cross-check (B10 blind spot)
+        scored = out / "scored" / f"{name}.json"
+        if scored.exists():
+            try:
+                sj = json.load(open(scored, encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                bad("scored_corrupt", tid, f"{scored} is unreadable")
+            else:
+                for field in ("official_success", "score_status"):
+                    if sj.get(field) != row.get(field):
+                        bad("scored_mismatch", tid,
+                            f"{field}: scored/={sj.get(field)!r} row={row.get(field)!r}")
+                spoc = (sj.get("final") or {}).get("poc_id")
+                rpoc = (row.get("final") or {}).get("poc_id")
+                if spoc != rpoc:
+                    bad("scored_mismatch", tid,
+                        f"final.poc_id: scored/={spoc!r} row={rpoc!r}")
+
         if ws_root:
             ws = ws_root / name
-            protected = out / "protected_ledger" / f"{name}.jsonl"
             if ws.exists():
-                if list(ws.glob("reference-intel*")):
-                    bad("isolation_intel", tid, "reference-intel present in workspace")
+                intel = find_intel(ws)
+                if intel:
+                    bad("isolation_intel", tid,
+                        "intel present in workspace: "
+                        + ", ".join(str(p.relative_to(ws)) for p in intel[:5]))
                 if not (ws / "ws_manifest.json").exists():
                     bad("isolation_manifest", tid, "ws_manifest.json missing")
-                ledger = ws / "submissions.jsonl"
-                prot_ok = protected.exists() and protected.stat().st_size > 0
-                if submissions > 0 and not prot_ok and (not ledger.exists() or ledger.stat().st_size == 0):
-                    bad("ledger_missing", tid, f"row says {submissions} submissions but neither the protected nor the workspace ledger has data")
             elif submissions > 0:
                 bad("workspace_missing", tid, "workspace gone but row claims submissions")
 
-    # aggregate consistency
+    # aggregate consistency: row COUNT, success COUNT and per-row FIELDS
     results_path = out / "results.json"
     aggregate = []
     if results_path.exists():
@@ -145,24 +264,39 @@ def main() -> int:
             f"results.json official={agg_ok}, rows/ official={row_ok}")
     agg_by_id = {r.get("task_id"): r for r in aggregate}
     for tid, row in by_id.items():
-        if tid in agg_by_id and agg_by_id[tid].get("official_success") != row.get("official_success"):
-            bad("aggregate_row_mismatch", tid, "results.json disagrees with rows/")
+        ar = agg_by_id.get(tid)
+        if ar is None:
+            continue
+        diffs = [f for f in AGG_FIELDS if ar.get(f) != row.get(f)]
+        if diffs:
+            bad("aggregate_row_mismatch", tid,
+                f"results.json differs from rows/ in {diffs}")
 
-    no_cost = [t for t, r in by_id.items() if r.get("cost_usd") is None]
-    total_cost = sum((r.get("cost_usd") or 0) for r in rows)
+    known_cost = [r.get("cost_usd") for r in rows if r.get("cost_usd") is not None]
+    total_cost = sum(known_cost)
+    rows_without_cost = sum(1 for r in rows if r.get("cost_usd") is None)
     submitted = sum(1 for r in rows if (r.get("submissions") or 0) > 0)
     scored_ok = sum(1 for r in rows if r.get("official_success") is True)
+    infra_failed = sum(1 for r in rows if r.get("status") in INFRA_FAILURE)
+    allowed_final = sum(1 for r in rows if r.get("status") in ALLOWED_FINAL)
 
     report = {
         "generated_at": utcnow(),
         "run_id": (rows[0].get("run_id") if rows else None),
         "expected": len(expected) if expected else None,
         "rows": len(rows),
+        "coverage": {
+            "allowed_final": allowed_final,       # data-valid end states
+            "submitted": submitted,
+            "scored_ok": scored_ok,
+            "infra_failed": infra_failed,         # gen_fail/worker_error/api_error
+        },
         "submitted": submitted,
         "official_success": scored_ok,
         "score_rate": round(scored_ok / len(rows), 4) if rows else None,
         "total_cost_usd": round(total_cost, 4),
-        "rows_without_cost": len(no_cost),
+        "rows_with_cost": len(known_cost),
+        "rows_without_cost": rows_without_cost,
         "violations": violations,
         "warnings": warnings,
     }
@@ -170,7 +304,9 @@ def main() -> int:
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"[verify] rows={len(rows)} expected={report['expected']} "
-          f"submitted={submitted} official={scored_ok} cost=${total_cost:.2f}")
+          f"submitted={submitted} official={scored_ok} "
+          f"infra_failed={infra_failed} cost=${total_cost:.2f}"
+          + (f" (+{rows_without_cost} rows without cost)" if rows_without_cost else ""))
     print(f"[verify] violations={len(violations)} warnings={len(warnings)}")
     for v in violations[:20]:
         print(f"  VIOLATION {v['kind']} {v['task_id']}: {v['detail']}")

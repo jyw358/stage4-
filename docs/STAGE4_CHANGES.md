@@ -17,6 +17,32 @@
 | M4 | 预算口径不一致 | `CLAUDE.md` 由真实 `--max-turns` 渲染（默认 45+15），不再写 150 |
 | M5 | 评分输出被丢弃 | `stage2.sh` 评分写 `score.log` 并记录失败；新评分器输出逐题状态与汇总 |
 
+## 0. 第二轮评审修复（B7–B12 + MAJOR/MINOR）
+
+第二轮静态审查（REVIEW_PROMPT.md 第 6 节，范围 3.3–3.6）新增 6 个 BLOCKER
+候选，全部处理如下；逐条可由 `tests/`（85 项）与两个 smoke 复验。
+
+| 编号 | 评审结论 | stage4 处理 |
+|---|---|---|
+| B7 | 评分/回填/验收失败，主驱动仍可 exit 0 | `stage4.py` 逐阶段捕获退出码（`phase_exit_codes`）；任一阶段失败或**脚本缺失**（rc=127）→ 整轮 exit 1；`batch_summary.json` 三类计数（execution_failures / scoring_pending / phase_failures） |
+| B8 | 双文件写崩溃窗口；`rebuild()` 复活旧成功 | `merge_row` 先写权威 `rows/` 再写派生聚合；`rebuild` **只从 rows/ 重建**（legacy 聚合行一律丢弃）；聚合始终由 rows/ 派生，崩溃最多使聚合暂时陈旧 |
+| B9 | `submitted` 即终态，评分未决被跳过 | 终态拆分 `is_execution_terminal` / `is_scoring_terminal`（`SCORE_INCOMPLETE={None,pending,query_error,no_task_dir}`）；续跑时 submitted+未决进 `scoring_recovery`（评分阶段恢复），**绝不重跑 agent**；`--retry-failed` 同样不重跑 |
+| B10 | 全 gen_fail 可 0 violations | 验收拆为**数据完整性**与**执行覆盖率**：`gen_fail/worker_error/api_error` 逐题 `coverage_infra` violation；`run_mixed`（run 混批）violation；聚合按字段（status/submissions/cost/score_status/run_id）比对；`scored/` 与行交叉核对；缺 `cost_usd` 为 violation |
+| B11 | `chmod 666` + `chattr +a` ≠ 可信账本 | 受保护账本改为 **root:root 0644**（agent 无任何写路径）；唯一写入者是 root 侧 `scripts/promote_ledger.py`（pass1/pass2 后由 wrapper 调用，按 `poc_id` 去重追加）；`evidence.record_submission` 删除镜像路径，`CG_PROTECTED_LEDGER` 出现在 agent 环境即告警忽略；`make_agent_ws --protected-ledger` 废弃；check.py 烘焙时主动 `pop` 该变量 |
+| B12 | 外层超时只杀直接子进程 | 每题 `start_new_session=True` 独立进程组；超时先 `killpg(SIGTERM)`、宽限后 `SIGKILL`，确认退出后才写行/重试 |
+
+第二轮 MAJOR：`stage2.sh`/`cleanpilot.sh` 的 `S2_LEGACY_OK` 门禁移到 **worker
+子命令之前**（直接 `bash stage2.sh worker <t>` 也被拒）；task_id→文件名映射
+碰撞启动即拒（`assert_unique_task_ids`）；损坏行文件 strict 读取显式失败
+（`ResultsIntegrityError`）；locks 增加 `fs_type`/`assert_local_lockable`
+（NFS 等网络 FS 拒绝多 worker）；归档名加 UUID 且归档-清零全程持锁；
+`<out>/.run.lock` run 级独占锁（第二个 driver 直接拒绝）；验收器
+`agent_id` 双侧必须非空且严格相等；intel 审计递归且覆盖
+`reference_intel*`/`ref-intel*` 等改名拼写；权威账本必须存在、非空、可解析
+（工作区账本不再作为验收等价物）；`run_meta.json`/`run_id`/`rows_index.json`/
+`batch_summary.json` 全部原子写；`.stage4_run_id` marker root 属主校验。
+MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 violation）。
+
 ## 1. 证据模型
 
 每题有三份互相独立的记录，评分时**必须一致**：
@@ -27,9 +53,10 @@
    哈希在构造请求体时对上传字节一次性计算，之后**永不重读文件路径**）：
    `seq / ts / task_id / agent_id / run_id / poc_id / poc_sha256 / poc_size /
    exit_code / output_sha256 / server`
-3. **受保护账本**（`<out>/protected_ledger/<task>.jsonl`，root 预建、`chattr +a`
-   追加只读，`record_submission` 同步镜像）：agent 无权改写；存在时评分只信它，
-   工作区账本退化为诊断数据。
+3. **受保护账本**（`<out>/protected_ledger/<task>.jsonl`，root:root 0644、
+   `chattr +a`；由 root 侧 `scripts/promote_ledger.py` 在每段 agent 会话结束后
+   从工作区账本去重追加，agent 无任何写路径）：存在时评分只信它，工作区账本
+   退化为诊断数据；验收要求它存在、非空、逐行可解析。
 
 `plugins/evidence.py` 的规则（服务器是**唯一**的排序权威）：
 
@@ -126,11 +153,16 @@ fresh ws、agent 会话、第二段、写 row）→ `backfill_fix_side.sh`（补
 
 ## 6. 本地验证
 
-- 单元测试：`python -m unittest tests.test_evidence tests.test_results_store tests.test_cybergym_runner tests.test_make_agent_ws`
-  （52 项；Windows 沙箱下需避开既有 `tempfile` 测试，见 `tests/_scratch.py`）
+- 单元测试：`python -m unittest discover -s tests`（85 项，含第二轮回归：
+  `tests.test_verify_stage4` 覆盖 B10 全部盲区反例，`tests.test_stage4_driver`
+  覆盖 B9 续跑选择、B12 进程清理回退与 B11 promote 语义；Windows 沙箱下需
+  避开既有 `tempfile` 测试，见 `tests/_scratch.py`）
 - 端到端评分冒烟：`python smoke_score.py`（本地 HTTP `/query-poc`，验证
-  final-only、ledger 对齐、mismatch fail-closed 三个场景）
-- 工作区/行冒烟：`python smoke_stage4.py`
+  final-only、ledger 对齐、mismatch fail-closed 三个场景 + 受保护账本验收）
+- 工作区/行冒烟：`python smoke_stage4.py`（评分前验收必须失败——B9/B10 语义）
+- 第二轮评审的复现命令 1/2/4 已本地复验：全 gen_fail → `verify_exit=1`；
+  `rebuild()` 不再复活旧成功；`stage4.py` 阶段退出码传播。命令 3 的门禁位置
+  见 `stage2.sh`/`cleanpilot.sh`（worker 分支在 `S2_LEGACY_OK` 检查之后）。
 
 > 主机上仍需复验：服务器的 `created_at` 语义与同秒并列情况；`backfill_fix_side.sh`
 > 在 stage-4 数据目录下的行为；`/tmp` 残留与 docker 隔离（沿用 stage3 的
@@ -148,8 +180,12 @@ fresh ws、agent 会话、第二段、写 row）→ `backfill_fix_side.sh`（补
 | `cybergym-agent/scripts/record_task_row.py` | 会话/账本 → 行（两段统计相加） |
 | `cybergym-agent/scripts/score_all.py` | 主机侧评分（最终提交 + ledger） |
 | `cybergym-agent/scripts/stage4.py` | 队列驱动（准备→跑→回填→评分→验收） |
-| `cybergym-agent/scripts/verify_stage4.py` | 5 项跑后验收 |
+| `cybergym-agent/scripts/verify_stage4.py` | 数据完整性 + 执行覆盖率双维验收 |
+| `cybergym-agent/scripts/promote_ledger.py` | root 侧账本收割（B11：受保护账本唯一写入者） |
 | `root_code/stage4.sh` | 入口 |
+
+第二轮新增测试：`tests/test_verify_stage4.py`（B10 盲区反例 ×14）、
+`tests/test_stage4_driver.py`（B9 选择逻辑 / B12 清理回退 / B11 promote）。
 
 修改：
 

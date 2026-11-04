@@ -51,7 +51,7 @@ def rec(poc_id, vul, fix, ts, sha=None):
 
 
 def setup():
-    for d in (OUT, TASKS / NAME, WSROOT / NAME):
+    for d in (OUT, TASKS / NAME, WSROOT / NAME, OUT / "protected_ledger"):
         d.mkdir(parents=True, exist_ok=True)
     (TASKS / NAME / "submit.sh").write_text(
         'curl -F \'metadata={"task_id": "abc", "agent_id": "agent42", "checksum": "z"}\'\n',
@@ -59,20 +59,24 @@ def setup():
     (OUT / "rows").mkdir(exist_ok=True)
     row = {"task_id": TID, "run_id": "s4-smoke", "status": "submitted",
            "workspace": str(WSROOT / NAME), "submissions": 2,
-           "agent_id": "agent42", "checks_used": 2}
+           "agent_id": "agent42", "checks_used": 2, "cost_usd": 0.02}
     (OUT / "rows" / (NAME + ".json")).write_text(json.dumps(row), encoding="utf-8")
     (OUT / "results.json").write_text(json.dumps([row]), encoding="utf-8")
     (WSROOT / NAME / "ws_manifest.json").write_text("{}", encoding="utf-8")
 
 
 def write_ledger(poc_ids):
+    """R2/B11: the PROTECTED (root-promoted) ledger is the authoritative copy
+    the scorer must read; the workspace ledger mirrors it."""
     lines = []
     for i, pid in enumerate(poc_ids, 1):
         lines.append(json.dumps({"seq": i, "ts": "2026-11-04T00:00:0%dZ" % i,
                                  "poc_id": pid, "poc_sha256": "sha" + pid,
                                  "poc_size": 4, "exit_code": 1}))
-    (WSROOT / NAME / "submissions.jsonl").write_text("\n".join(lines) + "\n",
-                                                     encoding="utf-8")
+    text = "\n".join(lines) + "\n"
+    (WSROOT / NAME / "submissions.jsonl").write_text(text, encoding="utf-8")
+    (OUT / "protected_ledger" / (NAME + ".jsonl")).write_text(text,
+                                                              encoding="utf-8")
 
 
 def score(port, expect_rc):
@@ -127,10 +131,13 @@ def main():
         # 4. server poc_hash != ledger sha -> hash gate fails closed (B4)
         RECORDS["items"] = [rec("p1", 1, 0, "2026-11-04T00:00:01Z",
                                 sha="f" * 64)]
-        (WSROOT / NAME / "submissions.jsonl").write_text(json.dumps(
+        bad_text = json.dumps(
             {"seq": 1, "ts": "2026-11-04T00:00:01Z", "poc_id": "p1",
-             "poc_sha256": "b" * 64, "poc_size": 4, "exit_code": 1}) + "\n",
-            encoding="utf-8")
+             "poc_sha256": "b" * 64, "poc_size": 4, "exit_code": 1}) + "\n"
+        (WSROOT / NAME / "submissions.jsonl").write_text(bad_text,
+                                                         encoding="utf-8")
+        (OUT / "protected_ledger" / (NAME + ".jsonl")).write_text(bad_text,
+                                                                  encoding="utf-8")
         row = score(port, expect_rc=1)
         assert row["official_success"] is None, row
         assert row["score_status"] == "hash_mismatch", row

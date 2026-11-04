@@ -16,23 +16,24 @@
 cybergym-agent/
   plugins/
     evidence.py          提交账本 + final-only 判定（本轮核心）
-    results_store.py     逐题原子行 + results.json 锁内重建
-    locks.py             跨平台文件锁
+    results_store.py     逐题原子行 + results.json 锁内重建（R2: rows/ 唯一权威）
+    locks.py             跨平台文件锁（R2: 超时获取 + NFS 检测）
     cybergym_runner.py   提交客户端（提交时写账本；official_success 改 final-only）
     env_manager.py       未改，RunOutcome 依赖
     diff_verifier.py     未改，测试依赖
   scripts/
     make_agent_ws.py     工作区生成（--fresh / 无 intel / manifest / 白名单）
-    run_agent_task.sh    单题 root wrapper（账本 env、两段会话、写行）
-    stage4.py            队列驱动（准备→跑→回填→评分→验收）
+    run_agent_task.sh    单题 root wrapper（两段会话、root 侧账本收割、写行）
+    stage4.py            队列驱动（阶段退出码传播 / 进程组清理 / run 锁）
     score_all.py         主机侧评分（最终提交 + ledger）
     score_task.py        单题评分（stage2/cleanpilot 路径）
     record_task_row.py   会话 + 账本 → 行；两段统计相加
-    verify_stage4.py     5 项跑后验收
-    stage2.sh            stage-3 遗留驱动：删 intel、加硬门禁、默认拒绝主入口
-    cleanpilot.sh        stage-3 遗留干净跑法：加 intel 硬门禁
+    verify_stage4.py     数据完整性 + 执行覆盖率双维验收
+    promote_ledger.py    root 侧账本收割（受保护账本唯一写入者，B11）
+    stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
+    cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（52 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（85 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              入口
@@ -41,7 +42,7 @@ root_code/
 docs/
   STAGE4_CHANGES.md      改了什么、fail-closed 状态表、已验证/未验证
   STAGE4_DEPLOY.md       主机部署与 50 题 pilot 手册
-smoke_stage4.py          本地冒烟：工作区 + 行 + 验收
+smoke_stage4.py          本地冒烟：工作区 + 行 + 验收（评分前验收必须失败）
 smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + ledger
 ```
 
@@ -49,9 +50,8 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 
 ```bash
 cd cybergym-agent
-python3 -m unittest tests.test_evidence tests.test_results_store \
-    tests.test_cybergym_runner tests.test_make_agent_ws
-# 预期：Ran 52 tests ... OK
+python3 -m unittest discover -s tests
+# 预期：Ran 85 tests ... OK（含第二轮 B7-B12 回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -65,14 +65,17 @@ python3 smoke_score.py
 
 ## 本轮主张（供评审逐条证伪）
 
+第一轮（B1–B5）：
+
 1. 官方成功只按**最终提交**计算；`created_at` 严格解析为 UTC 后取最大值，
    缺失/无法解析/同刻并列一律 `success=None`，绝不给 `True`；agent 可写的
    账本**不参与**排序，也不消歧并列。
 2. 提交瞬间写账本（哈希在构造请求体时对上传字节一次性计算，提交后不重读
    文件）；评分必须同时满足：服务器最终 `poc_id` == 账本最后一条，且服务器
    `poc_hash` == 账本 `poc_sha256`，否则 fail-closed。
-3. 账本镜像到 root 侧 `chattr +a` 追加只读文件（`protected_ledger/`）；
-   工作区账本仅作诊断。
+3. 受保护账本 `root:root 0644 + chattr +a`，唯一写入者是 root 侧
+   `promote_ledger.py`（B11：agent 进程无任何写路径，`CG_PROTECTED_LEDGER`
+   出现在 agent 环境即被忽略并告警）；工作区账本仅作诊断。
 4. 正式评分**没有**无账本降级参数（`--allow-missing-ledger` 已删除，
    `S4_REQUIRE_LEDGER` 已删除）；`score_all.py` 退出码区分
    完整/完整性失败/基础设施错误。
@@ -82,5 +85,19 @@ python3 smoke_score.py
 8. 第二段会话的 turns/tokens/checks/cost 与第一段相加；`CLAUDE.md` 渲染真实预算。
 9. `verify_stage4.py` 能在提交缺证据、账本缺失、哈希不一致、intel 残留、
    run/agent 归属缺失、聚合不一致时报错。
+
+第二轮（B7–B12）：
+
+10. 评分/回填/验收任一阶段失败（或脚本缺失），`stage4.py` 整轮 exit 1；
+    `batch_summary.json` 公布 execution/scoring/phase 三类失败（B7）。
+11. `rebuild()` 只从 `rows/` 重建；`merge_row` 先写权威逐题文件再写派生聚合
+    ——旧成功不可能从聚合复活（B8，评审复现命令 2 已验证）。
+12. 终态拆分 execution/scoring：submitted+评分未决只进评分恢复，绝不重跑
+    agent，也绝不计入完成（B9）。
+13. 全 `gen_fail`/`worker_error` 的自洽轮必然验收失败（`coverage_infra`
+    violation，评审复现命令 1 已验证 `verify_exit=1`）；聚合按字段比对、
+    `scored/` 交叉核对、缺成本即 violation（B10）。
+14. 每题独立进程组，超时 SIGTERM→SIGKILL 整组清理后才归档/重试（B12）；
+    `stage2.sh`/`cleanpilot.sh` 的 legacy 门禁先于 worker 子命令（MAJOR）。
 
 评审请优先攻击这些主张，而不是重述它们。

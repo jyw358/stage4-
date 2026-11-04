@@ -75,6 +75,9 @@ def main():
                        capture_output=True, text=True)
     print("verify rc=", r.returncode)
     print(r.stdout.strip())
+    # R2/B9+B10: a submitted-but-unscored row (and no protected ledger) must
+    # FAIL acceptance -- the round is not complete until scoring + promotion
+    assert r.returncode == 1, r.stdout + r.stderr
 
 
 if __name__ == "__main__":

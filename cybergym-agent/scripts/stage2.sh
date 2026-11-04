@@ -188,18 +188,20 @@ worker() {  # tid
   echo "$tid diffgate=$(cat "$ws/.diffgate" 2>/dev/null || echo 0) checks=$(cat "$ws/.checks" 2>/dev/null || echo 0)" >> "$ST/tools_usage.log"
 }
 
-if [ "${1:-}" = "worker" ]; then
-  worker "${2:-}"
-  exit 0
-fi
-
 # Stage-4: stage2.sh is the legacy stage-3 driver (its queue keys on
 # results.json membership, not on terminal per-task state).  The clean stage-4
-# path is stage4.py; refuse an accidental main-run unless explicitly forced.
+# path is stage4.py; refuse an accidental run unless explicitly forced.
+# R2 MAJOR: the gate runs BEFORE any executable subcommand (including
+# "worker"), so `bash stage2.sh worker <task>` cannot bypass it.
 if [ "${S2_LEGACY_OK:-0}" != "1" ]; then
   echo "stage2.sh is LEGACY (stage-3). Use: python3 $AG/scripts/stage4.py --queue ..." >&2
   echo "Set S2_LEGACY_OK=1 only to reproduce historical stage-3 waves." >&2
   exit 1
+fi
+
+if [ "${1:-}" = "worker" ]; then
+  worker "${2:-}"
+  exit 0
 fi
 
 mkdir -p "$ST" "$STWS" "$ST/tasks" "$ST/thinking"

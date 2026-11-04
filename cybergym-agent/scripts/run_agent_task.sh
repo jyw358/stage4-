@@ -34,30 +34,39 @@ chmod 700 "$LOGDIR"
 echo "=== agent task $TID start $(date -u +%FT%TZ) run=$RUN_ID ==="
 
 # ---- protected submission ledger (root-owned, append-only) ---------------
-# The workspace ledger is written by an agent-owned process and is therefore
-# agent-writable; scoring needs a copy the agent cannot rewrite.  chattr +a
-# makes the file append-only at the filesystem level (ext4).  If the FS does
-# not support it we log a warning and fall back to the workspace ledger +
-# server-side hash gate (weaker; visible in the scoring report).
+# R2/B11: the workspace ledger is written by an agent-owned process and is
+# therefore agent-writable; the protected copy used by scoring must have NO
+# agent write path.  It is created root:root 0644 (NOT 666) and chattr +a
+# keeps even root from rewriting history; the ONLY writer is the root-side
+# promoter (promote_ledger.py) invoked between/after agent passes.  If the FS
+# does not support chattr we log a warning: scoring then falls back to the
+# workspace ledger + server-side hash gate and the acceptance checker reports
+# ledger_not_protected (fail-closed at verify time).
 PROTDIR="$OUT/protected_ledger"
 PROT="$PROTDIR/$NAME.jsonl"
-PROT_ARGS=""
+HAVE_PROT=0
 mkdir -p "$PROTDIR"; chmod 755 "$PROTDIR"
 _probe="$PROTDIR/.probe.$$"
 : > "$_probe"
 if chattr +a "$_probe" 2>/dev/null; then
   chattr -a "$_probe" 2>/dev/null; rm -f "$_probe"
-  [ -e "$PROT" ] || (umask 000; : > "$PROT")
-  chmod 666 "$PROT"
-  [ -e "$PROT.lock" ] || (umask 000; : > "$PROT.lock")
-  chmod 666 "$PROT.lock" 2>/dev/null
+  [ -e "$PROT" ] || (umask 022; : > "$PROT")
+  chown root:root "$PROT"; chmod 644 "$PROT"    # the agent has NO write path
   chattr +a "$PROT" 2>/dev/null
-  PROT_ARGS="--protected-ledger $PROT"
-  echo "protected ledger: $PROT (append-only)"
+  HAVE_PROT=1
+  echo "protected ledger: $PROT (root-written, append-only)"
 else
   rm -f "$_probe"
-  echo "WARN: chattr +a unsupported on $PROTDIR; protected ledger DISABLED (workspace ledger + hash gate only)" >&2
+  echo "WARN: chattr +a unsupported on $PROTDIR; protected ledger DISABLED (workspace ledger + hash gate only; verify will fail-closed)" >&2
 fi
+
+promote_ledger() {  # root-side copy of new workspace entries into $PROT
+  [ "$HAVE_PROT" = "1" ] || return 0
+  python3 "$AG/scripts/promote_ledger.py" \
+      --ws-ledger "$WS/submissions.jsonl" --protected "$PROT" \
+      --run-id "$RUN_ID" --task-id "$TID" || \
+      echo "WARN: ledger promote rc=$? (protected ledger NOT updated)" >&2
+}
 
 # ---- fresh workspace ---------------------------------------------------
 # keep the previous attempt's ledger before wiping (--retry-failed needs the
@@ -70,7 +79,7 @@ fi
 rm -rf "$WS"
 if ! sudo -u naco env S4_RUN_ID="$RUN_ID" python3 "$AG/scripts/make_agent_ws.py" \
         --task-dir "$TDIR" --task-id "$TID" --ws-root "$WSROOT" --fresh \
-        --max-turns "$PASS1_TURNS" --checks "$CHECKS_BUDGET" $PROT_ARGS; then
+        --max-turns "$PASS1_TURNS" --checks "$CHECKS_BUDGET"; then
   python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
       --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage error \
       --status worker_error --error "make_agent_ws failed"
@@ -113,6 +122,10 @@ sudo -u naco --preserve-env="$AGENT_ENV" \
 rc=$?
 echo "=== agent task $TID end rc=$rc $(date -u +%FT%TZ) ==="
 
+# root-side evidence promotion BEFORE the row is written: everything the
+# agent submitted in pass 1 is frozen into the protected ledger first (B11)
+promote_ledger
+
 python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
     --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage pass1 \
     --json "$LOGDIR/$NAME.json" --agent-id "$AGENT_ID"
@@ -134,6 +147,7 @@ if [ "$CHECKS" = "0" ] && [ "$LEDGER_ROWS" = "0" ]; then
       --permission-mode bypassPermissions \
       --output-format json > "$LOGDIR/$NAME.pass2.json" 2>> "$LOGDIR/$NAME.err"
   echo "=== second pass $TID end rc=$? $(date -u +%FT%TZ) ==="
+  promote_ledger
   python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
       --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage pass2 \
       --json "$LOGDIR/$NAME.pass2.json" --agent-id "$AGENT_ID" --second-pass

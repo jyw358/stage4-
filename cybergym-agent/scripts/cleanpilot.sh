@@ -70,6 +70,15 @@ worker() {  # tid
   fi
 }
 
+# Stage-4 R2 MAJOR: cleanpilot.sh is a LEGACY driver.  The gate runs BEFORE
+# any executable subcommand (including "worker"), so
+# `bash cleanpilot.sh worker <task>` cannot bypass it.
+if [ "${S2_LEGACY_OK:-0}" != "1" ]; then
+  echo "cleanpilot.sh is LEGACY (stage-1 pilot). Use: python3 /home/naco/work/cybergym-agent/scripts/stage4.py --queue ..." >&2
+  echo "Set S2_LEGACY_OK=1 only to reproduce historical pilot waves." >&2
+  exit 1
+fi
+
 if [ "${1:-}" = "worker" ]; then
   worker "${2:-}"
   exit 0
