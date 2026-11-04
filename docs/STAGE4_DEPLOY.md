@@ -99,6 +99,15 @@ sudo -l -U s4agent
 # 每题数字 uid 的 sudo 语法可用（R3 依赖 '#<uid>'，需 sudo >= 1.8.x）
 sudo -u '#30001' id && ! sudo -u '#30001' ls /root && echo sudo-uid-ok
 
+# 宿主机级 uid 注册表位置可写、只增不减（B2）
+mkdir -p /var/lib/cybergym/stage4 && chown root:root /var/lib/cybergym/stage4 \
+  && chmod 700 /var/lib/cybergym/stage4
+python3 - <<'PY'
+import sys; sys.path.insert(0, "/opt/cybergym-agent")
+from scripts import stage4
+print("uid pool floor:", stage4.AGENT_UID_BASE, "registry:", stage4.UID_REGISTRY)
+PY
+
 # 密钥只测属主/模式/可读性，绝不打印内容
 stat -c '%U:%G %a' /root/.cybergym_env        # 期望 root:root 600
 sudo -u '#30001' test -r /root/.cybergym_env && echo "KEY LEAK" || echo key-protected
@@ -111,7 +120,7 @@ from plugins import evidence, results_store
 print("evidence.utcnow", evidence.utcnow())
 print("final-only predicate:", evidence.official(1, 0), evidence.official(0, 0))
 PY
-python3 -m unittest discover -s tests     # 116 项（含 R3 隔离回归）
+python3 -m unittest discover -s tests     # 133 项（含 R3 与 R3 复审回归）
 ```
 
 ## 3. 数据目录与 queue
@@ -128,9 +137,11 @@ ls -l /data/cybergym/stage4/queue.json
 
 | 项 | 默认 | 属主/模式 |
 |---|---|---|
-| run root | `/data/cybergym/stage4/r_engineer` | root |
+| run root | `/data/cybergym/stage4/r_engineer` | root（祖先链必须 root 所有、非 go-w） |
 | 控制面 | `<run root>/control/<task>/` | root:root 0700（run_id/agent_id/submit_sha256/agent_uid） |
-| 题目录 | `<run root>/tasks/<task>` | naco（gen_task 写），绑定在控制面 |
+| UID 注册表 | `/var/lib/cybergym/stage4/uid_registry.json` | root:root，目录 0700、文件 0600；**只增不减** |
+| 题目录 | `<run root>/tasks/<task>` | prep 期间 naco 0700；prep 后归**本题 uid** 0700 |
+| 题目录父级 | `<run root>/tasks` | root:root 0711（可遍历、不可列） |
 | 工作区 | `<run root>-ws/<task>` | 每题独立 uid，0700；ws 根 root:root 0711 |
 | 日志 | `<run root>/logs/<task>.log` | root |
 | agent 原始日志 | `/root/agent_logs/<run_id>/<task>.json` | root 0700 |
@@ -140,6 +151,12 @@ ls -l /data/cybergym/stage4/queue.json
 `submit.sh` 的 sha256 与分配的 `agent_uid`。复用题目录时三者都要对得上；
 对不上（包括 submit.sh 在 gen 之后被改过一字节）就拒绝复用。
 换轮次请换 `--out`。
+
+**R3 复审补充**：题目录本身在 prep 结束后会整树 chown 给本题 uid 并 chmod
+0700（B1）——`uid_A` 无法读取 `task_B` 的 description.txt / submit.sh；父级
+`tasks/` 为 0711，Sibling 无法列目录。UID 发号记入宿主机级注册表（B2）：
+一个 uid 一旦发出，**任何后续 run 都不会再拿到它**（旧 run 残留的 0700 文件
+因此不可达）。控制面及其全部祖先按 M1 逐级校验 root 属主 + 非 go-w。
 
 ## 4. 50 题 pilot（先跑这个）
 
@@ -217,6 +234,50 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
   sudo -u '#<uidA>' cat /data/cybergym/stage4/pilot50-ws/<taskB>/CLAUDE.md
   #   必须报 Permission denied
   ```
+
+- **跨任务准备目录负向测试（R3-B1，必须真跑，先证明路径存在再断言拒绝）**：
+  ```bash
+  OUT=/data/cybergym/stage4/pilot50
+  UID_A=$(cat "$OUT/control/<taskA>/agent_uid")
+  UID_B=$(cat "$OUT/control/<taskB>/agent_uid")
+  TASK_B=<taskB>
+
+  # 0. 先证明文件真实存在（否则“路径不存在”会伪装成通过）
+  test -e "$OUT/tasks/$TASK_B/description.txt" && echo path-ok
+  # 1. A 读自己的材料：必须成功
+  sudo -u "#$UID_A" -- test -r "$OUT/tasks/<taskA>/description.txt"; echo "own_rc=$? (期望 0)"
+  # 2. A 读 B 的 description.txt：必须非零
+  sudo -u "#$UID_A" -- test -r "$OUT/tasks/$TASK_B/description.txt"; echo "cross_rc=$? (期望非 0)"
+  # 3. A 读 B 的 submit.sh / 列 B 目录：必须失败
+  sudo -u "#$UID_A" -- test -r "$OUT/tasks/$TASK_B/submit.sh"; echo "cross_submit_rc=$? (期望非 0)"
+  sudo -u "#$UID_A" -- ls "$OUT/tasks/$TASK_B" >/dev/null 2>&1; echo "cross_ls_rc=$? (期望非 0)"
+  # 4. 属主/模式断言
+  stat -c '%a %u' "$OUT/tasks/$TASK_B"            # 期望 700 + UID_B
+  stat -c '%a %u' "$OUT/tasks"                    # 期望 711 + 0
+  ```
+
+- **跨 run UID 复用负向测试（R3-B2）**：
+  ```bash
+  # 两个不同 --out 的新 run，各自第一题拿到的 uid 必须不同
+  grep -h '"' /var/lib/cybergym/stage4/uid_registry.json | sort -u
+  stat -c '%u' /data/cybergym/stage4/pilot50-ws/* | sort | uniq -d   # 期望无输出
+  ```
+  旧 run 工作区若仍存在，用新 run 的任意 uid 读旧 run 的 0700 目录必须
+  Permission denied（旧 uid 永不再发，命中概率为 0 而非"通常不会"）。
+
+- **wrapper UID 绑定负向测试（R3-M2）**（在一道已完成 prep 的题上直接调 wrapper）：
+  ```bash
+  C=$OUT/control/<taskA>
+  S4_AGENT_UID=30002 S4_RUN_ID=$(cat "$OUT/run_id") \
+    bash /opt/cybergym-agent/scripts/run_agent_task.sh <taskA> "$OUT/tasks/<taskA>" "$OUT"
+  # 期望 rc=4 + "S4_AGENT_UID=30002 != control agent_uid=..."
+  S4_AGENT_UID=0 ... 同上   # 期望 rc=4（uid 0 一律拒绝）
+  ```
+
+- **promoter 失败负向测试（R3-M3）**：把某题的 `protected_ledger/<task>.jsonl`
+  写入一行坏 JSON（或让工作区账本出现串 run 的 run_id），再跑该题：
+  期望 rc=6、行状态 `evidence_error`、**不出现第二段日志**、verify 报
+  `coverage_infra`。测完把该行作废重跑。
 - `rows_without_cost == 0`；
 - `batch_summary.json` 中 `phase_failures == []`、`scoring_pending == []`。
 
@@ -245,7 +306,8 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
 | `S4_AGENT_USER` | `s4agent` | 不可信基线账号（树审计名单成员） |
 | `S4_UNTRUSTED_USERS` | `s4agent,naco` | assert_code_tree 拒绝其写访问的账号 |
 | `S4_AGENT_UID_BASE` | `30001` | 每题 uid 池起点 |
-| `S4_AGENT_UID_SPAN` | `4096` | 池大小（run 内不复用） |
+| `S4_AGENT_UID_SPAN` | `4096` | 池大小（run 内与跨 run 都不复用） |
+| `S4_UID_STATE` | `/var/lib/cybergym/stage4/uid_registry.json` | 宿主机级 uid 注册表（root 0700/0600，只增不减） |
 | `S4_AGCLI` | `/usr/local/bin/agcli` | agent CLI 绝对路径 |
 | `S4_WSROOT` | `<out>-ws` | 工作区根（root:root 0711） |
 | `S4_RUN_ID` | `<out>/run_id` | 本轮 id |
@@ -265,7 +327,11 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
 | `REFUSE: submit.sh sha256 mismatch` | gen 之后题目录内容被改过 | 删除该题目录（或换 `--task-base`）重新 gen_task |
 | `REFUSE: control run_id mismatch` | wrapper 的 `S4_RUN_ID` 与绑定不一致 | 不要手工回放 wrapper；用 `/root/stage4.sh` 正常驱动 |
 | `REFUSE: no numeric per-task agent uid` | driver 非 root 或为旧版（未分配 uid） | 确认用 `/root/stage4.sh` 以 root 启动 |
+| `REFUSE: S4_AGENT_UID=<n> != control agent_uid=<m>` | 直接调用 wrapper 或环境串了别的 run | 用 driver 启动；不要手工回放 wrapper（控制面 uid 才是权威） |
+| `REFUSE: <tasks>/<task> is mode=… uid=… expected 700 owned by …` | 题目录未 hardening（旧版 prep 或手工建） | 删掉该题目录让 driver 重新 gen，或换 `--out` |
+| SystemExit `uid registry ... is unreadable/corrupt` | 宿主机级注册表被改/损坏 | 以 root 修复注册表（保持只增不减）；修复前不得继续发号 |
 | `agent uid pool exhausted` | 池耗尽或 passwd 里占用过多 | 调大 `S4_AGENT_UID_SPAN` 或上移 `S4_AGENT_UID_BASE` |
+| `REFUSE: ledger promotion failed rc=<n>` + 行状态 `evidence_error` | promoter 硬失败（坏行/身份串轮/冲突） | 按安全事件核查该题账本；不要手工改受保护账本，重跑该题 |
 | SystemExit `prep user 'naco' does not exist` | `S4_PREP_USER` 指向的账号不存在 | 建账号或改 `S4_PREP_USER` |
 | `sudo -u '#<uid>'` 报 unknown user | sudo 版本过旧（不支持 `#uid`） | 升级 sudo，或为池内 uid 批量建无 shell passwd 条目（不推荐） |
 | agent 会话里 HOME 指向 /root | sudoers `env_reset` 覆盖了显式 env（罕见） | 检查 `/etc/sudoers` 是否有 `always_set_home`/`env_delete=HOME`；wrapper 已显式传 `HOME=`，正常不应出现 |
@@ -307,6 +373,13 @@ stage-4 不修改 stage-3 的历史数据目录；回滚只影响代码入口。
 
 - sudo `'#<uid>'` 语义实测：`sudo -u '#30001' env` 打印完整 env，确认
   HOME/TMPDIR/XDG_*/CLAUDE_CONFIG_DIR 与 wrapper 传入一致、无 root 泄漏变量；
+- 跨任务准备目录/工作区负向测试（第 4 节 4c 与 B1 四步，必须证明"自己的能读"
+  才排除假通过）；
+- **setsid 逃逸（R3-M4 残留）**：`kill_task_tree` 现在会按会话号扫描 `/proc`
+  补杀，但一个自己调用 `setsid()` 另开新会话的后代仍会逃出。若正式跑批要求
+  "重试前所有 agent 进程必不存在"，需要把每题包进独立 cgroup（systemd
+  `systemd-run --scope --slice=stage4-<task>`，结束时 `systemctl stop`），
+  本轮未实现；当前实现只能保证进程组 + 原会话被清空并记录残留数；
 - umask 077 经 sudo 透传：agent 会话内 `umask` 与新建文件模式抽查；
 - 跨任务负向测试：uid A 读/写 uid B 工作区、读 `/root`、读其他任务
   `CLAUDE_CONFIG_DIR` 全部 Permission denied（第 4 节 4c 已列一条，建议 3 对）；

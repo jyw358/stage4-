@@ -287,6 +287,18 @@ class TestVerifyStage4(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("ledger_conflict", r.stdout)
 
+    def test_evidence_error_is_an_infra_failure(self):
+        # R3-M3: a promoter failure ends the task as evidence_error and must
+        # be treated like any other infrastructure failure at acceptance.
+        row = {"task_id": "t:1", "run_id": "s4", "status": "evidence_error",
+               "submissions": 0, "official_success": None, "cost_usd": 0}
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("coverage_infra", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

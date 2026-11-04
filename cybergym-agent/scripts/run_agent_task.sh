@@ -56,10 +56,23 @@ if [ -z "$C_SHA" ] || [ "$A_SHA" != "$C_SHA" ]; then
   echo "REFUSE: submit.sh sha256 mismatch (control=$C_SHA actual=$A_SHA); regenerate the task dir" >&2
   exit 4
 fi
-AGENT_UID="${S4_AGENT_UID:-$(cat "$CONTROL/agent_uid" 2>/dev/null || true)}"
-case "$AGENT_UID" in
-  ''|*[!0-9]*) echo "REFUSE: no numeric per-task agent uid (control plane / S4_AGENT_UID)" >&2; exit 4 ;;
-esac
+AGENT_UID="$(python3 "$AG/scripts/validate_agent_uid.py" \
+    --control "$CONTROL/agent_uid" \
+    --env-uid "${S4_AGENT_UID:-}" \
+    --prep-user "${S4_PREP_USER:-naco}")" || {
+  echo "REFUSE: agent uid validation failed (control plane is authoritative)" >&2
+  exit 4
+}
+
+# R3-B1: the prepared task dir must be PRIVATE to this task's uid (0700).
+# The driver hardens it after prep; re-check here so a manually staged tree
+# cannot be handed to an agent while still world-readable.
+T_MODE="$(stat -c '%a' "$TDIR" 2>/dev/null || echo '')"
+T_UID="$(stat -c '%u' "$TDIR" 2>/dev/null || echo '')"
+if [ "$T_UID" != "$AGENT_UID" ] || [ "$T_MODE" != "700" ]; then
+  echo "REFUSE: $TDIR is mode=$T_MODE uid=$T_UID, expected 700 owned by $AGENT_UID (cross-task read window)" >&2
+  exit 4
+fi
 
 echo "=== agent task $TID start $(date -u +%FT%TZ) run=$RUN_ID uid=$AGENT_UID ==="
 
@@ -96,8 +109,22 @@ promote_ledger() {  # root-side copy of new workspace entries into $PROT
   [ "$HAVE_PROT" = "1" ] || return 0
   python3 "$AG/scripts/promote_ledger.py" \
       --ws-ledger "$WS/submissions.jsonl" --protected "$PROT" \
-      --run-id "$RUN_ID" --task-id "$TID" --agent-id "$AGENT_ID" || \
-      echo "WARN: ledger promote rc=$? (protected ledger NOT updated)" >&2
+      --run-id "$RUN_ID" --task-id "$TID" --agent-id "$AGENT_ID"
+}
+
+# R3-M3: a promoter failure is NOT a warning.  Running the second pass (or
+# accepting the row) after the protected ledger failed to take the new
+# evidence could hide a tampered/corrupt ledger and burns extra model cost.
+# Fail the task closed as evidence_error so the driver routes it to scoring
+# recovery / manual review instead of a silent retry.
+promote_or_fail() {
+  promote_ledger && return 0
+  rc=$?
+  echo "REFUSE: ledger promotion failed rc=$rc; task marked evidence_error" >&2
+  python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
+      --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage error \
+      --status evidence_error --error "protected ledger promotion failed rc=$rc"
+  exit 6
 }
 
 # ---- fresh workspace ---------------------------------------------------
@@ -179,8 +206,9 @@ rc=$?
 echo "=== agent task $TID end rc=$rc $(date -u +%FT%TZ) ==="
 
 # root-side evidence promotion BEFORE the row is written: everything the
-# agent submitted in pass 1 is frozen into the protected ledger first (B11)
-promote_ledger
+# agent submitted in pass 1 is frozen into the protected ledger first (B11).
+# R3-M3: failure here aborts the task (no second pass, no normal row).
+promote_or_fail
 
 python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
     --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage pass1 \
@@ -203,7 +231,7 @@ if [ "$CHECKS" = "0" ] && [ "$LEDGER_ROWS" = "0" ]; then
       --permission-mode bypassPermissions \
       --output-format json > "$LOGDIR/$NAME.pass2.json" 2>> "$LOGDIR/$NAME.err"
   echo "=== second pass $TID end rc=$? $(date -u +%FT%TZ) ==="
-  promote_ledger
+  promote_or_fail
   python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
       --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage pass2 \
       --json "$LOGDIR/$NAME.pass2.json" --agent-id "$AGENT_ID" --second-pass

@@ -12,6 +12,7 @@ are skipped, so the POSIX-only tests are guarded explicitly.
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -180,6 +181,149 @@ class TestUidPool(unittest.TestCase):
 
     def test_start_value_from_env(self):
         self.assertEqual(stage4.AGENT_UID_BASE, 30001)
+
+
+class TestUidRegistry(unittest.TestCase):
+    """R3-B2 (review): a per-run alloc file only proves 'not reused in THIS
+    run'.  The host-wide registry must keep a uid burned forever, so a new
+    run with a different --out can never hand 30001 to another task."""
+
+    def setUp(self):
+        self.dir = scratch_dir()
+        self.addCleanup(cleanup, self.dir)
+        self._saved = stage4.UID_REGISTRY
+        stage4.UID_REGISTRY = str(Path(self.dir) / "uid_registry.json")
+        self.addCleanup(setattr, stage4, "UID_REGISTRY", self._saved)
+
+    def _issue(self, out, name, run="s4-r"):
+        return stage4.allocate_agent_uid(Path(out), name, run)
+
+    def test_first_allocation_is_pool_base(self):
+        uid = self._issue(Path(self.dir) / "outA", "t_A")
+        self.assertEqual(uid, 30001)
+
+    def test_second_run_cannot_reuse_the_uid(self):
+        a = self._issue(Path(self.dir) / "outA", "t_A", "run-1")
+        b = self._issue(Path(self.dir) / "outB", "t_B", "run-2")
+        self.assertEqual(a, 30001)
+        self.assertEqual(b, 30002)   # old uid stays burned cross-run
+
+    def test_registry_records_run_attribution(self):
+        self._issue(Path(self.dir) / "outA", "t_A", "run-1")
+        reg = json.loads(Path(stage4.UID_REGISTRY).read_text(encoding="utf-8"))
+        self.assertEqual(reg["30001"]["run_id"], "run-1")
+        self.assertEqual(reg["30001"]["task"], "t_A")
+
+    def test_corrupt_registry_fails_closed(self):
+        Path(stage4.UID_REGISTRY).write_text("{broken", encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            self._issue(Path(self.dir) / "outA", "t_A")
+
+
+class TestResolveAgentUid(unittest.TestCase):
+    """R3-M2 (review): the control-plane uid is authoritative; an env uid
+    that disagrees, uid 0, the prep uid, or anything outside the pool must be
+    refused (a directly invoked root wrapper could otherwise pick its own)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from scripts import validate_agent_uid as v
+        cls.v = v
+
+    def test_control_uid_wins(self):
+        uid, err = self.v.resolve_agent_uid("30001", "", -1, 30001, 4096)
+        self.assertEqual(err, "")
+        self.assertEqual(uid, 30001)
+
+    def test_matching_env_uid_passes(self):
+        self.assertEqual(self.v.resolve_agent_uid("30001", "30001", -1,
+                                                  30001, 4096), (30001, ""))
+
+    def test_env_mismatch_is_refused(self):
+        uid, err = self.v.resolve_agent_uid("30001", "30002", -1, 30001, 4096)
+        self.assertIsNone(uid)
+        self.assertIn("!= control agent_uid", err)
+
+    def test_uid_zero_is_refused(self):
+        uid, err = self.v.resolve_agent_uid("0", "", -1, 30001, 4096)
+        self.assertIsNone(uid)
+        self.assertIn("root", err)
+
+    def test_prep_uid_is_refused(self):
+        uid, err = self.v.resolve_agent_uid("30001", "", 30001, 30001, 4096)
+        self.assertIsNone(uid)
+        self.assertIn("prep identity", err)
+
+    def test_outside_pool_is_refused(self):
+        uid, err = self.v.resolve_agent_uid("12345", "", -1, 30001, 4096)
+        self.assertIsNone(uid)
+        self.assertIn("outside the task pool", err)
+
+    def test_missing_control_uid_is_refused(self):
+        uid, err = self.v.resolve_agent_uid("", "", -1, 30001, 4096)
+        self.assertIsNone(uid)
+        self.assertIn("no agent_uid", err)
+
+
+class TestSessionSweep(unittest.TestCase):
+    """R3-M4 (review): proc.wait() only proves the direct child exited.
+    Descendants that called setsid() escape the process GROUP but stay in the
+    original SESSION, so the sweep must enumerate /proc by session id."""
+
+    def _fake_proc(self, entries):
+        root = Path(self.dir) / "proc"
+        root.mkdir()
+        for pid, line in entries.items():
+            d = root / str(pid)
+            d.mkdir()
+            (d / "stat").write_text(line, encoding="utf-8")
+        return str(root)
+
+    def setUp(self):
+        self.dir = scratch_dir()
+        self.addCleanup(cleanup, self.dir)
+
+    def test_finds_members_by_session_id(self):
+        # fields after ')': state ppid pgrp session
+        root = self._fake_proc({
+            101: "101 (bash) S 1 101 5555 0 0",
+            102: "102 (agent worker) S 101 101 5555 0 0",
+            103: "103 (other session) S 1 103 7777 0 0",
+        })
+        self.assertEqual(stage4.session_members(5555, root), [101, 102])
+
+    def test_comm_with_spaces_is_parsed(self):
+        root = self._fake_proc({201: "201 (claude code) S 1 201 9001 0 0"})
+        self.assertEqual(stage4.session_members(9001, root), [201])
+
+    def test_missing_proc_root_returns_empty(self):
+        self.assertEqual(stage4.session_members(1, str(Path(self.dir) / "nope")), [])
+
+
+class TestTaskDirPrivacy(unittest.TestCase):
+    """R3-B1: cross-task read must be closed for the PREPARED dir too."""
+
+    def test_harden_is_posix_root_only_or_noop(self):
+        # on the Windows sandbox this is a documented no-op; the real check
+        # runs on the host (deploy manual section 2/4 negative tests)
+        d = scratch_dir()
+        self.addCleanup(cleanup, d)
+        stage4.harden_task_dir(Path(d) / "tasks" / "t_1", 30001)  # no raise
+
+    @unittest.skipUnless(os.name == "posix" and hasattr(os, "geteuid")
+                         and os.geteuid() == 0, "needs POSIX root")
+    def test_harden_makes_task_dir_private(self):
+        base = Path(scratch_dir())
+        self.addCleanup(cleanup, base)
+        tdir = base / "tasks" / "t_1"
+        tdir.mkdir(parents=True)
+        (tdir / "description.txt").write_text("d", encoding="utf-8")
+        (tdir / "submit.sh").write_text("s", encoding="utf-8")
+        stage4.harden_task_dir(tdir, 30001)
+        st = os.lstat(tdir)
+        self.assertEqual(st.st_uid, 30001)
+        self.assertEqual(st.st_mode & 0o777, 0o700)
+        self.assertEqual(os.lstat(base / "tasks").st_mode & 0o777, 0o711)
 
 
 if __name__ == "__main__":

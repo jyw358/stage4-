@@ -57,7 +57,7 @@ SCORE_OK = "ok"
 # execution outcomes that are data-valid end states for a formal pilot
 ALLOWED_FINAL = {"submitted", "no_submission", "submit_error"}
 # infrastructure failures: a formal pilot must have ZERO of these (B10)
-INFRA_FAILURE = {"gen_fail", "worker_error", "api_error"}
+INFRA_FAILURE = {"gen_fail", "worker_error", "api_error", "evidence_error"}
 
 INTEL_PATTERNS = ("reference-intel*", "reference_intel*", "ref-intel*",
                   "ref_intel*")
@@ -136,6 +136,40 @@ def control_binding_state(out: Path, name: str, row: dict):
             and cvals["agent_id"] != row["agent_id"]:
         return "control_mismatch", (f"control agent_id={cvals['agent_id']!r} != "
                                     f"row agent_id={row.get('agent_id')!r}")
+    return None, ""
+
+
+def control_field(out: Path, name: str, key: str) -> str:
+    p = Path(out) / "control" / name / key
+    try:
+        return p.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def task_dir_privacy_state(out: Path, name: str, tasks_root=None):
+    """R3-B1 acceptance: the prepared task dir must be 0700 and owned by the
+    uid the control plane bound, otherwise uid_A can read uid_B's inputs."""
+    if os.name != "posix" or (hasattr(os, "geteuid") and os.geteuid() != 0):
+        return None, ""
+    tdir = Path(tasks_root or (Path(out) / "tasks")) / name
+    if not tdir.exists():
+        return None, ""
+    want = control_field(out, name, "agent_uid")
+    if not want.isdigit():
+        return "taskdir_unbound", f"{tdir}: control plane has no agent_uid"
+    try:
+        st = os.lstat(tdir)
+    except OSError:
+        return None, ""
+    if stat.S_ISLNK(st.st_mode):
+        return "taskdir_open", f"{tdir} is a symlink"
+    if st.st_uid != int(want):
+        return "taskdir_open", (f"{tdir} owned by uid={st.st_uid}, but the "
+                                f"binding issued uid={want}")
+    if st.st_mode & (stat.S_IRGRP | stat.S_IROTH | stat.S_IWGRP | stat.S_IWOTH):
+        return "taskdir_open", (f"{tdir} mode={oct(st.st_mode)[-3:]} grants "
+                                "group/other access (cross-task read window)")
     return None, ""
 
 
@@ -275,6 +309,10 @@ def main() -> int:
             ckind, cdetail = control_binding_state(out, name, row)
             if ckind:
                 bad(ckind, tid, cdetail)
+            elif (Path(out) / "control").is_dir():
+                dkind, ddetail = task_dir_privacy_state(out, name)
+                if dkind:
+                    bad(dkind, tid, ddetail)
         else:
             if row.get("official_success") is not None:
                 bad("no_submission_scored", tid, "no submission but official_success set")

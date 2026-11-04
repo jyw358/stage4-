@@ -53,8 +53,10 @@ import json
 import os
 import signal
 import socket
+import stat
 import subprocess
 import sys
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -159,7 +161,15 @@ def control_root(out: Path) -> Path:
 def init_control_plane(out: Path) -> None:
     """<out>/control is root:root 0700: the ONLY place the run/task identity
     binding lives.  Task dirs and workspaces are owned by untrusted accounts
-    and treated as replaceable input copies."""
+    and treated as replaceable input copies.
+
+    R3-M1: the whole ancestor chain of --out must be root-owned and free of
+    group/other write, otherwise a parent directory can be swapped under us
+    (chmod on the leaf proves nothing about the chain above it)."""
+    ok, why = ancestors_trusted(out)
+    if not ok:
+        raise SystemExit(f"refusing --out {out}: {why} "
+                         "(control plane must live under a root-owned path)")
     d = control_root(out)
     d.mkdir(parents=True, exist_ok=True)
     if os.name == "posix" and euid() == 0:
@@ -167,10 +177,46 @@ def init_control_plane(out: Path) -> None:
         os.chmod(d, 0o700)
 
 
+def ancestors_trusted(path: Path, root_uid: int = 0) -> tuple:
+    """(ok, reason): every existing ancestor of ``path`` must be owned by
+    root, not group/other-writable, and traversable by others (so the agent
+    can reach its OWN workspace/dir).  Pure lstat walk; POSIX only.
+
+    Behind this: if `<out>` or its parents are writable by the prep user or a
+    task uid, that account can rename/replace `<out>/control` wholesale, and
+    binding files inside a perfectly clean leaf directory mean nothing."""
+    if os.name != "posix" or euid() != 0:
+        return True, ""
+    import stat as _st
+    cur = os.path.abspath(path)
+    while True:
+        try:
+            st = os.lstat(cur)
+        except FileNotFoundError:
+            cur = os.path.dirname(cur)
+            if cur == "/":
+                return True, ""
+            continue
+        except OSError as e:
+            return False, f"lstat {cur} failed: {e}"
+        if _st.S_ISLNK(st.st_mode):
+            return False, f"{cur} is a symlink"
+        if st.st_uid != root_uid:
+            return False, f"{cur} owned by uid={st.st_uid}, not root"
+        if st.st_mode & (_st.S_IWGRP | _st.S_IWOTH):
+            return False, f"{cur} is group/other-writable"
+        if cur == "/":
+            return True, ""
+        nxt = os.path.dirname(cur)
+        if nxt == cur:
+            return True, ""
+        cur = nxt
+
+
 def control_dir_trusted(d: Path) -> tuple:
     """(ok, reason): the control dir itself must be a real, root-owned,
     go-w-free directory (review Q5: an agent-writable parent could swap the
-    files inside it)."""
+    files inside it) AND its ancestor chain must be root-owned (R3-M1)."""
     if os.name != "posix" or euid() != 0:
         return True, ""
     import stat as _st
@@ -184,6 +230,9 @@ def control_dir_trusted(d: Path) -> tuple:
         return False, f"{d} owned by uid={st.st_uid}, not root"
     if st.st_mode & (_st.S_IWGRP | _st.S_IWOTH):
         return False, f"{d} is group/other-writable"
+    ok, why = ancestors_trusted(d)
+    if not ok:
+        return False, why
     return True, ""
 
 
@@ -251,29 +300,79 @@ def pick_free_uid(start: int, taken: set, exists=None, span: int = AGENT_UID_SPA
     raise RuntimeError(f"agent uid pool exhausted in [{start}, {start + span})")
 
 
-def allocate_agent_uid(out: Path, name: str) -> int:
-    """R3: ONE numeric uid per task, never reused within the run.  A single
-    shared agent uid cannot isolate same-batch workspaces (chmod 700 does not
-    separate two processes with the same uid)."""
-    alloc_path = control_root(out) / "uid_alloc.json"
-    with FileLock(str(control_root(out) / ".uid.lock")):
-        alloc = {}
-        if alloc_path.exists():
-            try:
-                alloc = json.loads(alloc_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                alloc = {}
-        taken = {int(v) for v in alloc.values() if str(v).isdigit()}
+UID_REGISTRY = os.environ.get("S4_UID_STATE",
+                              "/var/lib/cybergym/stage4/uid_registry.json")
+
+
+def _registry_path() -> Path:
+    return Path(UID_REGISTRY)
+
+
+def _registry_taken() -> dict:
+    """uid(str) -> record: HOST-WIDE, root-only registry of task uids.
+
+    R3-B2: a per-run uid_alloc.json only proves ``never reused within THIS
+    run``.  Two runs with different --out could both hand out 30001, and the
+    new task could then read files the old (still existing) run left 0700
+    under the same uid.  The registry is append-only: a uid, once issued on
+    this host, is never issued again, so cross-run isolation holds by
+    construction (retired uids simply stay burned)."""
+    p = _registry_path()
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        # fail-closed: a corrupt registry could silently allow a reuse
+        raise SystemExit(f"uid registry {p} is unreadable/corrupt: {e} "
+                         "(repair it as root before running)")
+    if not isinstance(data, dict):
+        raise SystemExit(f"uid registry {p} is not a JSON object")
+    return data
+
+
+def allocate_agent_uid(out: Path, name: str, run_id: str = "") -> int:
+    """R3: ONE numeric uid per task, never reused within the run OR across
+    runs on this host (global append-only registry, S4_UID_STATE)."""
+    rp = _registry_path()
+    rp.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix" and euid() == 0:
+        os.chown(rp.parent, 0, 0)
+        os.chmod(rp.parent, 0o700)
+    lock = rp.with_name(".uid.lock")
+    with FileLock(str(lock)):
+        registry = _registry_taken()
+        taken = {int(k) for k in registry if str(k).isdigit()}
         taken.add(AGENT_UID_BASE - 1)  # keep clear of the pool floor
+        # per-run file kept for operator visibility (not the trust anchor)
+        run_alloc_path = control_root(out) / "uid_alloc.json"
+        if run_alloc_path.exists():
+            try:
+                taken |= {int(v) for v in
+                          json.loads(run_alloc_path.read_text(encoding="utf-8")).values()
+                          if str(v).isdigit()}
+            except json.JSONDecodeError:
+                pass
         if pwd is not None:
             for pw in pwd.getpwall():
                 taken.add(pw.pw_uid)
         uid = pick_free_uid(AGENT_UID_BASE, taken,
                             exists=lambda u: _uid_exists(u))
-        alloc[name] = uid
-        atomic_write(alloc_path, json.dumps(alloc, indent=1, sort_keys=True))
+        registry[str(uid)] = {"run_id": run_id, "task": name,
+                             "out": str(out), "issued_at": utcnow()}
+        atomic_write(rp, json.dumps(registry, indent=1, sort_keys=True))
         if os.name == "posix" and euid() == 0:
-            os.chmod(alloc_path, 0o600)
+            os.chmod(rp, 0o600)
+        run_alloc = {}
+        if run_alloc_path.exists():
+            try:
+                run_alloc = json.loads(run_alloc_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                run_alloc = {}
+        run_alloc[name] = uid
+        atomic_write(run_alloc_path, json.dumps(run_alloc, indent=1, sort_keys=True))
+        if os.name == "posix" and euid() == 0:
+            os.chmod(run_alloc_path, 0o600)
         return uid
 
 
@@ -285,6 +384,35 @@ def _uid_exists(uid: int) -> bool:
         return True
     except KeyError:
         return False
+
+
+def harden_task_dir(tdir: Path, uid: int) -> None:
+    """R3-B1: after prep, the task dir belongs to THIS task's uid only.
+
+    Review blocker: workspaces were isolated per uid, but the prepared task
+    dir stayed 0755 (naco-owned), so uid_A could read task_B's
+    description.txt / submit.sh.  The parent task_base is root:root 0711 (traverse
+    only, no listing), and every per-task dir becomes 0700 owned by its uid,
+    so a task can read its own inputs and nothing else."""
+    if os.name != "posix" or euid() != 0:
+        return
+    for dirpath, dirnames, filenames in os.walk(tdir):
+        for name in dirnames + filenames:
+            p = os.path.join(dirpath, name)
+            try:
+                st = os.lstat(p)
+            except OSError:
+                continue
+            if stat.S_ISLNK(st.st_mode):
+                raise SystemExit(f"REFUSE: {p} is a symlink in the prepared "
+                                 "task dir (prep produced an untrusted tree)")
+            os.chown(p, uid, uid)
+    os.chown(tdir, uid, uid)
+    os.chmod(tdir, 0o700)
+    # keep the dir chain traversable but not listable for other task uids
+    if tdir.parent.exists():
+        os.chown(tdir.parent, 0, 0)
+        os.chmod(tdir.parent, 0o711)
 
 
 def validate_reuse(tdir: Path, control: dict, run_id: str) -> tuple:
@@ -355,7 +483,10 @@ def prepare_task(tid: str, task_base: Path, out: Path, run_id: str, log) -> tupl
     tdir.mkdir(parents=True, exist_ok=True)
     chown_prep(tdir)
     if os.name == "posix" and euid() == 0:
-        os.chmod(tdir, 0o755)   # prep user writes; others only traverse/read
+        # R3-B1: 0700 owned by the PREP identity while gen_task writes -- no
+        # task uid can read a half-prepared dir; harden_task_dir then hands it
+        # to the owning task uid (also 0700).
+        os.chmod(tdir, 0o700)
     cmd = [
         "sudo", "-u", PREP_USER, "env", f"PYTHONPATH={REPO}/src",
         "/usr/bin/python3.12", "-m", "cybergym.task.gen_task",
@@ -403,36 +534,88 @@ def _marker_write(marker: Path, run_id: str) -> None:
         os.chmod(marker, 0o644)
 
 
-def kill_task_tree(proc: subprocess.Popen) -> None:
-    """B12: terminate the WHOLE process group of a task (the wrapper starts a
-    session, so sudo/agcli/timeout descendants are all inside it), then
-    escalate to SIGKILL after a grace period.  Only when the tree is confirmed
-    gone may the driver archive/retry the task."""
-    if os.name == "posix":
+def _stat_fields(stat_line: str) -> list:
+    """Fields of /proc/<pid>/stat after the parenthesised comm (pid, state,
+    ppid, pgrp, session, ...).  comm may contain spaces and braces."""
+    rparen = stat_line.rfind(")")
+    if rparen < 0:
+        return []
+    return stat_line[rparen + 1:].split()
+
+
+def session_members(session_id: int, proc_root: str = "/proc") -> list:
+    """PIDs still in ``session_id`` (pure enough to unit-test with a fake
+    /proc).  R3-M4: SIGKILL on the process group does not reach descendants
+    that called setsid(); sweeping the SESSION catches those (it cannot catch
+    a descendant that started a brand-new session -- that still needs
+    cgroup/systemd scope recycling, documented as a residual)."""
+    out = []
+    try:
+        names = os.listdir(proc_root)
+    except OSError:
+        return out
+    for name in names:
+        if not name.isdigit():
+            continue
         try:
-            pgid = os.getpgid(proc.pid)
-        except ProcessLookupError:
-            return
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(pgid, sig)
-            except ProcessLookupError:
-                return
-            try:
-                proc.wait(timeout=15)
-                return
-            except subprocess.TimeoutExpired:
-                continue
+            with open(os.path.join(proc_root, name, "stat"), encoding="utf-8") as fh:
+                line = fh.read()
+        except OSError:
+            continue
+        f = _stat_fields(line)
+        # f[0]=state f[1]=ppid f[2]=pgrp f[3]=session
+        if len(f) >= 4 and f[3].isdigit() and int(f[3]) == session_id:
+            out.append(int(name))
+    return sorted(out)
+
+
+def sweep_session(session_id: int) -> int:
+    """SIGKILL every remaining member of a task session; returns how many
+    were still alive.  After this it also re-checks, so the caller can log
+    the residual count (0 = the session is confirmed empty)."""
+    left = session_members(session_id)
+    for pid in left:
         try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:  # pragma: no cover - last resort
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
             pass
-    else:  # Windows local tests: no process groups, kill the direct child
+    time.sleep(0.2)
+    return len(session_members(session_id))
+
+
+def kill_task_tree(proc: subprocess.Popen) -> int:
+    """B12/R3-M4: terminate the WHOLE process group of a task (the wrapper
+    starts a session, so sudo/agcli/timeout descendants are all inside it),
+    escalate to SIGKILL after a grace period, then sweep anything left in the
+    SESSION.  Returns the residual member count (0 = verified empty)."""
+    if os.name != "posix":
         proc.kill()
         try:
             proc.wait(timeout=15)
         except subprocess.TimeoutExpired:  # pragma: no cover
             pass
+        return 0
+    try:
+        pgid = os.getpgid(proc.pid)
+        sid = os.getsid(proc.pid)
+    except ProcessLookupError:
+        return 0
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            break
+        try:
+            proc.wait(timeout=15)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    else:
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:  # pragma: no cover - last resort
+            pass
+    return sweep_session(sid)
 
 
 def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
@@ -461,10 +644,12 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
                    S4_PASS1_TURNS=str(args.pass1_turns),
                    S4_PASS2_TURNS=str(args.pass2_turns))
         if os.name == "posix" and euid() == 0:
-            agent_uid = allocate_agent_uid(Path(args.out), name)
+            agent_uid = allocate_agent_uid(Path(args.out), name, run_id)
             control_write(Path(args.out), name, "agent_uid", str(agent_uid))
+            # R3-B1: hand the prepared inputs to THIS uid only (0700)
+            harden_task_dir(tdir, agent_uid)
             env["S4_AGENT_UID"] = str(agent_uid)
-            log(f"[uid] {tid} agent uid={agent_uid}")
+            log(f"[uid] {tid} agent uid={agent_uid} (task dir 0700, own uid)")
 
         log(f"[run] {tid} -> {tdir}")
         cmd = ["bash", f"{AG}/scripts/run_agent_task.sh", tid, str(tdir), str(args.out)]
@@ -478,8 +663,9 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
             except subprocess.TimeoutExpired:
                 rc = 124
                 log(f"[timeout] {tid} after {args.task_timeout}s; killing the process group")
-                kill_task_tree(proc)
-                log(f"[timeout] {tid} process group terminated")
+                residual = kill_task_tree(proc)
+                log(f"[timeout] {tid} process group terminated, "
+                    f"session residual={residual}")
         else:  # Windows local tests
             try:
                 proc = subprocess.run(cmd, stdout=logfh, stderr=subprocess.STDOUT,
@@ -585,12 +771,14 @@ def main() -> int:
     for d in (out, out / "rows", out / "logs", task_base, ws_root):
         d.mkdir(parents=True, exist_ok=True)
     # R3: the run dirs stay ROOT-owned.  task_base gets per-task subdirs
-    # chowned to the prep user; ws_root is 0711 root:root so each per-task
-    # agent uid can reach ITS OWN 0700 workspace but not list its siblings.
+    # chowned to the prep user for gen, then to the per-task agent uid 0700
+    # (R3-B1); task_base and ws_root are 0711 root:root so each per-task uid
+    # can reach ITS OWN dir but cannot list its siblings.
     init_control_plane(out)
     if os.name == "posix" and euid() == 0:
         os.chmod(ws_root, 0o711)
-        os.chmod(task_base, 0o755)
+        os.chmod(task_base, 0o711)
+        os.chown(task_base, 0, 0)
 
     # R2 MAJOR: multi-worker locking needs a local filesystem
     lockable, fstype = assert_local_lockable(out, multi_worker=args.workers > 1)

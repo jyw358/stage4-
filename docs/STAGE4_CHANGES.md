@@ -67,6 +67,25 @@ MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 
 （`sudo -l -U s4agent`、`namei -l`、`find \( -perm /022 -o -type l \)`、
 每题 uid 负向读测试等）见 STAGE4_DEPLOY.md 第 2/4/9 节。
 
+## 0.6 R3 复审修复（跨题准备目录隔离等）
+
+第三轮复审（R3 修订复审）裁决 REQUEST CHANGES，核心确认 R3 三项阻断点已修，
+但发现准备目录仍可跨题读取。本轮按下表落地：
+
+| 编号 | 问题 | 处理 |
+|---|---|---|
+| R3-B1（P0） | 准备目录 0755（naco 所有）→ uid_A 可读 task_B 的 description.txt/submit.sh | `harden_task_dir()`：prep 期间 0700 naco（gen 写），prep 结束后整树 chown 给**本题 uid**、目录 0700；`task_base` 改 root:root 0711（可遍历不可列）；wrapper 启动前复核 `mode=700` 且属主 = 控制面 uid，不符 REFUSE；verify 新增 `taskdir_open`/`taskdir_unbound` 验收 |
+| R3-B2（P1） | uid 池只保证 run 内不复用，跨 run 可能重发 30001 读到旧 0700 文件 | 新增**宿主机级只增不减 UID 注册表**（`S4_UID_STATE`，默认 `/var/lib/cybergym/stage4/uid_registry.json`，root 0700/0600）：已发号永不再发，跨 run 隔离由构造保证；注册表损坏 fail-closed |
+| R3-M1 | 控制面只校验最后一级目录，祖先链可被替换；树审计不覆盖 `--out` | `ancestors_trusted()`：从 `/` 到 `--out` 的每一级必须 root 所有、非 group/other 可写、无符号链接；`init_control_plane`、`control_write`、verify 控制面检查全部复用 |
+| R3-M2 | wrapper 用 `${S4_AGENT_UID:-control}`，只校验"是数字"，可跑未签发的 uid | 新增 `scripts/validate_agent_uid.py`（可单测的纯函数）：**控制面 uid 为准**，环境变量存在时必须严格相等；拒绝 uid 0、prep 身份 uid、池外 uid；wrapper 以它为准 |
+| R3-M3 | promoter 失败被降级 WARN，仍跑第二段、照常写行 | `promote_or_fail`：失败立即记录 `evidence_error` 行并以 rc=6 终止，**不跑第二段**；verify 把 `evidence_error` 计入 `INFRA_FAILURE`（pilot 必须清零） |
+| R3-M4 | 进程组清理不能证明 setsid 后代已清空 | `kill_task_tree` 在 SIGTERM/SIGKILL 后按**会话号**扫描 `/proc` 补杀并复查，返回残留数（写入 log）；真正 setsid 另开会话的后代仍需 cgroup/systemd scope，已作为残留风险写入部署手册第 9 节 |
+
+新增测试（本轮 +17，共 133 项）：宿主机级 UID 注册表（跨 run 不复用/归属
+记录/损坏 fail-closed）、`resolve_agent_uid` 六种拒绝场景、`/proc` 会话扫描
+（含 comm 内含空格的解析）、任务目录私有化、`evidence_error` 计入覆盖率
+失败。
+
 ## 1. 证据模型
 
 每题有三份互相独立的记录，评分时**必须一致**：
@@ -182,10 +201,12 @@ MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 
 
 ## 6. 本地验证
 
-- 单元测试：`python -m unittest discover -s tests`（116 项，含第二轮回归与
-  第三轮隔离回归：`tests/test_trusted_boot.py` 覆盖树审计分类规则/控制面绑定/
-  复用校验/uid 池；`tests.test_stage4_driver` 新增 promoter 硬化反例；Windows
-  沙箱下需避开既有 `tempfile` 测试，见 `tests/_scratch.py`）
+- 单元测试：`python -m unittest discover -s tests`（133 项，含第二轮回归、
+  第三轮隔离回归与 R3 复审回归：`tests/test_trusted_boot.py` 覆盖树审计分类
+  规则/控制面绑定/复用校验/uid 池/宿主机 uid 注册表/uid 解析/会话扫描；
+  `tests.test_stage4_driver` 含 promoter 硬化反例；`tests.test_verify_stage4`
+  含控制面/账本冲突/evidence_error 覆盖率反例。Windows 沙箱下需避开既有
+  `tempfile` 测试，见 `tests/_scratch.py`）
 - 端到端评分冒烟：`python smoke_score.py`（本地 HTTP `/query-poc`，验证
   final-only、ledger 对齐、mismatch fail-closed 三个场景 + 受保护账本验收）
 - 工作区/行冒烟：`python smoke_stage4.py`（评分前验收必须失败——B9/B10 语义）

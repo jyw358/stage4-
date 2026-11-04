@@ -15,6 +15,13 @@
 > | 账本信任描述失实；promoter 保留不可信预写值 | 信任模型重述为“root 封存的不可信提交声明”；promoter 强制覆盖身份值、坏行硬失败、同 ID 异哈希单列 conflicts |
 > | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 116 项单测 + 双 smoke 全过；上机检查清单见部署手册第 9 节（sudo '#uid' 语义/负向读测试等需真实主机验证） |
 >
+> **R3 复审（第二轮）**：裁决 REQUEST CHANGES，唯一 P0 是“准备目录仍可跨题
+> 读取”（R3-B1）。已修复：题目录 prep 后整树归本题 uid + 0700、父级 0711、
+> wrapper 复核属主/模式、verify 报 `taskdir_open`；同时处理 uid 跨 run 复用
+> （宿主机只增不减注册表）、控制面祖先链校验、wrapper uid 强绑定、promoter
+> 失败硬停、`/proc` 会话扫描。详见 STAGE4_CHANGES.md 第 0.6 节。setsid
+> 另开会话的后代仍需 cgroup（未实现，已列为上机残留项）。
+>
 > 与原提案的差异：部署根从 `/home/naco/work/cybergym-agent` 改为
 > `/opt/cybergym-agent`（root 独占，文档 `chown naco:naco` 一行是 T1 反模式，
 > 已删除）；agcli 改 `/usr/local/bin/agcli`（无需开放 /home/naco 遍历）；

@@ -30,10 +30,11 @@ cybergym-agent/
     record_task_row.py   会话 + 账本 → 行；两段统计相加
     verify_stage4.py     数据完整性 + 执行覆盖率双维验收（R3: +控制面绑定/账本冲突）
     promote_ledger.py    root 侧账本收割（R3: 身份强制覆盖 / 坏行硬失败 / 冲突单列）
+    validate_agent_uid.py wrapper 的 uid 裁决（R3-M2: 控制面为准，拒绝 0/prep/池外）
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（116 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（133 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
@@ -53,7 +54,8 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 116 tests ... OK（含第二轮 B7-B12 回归 + 第三轮隔离回归）
+# 预期：Ran 133 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
+#       R3 复审回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -122,5 +124,19 @@ python3 smoke_score.py
     （rc=4）；受保护账本重述为“root 封存的不可信提交声明”，权威在服务器
     final 记录+哈希门禁；verify 报 `control_missing`/`control_mismatch`/
     `ledger_conflict`，控制面缺席即 warning（`control_plane_absent`）。
+
+R3 复审修复：
+
+20. 准备目录不再跨题可读：prep 期间 0700（仅 naco 写），prep 结束整树
+    chown 给本题 uid + 0700，`task_base` root:root 0711；wrapper 复核
+    属主/模式，verify 报 `taskdir_open`/`taskdir_unbound`（B1）。
+21. UID 发号改为**宿主机级只增不减注册表**（`S4_UID_STATE`），跨 run 也不
+    复用，注册表损坏 fail-closed（B2）。
+22. 控制面祖先链逐级校验（root 所有 / 非 group·other 可写 / 无符号链接），
+    不再只信任最后一级目录（M1）。
+23. wrapper 的 uid 只信控制面：新增 `validate_agent_uid.py`（环境变量存在
+    必须严格相等，拒绝 0/prep/池外）（M2）；promoter 失败立即记
+    `evidence_error`、rc=6、不跑第二段（M3）；超时清理追加 `/proc` 会话
+    扫描复查（M4，setsid 另开会话仍需 cgroup，见部署手册第 9 节）。
 
 评审请优先攻击这些主张，而不是重述它们。
