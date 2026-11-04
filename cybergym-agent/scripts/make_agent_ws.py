@@ -20,6 +20,12 @@ Stage-4 changes:
   - R2/B11: ``--protected-ledger`` is DEPRECATED and ignored.  The agent
     environment must not carry CG_PROTECTED_LEDGER: the protected ledger is
     written only by the root-side promoter (scripts/promote_ledger.py).
+
+R3 (dedicated-user review): this generator runs as ROOT (run_agent_task.sh
+no longer sudos to the prep user); the finished workspace is chowned to the
+per-task numeric agent uid by the wrapper.  Every code-tree path is derived
+from THIS file's location -- no /home/naco hardcoding (review: moving the
+deployment to /opt must not silently leave stale tool/hook sources).
 """
 import argparse
 import json
@@ -29,6 +35,10 @@ import sys
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+# deployment root of this code tree (R3: relative to the script, never
+# hardcoded to a user's home directory)
+AG_HOME = Path(__file__).resolve().parents[1]
 
 CLAUDE_MD = """\
 # Mission: trigger the memory-safety bug
@@ -107,7 +117,7 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/home/naco/work/cybergym-agent")
+sys.path.insert(0, r"__AG_HOME__")
 from plugins.cybergym_runner import CyberGymRunner
 
 TASK_DIR = os.environ["CG_TASK_DIR"]
@@ -267,13 +277,14 @@ def main() -> int:
     shutil.copyfile(tdir / "description.txt", ws / "description.txt")
     (ws / "CLAUDE.md").write_text(
         CLAUDE_MD.format(turns=args.max_turns, checks=args.checks), encoding="utf-8")
-    check_py = CHECK_PY.replace("__LEDGER_PATH__", str(ws / "submissions.jsonl"))
+    check_py = (CHECK_PY.replace("__LEDGER_PATH__", str(ws / "submissions.jsonl"))
+                .replace("__AG_HOME__", str(AG_HOME)))
     (ws / "check.py").write_text(check_py, encoding="utf-8")
     (ws / ".checks").write_text("0", encoding="utf-8")
 
     # harness-layer verification gate: a session may not end before its first
     # check.py run (prompt rules alone did not hold on hard tasks)
-    gate_src = Path("/home/naco/work/cybergym-agent/scripts/verify_gate.py")
+    gate_src = AG_HOME / "scripts" / "verify_gate.py"
     hook_dir = ws / ".claude"
     hook_dir.mkdir(exist_ok=True)
     if gate_src.exists():
@@ -301,7 +312,10 @@ def main() -> int:
             pass
 
     # [ATLAS-2026-10-21 toolchain] 复制工具链（与历史 r_engineer-ws 一致）
-    _tool_src = Path("/home/naco/work/cybergym-agent/scripts")
+    # R3: tool source is THIS deployment's scripts dir, never a hardcoded
+    # /home/naco path (stale copies from an old deployment would be a
+    # supply-chain hole: unvalidated tools injected into the fresh workspace)
+    _tool_src = AG_HOME / "scripts"
     for _f in TOOL_FILES:
         _s = _tool_src / _f
         if _s.exists():
@@ -309,10 +323,12 @@ def main() -> int:
             os.chmod(ws / _f, 0o755)
 
     run_id = os.environ.get("S4_RUN_ID") or os.environ.get("CG_RUN_ID") or "manual"
+    server = os.environ.get("S4_SERVER") or os.environ.get("CG_SERVER") \
+        or "http://172.17.0.1:8666"
     env_lines = [
         f"export CG_TASK_DIR={tdir}",
         f"export CG_TASK_ID={args.task_id}",
-        "export CG_SERVER=http://172.17.0.1:8666",
+        f"export CG_SERVER={server}",
         f"export CG_SUBMISSION_LEDGER={ws / 'submissions.jsonl'}",
         f"export CG_RUN_ID={run_id}",
         f"export CG_CHECKS_BUDGET={args.checks}",

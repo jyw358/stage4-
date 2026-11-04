@@ -29,6 +29,21 @@ R2 fixes:
       a UUID suffix and archiving happens under the results lock; task-id ->
       file-name collisions are refused up front; the filesystem under --out
       must support local locking for multi-worker runs.
+
+R3 fixes (dedicated-user review):
+  T1  trust is established by the ROOT-SIDE launcher (root_code/stage4.sh +
+      root_code/assert_code_tree.py, deployed outside the code tree) BEFORE
+      this process starts; this module keeps only a narrow defensive lstat
+      check for the exact files it imports (a check inside the tree cannot
+      establish trust by itself).
+  ID  three identities: root (driver/scoring/promotion), S4_PREP_USER
+      (default naco: gen_task + task-dir prep only), and ONE NUMERIC UID PER
+      TASK for the agent (S4_AGENT_UID_BASE pool, never reused within a run)
+      -- a single shared agent UID cannot isolate same-batch workspaces.
+  CP  per-task control-plane binding under <out>/control/<task>/ (root:root
+      0700, O_NOFOLLOW writes): run_id, expected agent_id and submit.sh
+      sha256.  Reuse requires the binding to still match; the workspace
+      marker is demoted to a legacy hint.
 """
 from __future__ import annotations
 
@@ -50,12 +65,49 @@ try:  # POSIX only; the driver never runs on Windows in production
 except ImportError:  # pragma: no cover
     pwd = None
 
-AG = os.environ.get("S4_AGENT_HOME", "/home/naco/work/cybergym-agent")
+AG = os.environ.get("S4_AGENT_HOME", "/opt/cybergym-agent")
 REPO = os.environ.get("S4_REPO", "/home/naco/work/cybergym")
 DATA = os.environ.get("S4_DATA", "/data/cybergym/cybergym_data/data")
 SERVER = os.environ.get("S4_SERVER", "http://172.17.0.1:8666")
+# prep identity (gen_task + task-dir writes): deliberately SEPARATE from the
+# agent identity -- an agent that shares the prep account could read other
+# tasks' prepared inputs (dedicated-user review, question 4).
+PREP_USER = os.environ.get("S4_PREP_USER", "naco")
+# per-task agent UIDs are allocated from this pool (R3: one UID per task)
+AGENT_UID_BASE = int(os.environ.get("S4_AGENT_UID_BASE", "30001"))
+AGENT_UID_SPAN = int(os.environ.get("S4_AGENT_UID_SPAN", "4096"))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+
+def _defensive_tree_check() -> None:
+    """Defense-in-depth ONLY: lstat the exact import surface of this module
+    before importing it.  The authoritative audit runs BEFORE python starts
+    (root_code/assert_code_tree.py, deployed outside this tree)."""
+    if os.name != "posix" or (pwd and hasattr(os, "geteuid")
+                              and os.geteuid() != 0):
+        return
+    import stat as _st
+    base = Path(__file__).resolve().parents[1]
+    targets = [base, base / "plugins", base / "plugins" / "__init__.py",
+               base / "plugins" / "results_store.py",
+               base / "plugins" / "locks.py"]
+    for t in targets:
+        try:
+            st = os.lstat(t)
+        except OSError:
+            continue
+        if _st.S_ISLNK(st.st_mode):
+            raise SystemExit(f"REFUSE: {t} is a symlink (untrusted tree)")
+        if st.st_mode & (_st.S_IWGRP | _st.S_IWOTH):
+            raise SystemExit(f"REFUSE: {t} is group/other-writable "
+                             "(T1: root-run code must be go-w free)")
+        if st.st_uid != 0 and os.geteuid() != st.st_uid:
+            raise SystemExit(f"REFUSE: {t} owned by uid={st.st_uid}, not root")
+
+
+_defensive_tree_check()
+
 from plugins import results_store  # noqa: E402
 from plugins.locks import FileLock, LockBusy, assert_local_lockable  # noqa: E402
 
@@ -78,16 +130,187 @@ def atomic_write(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def chown_naco(path) -> None:
-    """gen_task and the workspace generator run as naco: the dirs they write
-    into must be owned by naco even though this driver runs as root."""
+def chown_prep(path) -> None:
+    """gen_task runs as PREP_USER (default naco): the dirs it writes into
+    must be owned by that account.  R3: fail-closed -- a silent chown failure
+    would leave prep dirs unusable or, worse, mixed-ownership; review noted
+    the old swallow-everything version must not survive the migration."""
     if pwd is None or euid() != 0:
         return
     try:
-        pw = pwd.getpwnam("naco")
+        pw = pwd.getpwnam(PREP_USER)
+    except KeyError:
+        raise SystemExit(f"prep user {PREP_USER!r} does not exist "
+                         "(S4_PREP_USER; see STAGE4_DEPLOY.md)")
+    try:
         os.chown(path, pw.pw_uid, pw.pw_gid)
-    except (KeyError, OSError):
-        pass
+    except OSError as e:
+        raise SystemExit(f"chown {path} -> {PREP_USER} failed: {e}")
+
+
+# ---- R3: per-task control-plane binding (<out>/control/<task>/) -----------
+CONTROL_KEYS = ("run_id", "agent_id", "submit_sha256", "agent_uid")
+
+
+def control_root(out: Path) -> Path:
+    return Path(out) / "control"
+
+
+def init_control_plane(out: Path) -> None:
+    """<out>/control is root:root 0700: the ONLY place the run/task identity
+    binding lives.  Task dirs and workspaces are owned by untrusted accounts
+    and treated as replaceable input copies."""
+    d = control_root(out)
+    d.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix" and euid() == 0:
+        os.chown(d, 0, 0)
+        os.chmod(d, 0o700)
+
+
+def control_dir_trusted(d: Path) -> tuple:
+    """(ok, reason): the control dir itself must be a real, root-owned,
+    go-w-free directory (review Q5: an agent-writable parent could swap the
+    files inside it)."""
+    if os.name != "posix" or euid() != 0:
+        return True, ""
+    import stat as _st
+    try:
+        st = os.lstat(d)
+    except OSError as e:
+        return False, f"lstat {d} failed: {e}"
+    if _st.S_ISLNK(st.st_mode):
+        return False, f"{d} is a symlink"
+    if st.st_uid != 0:
+        return False, f"{d} owned by uid={st.st_uid}, not root"
+    if st.st_mode & (_st.S_IWGRP | _st.S_IWOTH):
+        return False, f"{d} is group/other-writable"
+    return True, ""
+
+
+def control_write(out: Path, name: str, key: str, value: str) -> None:
+    """Write one control-plane field with O_NOFOLLOW + atomic replace, so a
+    pre-planted symlink can never redirect a root write (review Q5/B)."""
+    d = control_root(out) / name
+    d.mkdir(parents=True, exist_ok=True)
+    ok, why = control_dir_trusted(d)
+    if not ok:
+        raise SystemExit(f"control plane for {name} is not trustworthy: {why}")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    tmp = d / f".{key}.tmp.{os.getpid()}"
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        os.write(fd, (value.rstrip("\n") + "\n").encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, d / key)   # rename replaces a symlink, never follows it
+    if os.name == "posix" and euid() == 0:
+        os.chmod(d / key, 0o600)
+
+
+def control_read(out: Path, name: str) -> dict:
+    """All control-plane fields present for a task (missing files -> {})."""
+    d = control_root(out) / name
+    vals = {}
+    for key in CONTROL_KEYS:
+        p = d / key
+        if p.exists():
+            try:
+                vals[key] = p.read_text(encoding="utf-8").strip()
+            except OSError:
+                pass
+    return vals
+
+
+def submit_sha256(tdir: Path) -> str:
+    data = (Path(tdir) / "submit.sh").read_bytes()
+    return hashlib.sha256(data).hexdigest()
+
+
+def submit_agent_id(tdir: Path) -> str:
+    """Expected agent_id as baked into submit.sh by gen_task."""
+    from plugins.cybergym_runner import parse_submit_sh  # noqa: PLC0415
+    try:
+        return str(parse_submit_sh(str(Path(tdir))).get("agent_id") or "")
+    except Exception:
+        return ""
+
+
+def pick_free_uid(start: int, taken: set, exists=None, span: int = AGENT_UID_SPAN) -> int:
+    """First uid in [start, start+span) that has no passwd entry and is not
+    already assigned within this run (pure; unit-tested)."""
+    exists = exists or (lambda u: False)
+    for uid in range(int(start), int(start) + int(span)):
+        if uid in taken:
+            continue
+        if exists(uid):
+            continue
+        return uid
+    raise RuntimeError(f"agent uid pool exhausted in [{start}, {start + span})")
+
+
+def allocate_agent_uid(out: Path, name: str) -> int:
+    """R3: ONE numeric uid per task, never reused within the run.  A single
+    shared agent uid cannot isolate same-batch workspaces (chmod 700 does not
+    separate two processes with the same uid)."""
+    alloc_path = control_root(out) / "uid_alloc.json"
+    with FileLock(str(control_root(out) / ".uid.lock")):
+        alloc = {}
+        if alloc_path.exists():
+            try:
+                alloc = json.loads(alloc_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                alloc = {}
+        taken = {int(v) for v in alloc.values() if str(v).isdigit()}
+        taken.add(AGENT_UID_BASE - 1)  # keep clear of the pool floor
+        if pwd is not None:
+            for pw in pwd.getpwall():
+                taken.add(pw.pw_uid)
+        uid = pick_free_uid(AGENT_UID_BASE, taken,
+                            exists=lambda u: _uid_exists(u))
+        alloc[name] = uid
+        atomic_write(alloc_path, json.dumps(alloc, indent=1, sort_keys=True))
+        if os.name == "posix" and euid() == 0:
+            os.chmod(alloc_path, 0o600)
+        return uid
+
+
+def _uid_exists(uid: int) -> bool:
+    if pwd is None:
+        return False
+    try:
+        pwd.getpwuid(uid)
+        return True
+    except KeyError:
+        return False
+
+
+def validate_reuse(tdir: Path, control: dict, run_id: str) -> tuple:
+    """(ok, reason) for reusing a pre-generated task dir: the control-plane
+    binding must exist, belong to THIS run, and still match the submit.sh on
+    disk (review Q5-C: a marker alone never bound submit.sh's content)."""
+    if not control:
+        return False, (f"{tdir} has submit.sh but no control-plane binding "
+                       "(<out>/control); regenerate the task dir")
+    if control.get("run_id") != run_id:
+        return False, (f"{tdir} control-plane binding belongs to run "
+                       f"{control.get('run_id')!r}, not {run_id!r}")
+    want = control.get("submit_sha256")
+    if not want:
+        return False, "control-plane binding has no submit_sha256"
+    have = submit_sha256(tdir)
+    if have != want:
+        return False, (f"{tdir}/submit.sh changed since prep "
+                       f"(sha256 {have} != binding {want}); regenerate")
+    want_agent = control.get("agent_id")
+    if want_agent:
+        have_agent = submit_agent_id(tdir)
+        if have_agent != want_agent:
+            return False, (f"{tdir}/submit.sh agent_id {have_agent!r} != "
+                           f"binding {want_agent!r}; regenerate")
+    return True, ""
 
 
 def load_queue(path: Path) -> list:
@@ -108,29 +331,33 @@ def queue_digest(queue: list) -> str:
     return hashlib.sha256("\n".join(queue).encode()).hexdigest()[:16]
 
 
-def prepare_task(tid: str, task_base: Path, run_id: str, log) -> tuple[bool, str]:
-    """Prepare the task dir.  A pre-generated dir is only reused when it was
-    created by THIS run: submit.sh carries a run-scoped agent_id, and reusing a
-    stage-3/older dir would mix old server records into this run's final.
+def prepare_task(tid: str, task_base: Path, out: Path, run_id: str, log) -> tuple:
+    """Prepare the task dir.  A pre-generated dir is only reused when the
+    ROOT-OWNED control-plane binding says it was created by THIS run AND its
+    submit.sh still hashes to the bound value.
 
-    R2 MAJOR: the run marker is root-owned 0644 and must still be root-owned
-    on reuse -- the run/agent binding must not be re-writable by the untrusted
-    execution account that owns the task dir."""
-    tdir = task_base / tid.replace(":", "_")
+    R3: the old .stage4_run_id marker (root-owned file inside a PREP-user-
+    owned directory) is NOT a trust anchor -- the prep account can replace
+    the directory entry.  It is still written, but only as a legacy hint;
+    the binding lives in <out>/control/<task>/ (root:root 0700)."""
+    name = tid.replace(":", "_")
+    tdir = task_base / name
     marker = tdir / ".stage4_run_id"
     if (tdir / "submit.sh").exists():
-        if marker.exists() and marker.read_text(encoding="utf-8").strip() == run_id:
-            if os.name == "posix" and euid() == 0 and marker.stat().st_uid != 0:
-                return False, (f"{marker} is not root-owned; run/agent binding "
-                               "is not trustworthy (regenerate the task dir)")
-            return True, ""
-        return False, (f"{tdir} has submit.sh but no marker for run {run_id}; "
-                       "refusing to reuse a pre-generated agent_id "
-                       "(use a fresh --task-base)")
+        ok, why = validate_reuse(tdir, control_read(out, name), run_id)
+        if not ok:
+            return False, why
+        # legacy marker: refuse an obviously foreign one, ignore absence
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() != run_id:
+            return False, (f"{marker} belongs to another run; regenerate "
+                           "the task dir")
+        return True, ""
     tdir.mkdir(parents=True, exist_ok=True)
-    chown_naco(tdir)
+    chown_prep(tdir)
+    if os.name == "posix" and euid() == 0:
+        os.chmod(tdir, 0o755)   # prep user writes; others only traverse/read
     cmd = [
-        "sudo", "-u", "naco", "env", f"PYTHONPATH={REPO}/src",
+        "sudo", "-u", PREP_USER, "env", f"PYTHONPATH={REPO}/src",
         "/usr/bin/python3.12", "-m", "cybergym.task.gen_task",
         "--task-id", tid, "--out-dir", str(tdir),
         "--data-dir", DATA, "--server", SERVER,
@@ -145,11 +372,35 @@ def prepare_task(tid: str, task_base: Path, run_id: str, log) -> tuple[bool, str
     if not (tdir / "submit.sh").exists():
         tail = (proc.stderr or proc.stdout or "")[-400:].replace("\n", " ")
         return False, f"gen_task failed rc={proc.returncode}: {tail}"
-    marker.write_text(run_id + "\n", encoding="utf-8")
+
+    # bind identity in the control plane FIRST (root-only dir), marker second
+    control_write(out, name, "run_id", run_id)
+    control_write(out, name, "submit_sha256", submit_sha256(tdir))
+    control_write(out, name, "agent_id", submit_agent_id(tdir))
+    try:
+        _marker_write(marker, run_id)
+    except OSError as e:
+        log(f"[warn] marker write failed (binding is in control plane): {e}")
+    return True, ""
+
+
+def _marker_write(marker: Path, run_id: str) -> None:
+    """Legacy marker with O_NOFOLLOW + rename (never follows a pre-planted
+    symlink); root-owned 0644 inside the prep-owned task dir."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    tmp = marker.with_name(f".{marker.name}.tmp.{os.getpid()}")
+    fd = os.open(tmp, flags, 0o644)
+    try:
+        os.write(fd, (run_id + "\n").encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, marker)
     if os.name == "posix" and euid() == 0:
         os.chown(marker, 0, 0)
         os.chmod(marker, 0o644)
-    return True, ""
 
 
 def kill_task_tree(proc: subprocess.Popen) -> None:
@@ -195,7 +446,7 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
             logfh.write(msg.rstrip() + "\n")
             logfh.flush()
 
-        ok, err = prepare_task(tid, task_base, run_id, log)
+        ok, err = prepare_task(tid, task_base, Path(args.out), run_id, log)
         if not ok:
             results_store.merge_row(args.out, tid, {
                 "task_id": tid, "run_id": run_id, "status": "gen_fail",
@@ -204,11 +455,19 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
             })
             return {"task_id": tid, "status": "gen_fail", "error": err}
 
-        log(f"[run] {tid} -> {tdir}")
-        cmd = ["bash", f"{AG}/scripts/run_agent_task.sh", tid, str(tdir), str(args.out)]
+        # R3: one numeric uid per task; the wrapper runs the agent as
+        # "#<uid>" with a private HOME/TMPDIR/XDG inside the 0700 workspace
         env = dict(os.environ, S4_RUN_ID=run_id, S4_WSROOT=str(args.ws_root),
                    S4_PASS1_TURNS=str(args.pass1_turns),
                    S4_PASS2_TURNS=str(args.pass2_turns))
+        if os.name == "posix" and euid() == 0:
+            agent_uid = allocate_agent_uid(Path(args.out), name)
+            control_write(Path(args.out), name, "agent_uid", str(agent_uid))
+            env["S4_AGENT_UID"] = str(agent_uid)
+            log(f"[uid] {tid} agent uid={agent_uid}")
+
+        log(f"[run] {tid} -> {tdir}")
+        cmd = ["bash", f"{AG}/scripts/run_agent_task.sh", tid, str(tdir), str(args.out)]
         rc = None
         if os.name == "posix":
             # B12: own session per task -> the whole tree is killable on timeout
@@ -325,8 +584,13 @@ def main() -> int:
     ws_root = Path(args.ws_root or "/data/cybergym/stage4/r_engineer-ws")
     for d in (out, out / "rows", out / "logs", task_base, ws_root):
         d.mkdir(parents=True, exist_ok=True)
-    chown_naco(task_base)
-    chown_naco(ws_root)
+    # R3: the run dirs stay ROOT-owned.  task_base gets per-task subdirs
+    # chowned to the prep user; ws_root is 0711 root:root so each per-task
+    # agent uid can reach ITS OWN 0700 workspace but not list its siblings.
+    init_control_plane(out)
+    if os.name == "posix" and euid() == 0:
+        os.chmod(ws_root, 0o711)
+        os.chmod(task_base, 0o755)
 
     # R2 MAJOR: multi-worker locking needs a local filesystem
     lockable, fstype = assert_local_lockable(out, multi_worker=args.workers > 1)

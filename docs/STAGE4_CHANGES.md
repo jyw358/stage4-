@@ -43,6 +43,30 @@
 `batch_summary.json` 全部原子写；`.stage4_run_id` marker root 属主校验。
 MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 violation）。
 
+## 0.5 第三轮评审修复（专用用户隔离实施）
+
+评审对《专用用户隔离提案》（commit f622b7c）的裁决：T1（树信任）成立 P0；
+专用用户方向 APPROVE；但 3.2 补丁 REQUEST CHANGES——单一 UID 不批准作为唯一
+隔离措施、gen_task 不得与 agent 同 UID、root marker 现有检查不充分、账本
+信任描述失实。本轮按裁决**真实落地**（部署路径 `/opt/cybergym-agent`，
+见 STAGE4_DEPLOY.md）：
+
+| 评审阻断点 | 处理 |
+|---|---|
+| 信任必须在 Python 启动前建立 | 新增 root 侧可信启动器：`root_code/stage4.sh`（部署 `/root/`）在 exec python 前 ①清掉树内 `__pycache__` ②调用 `root_code/assert_code_tree.py`（部署 `/root/`，stdlib-only，不从被审计树 import 任何东西）审计全树+全部祖先（符号链接/go-w/非 root 属主/`__pycache__`/prep·agent 用户可写祖先全部拒绝）。`stage4.py` 内保留**防御性**早断言（仅 lstat 即将 import 的面），明确注释它不是信任来源 |
+| 单一 UID 不能隔离同批工作区 | 每题分配**唯一数字 uid**：driver 在控制面锁内从 `S4_AGENT_UID_BASE`（默认 30001）池取号（跳过 passwd 已有 uid），run 内不复用；wrapper 以 `sudo -u '#<uid>'` 跑 agent，显式 env（无 `--preserve-env`）：私有 `HOME/.tmp/XDG_*/CLAUDE_CONFIG_DIR`（全新 0700）+ umask 077；ws 属主=该 uid、0700；ws 根 root:root 0711 |
+| gen_task 不得与 agent 同 UID | 身份三分离：root（驱动/评分/晋升）/ `S4_PREP_USER`（默认 naco，仅 gen_task+题目录）/ 每题 uid（仅本工作区）；`chown_prep` fail-closed（旧版吞异常） |
+| marker 绑定不可替换 | 控制面 `<out>/control/<task>/` root:root 0700：`run_id`/`agent_id`/`submit.sh` sha256/`agent_uid`，O_NOFOLLOW+原子替换写入；wrapper 消费前校验目录属主、run_id 一致、submit.sh 哈希一致、agent_id 一致，任一不符 REFUSE；复用题目录必须过 `validate_reuse`（哈希+agent_id），`.stage4_run_id` marker 降级为遗留提示 |
+| 账本信任描述失实 | `promote_ledger.py` docstring 按 R3 信任模型重写：受保护账本 = **root 复制并封存的不可信提交声明**，root 落盘不是独立见证；评分权威 = 服务器 final 记录 + 哈希门禁；可信提交代理列为分阶段目标 |
+| promoter 保留不可信预写值 | `setdefault` 改为 root 提供值**强制覆盖**（run_id/task_id/agent_id），预写值不一致直接 rc=5 拒绝；坏行/非 dict/缺 poc_id 一律硬失败 rc=2（不再 WARN+跳过）；同 poc_id 不同哈希 → 单列到 `<protected>.conflicts.jsonl` + rc=4，验收报 `ledger_conflict` |
+| 路径硬编码 `/home/naco/...` | 部署根改为 `/opt/cybergym-agent`（`S4_AGENT_HOME` 默认值）；`make_agent_ws.py` 的 gate/工具源/check.py 烘焙路径全部由脚本自身位置派生（`AG_HOME`）；agcli 改 `/usr/local/bin`（`S4_AGCLI`，免开 /home/naco 遍历）；`run.env` 的 CG_SERVER 走 env |
+| 验收未覆盖新防线 | `verify_stage4.py` 新增：控制面绑定核对（`control_missing`/`control_mismatch`，`<out>/control` 存在即强制）、`ledger_conflict` violation、控制面整体缺席 warning（`control_plane_absent`） |
+
+工作区生成器（`make_agent_ws.py`）改由 **root 直接运行**（读完题目录、产出
+新树后整体 chown 给每题 uid），准备身份只保留 gen_task；部署检查清单
+（`sudo -l -U s4agent`、`namei -l`、`find \( -perm /022 -o -type l \)`、
+每题 uid 负向读测试等）见 STAGE4_DEPLOY.md 第 2/4/9 节。
+
 ## 1. 证据模型
 
 每题有三份互相独立的记录，评分时**必须一致**：
@@ -55,8 +79,11 @@ MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 
    exit_code / output_sha256 / server`
 3. **受保护账本**（`<out>/protected_ledger/<task>.jsonl`，root:root 0644、
    `chattr +a`；由 root 侧 `scripts/promote_ledger.py` 在每段 agent 会话结束后
-   从工作区账本去重追加，agent 无任何写路径）：存在时评分只信它，工作区账本
-   退化为诊断数据；验收要求它存在、非空、逐行可解析。
+   从工作区账本校验后追加，agent 无任何写路径）：存在时评分只信它，工作区账本
+   退化为诊断数据；验收要求它存在、非空、逐行可解析。**R3 信任模型**：它封存
+   的是 root 复制的**不可信提交声明**——root 落盘不是独立见证，评分的权威仍是
+   服务器 final 记录 + 哈希门禁（伪造声明只能丢分不能得分）；可信提交代理是
+   分阶段目标。
 
 `plugins/evidence.py` 的规则（服务器是**唯一**的排序权威）：
 
@@ -131,9 +158,11 @@ MINOR：`_chown_root` 失败显式告警；缺成本不再按 0 汇总（单列 
     --out /data/cybergym/stage4/r_engineer --workers 3
 ```
 
-流程：`prepare_task`（gen_task，naco）→ `run_agent_task.sh`（root wrapper：
-fresh ws、agent 会话、第二段、写 row）→ `backfill_fix_side.sh`（补 fix 侧）→
-`score_all.py`（final-only + ledger）→ `verify_stage4.py`（5 项验收）。
+流程：`prepare_task`（gen_task，`S4_PREP_USER`，写入控制面绑定）→
+`run_agent_task.sh`（root wrapper：校验绑定、fresh ws、按每题唯一 uid +
+私有 HOME/TMPDIR/XDG 跑 agent、第二段、写 row）→ `backfill_fix_side.sh`
+（补 fix 侧）→ `score_all.py`（final-only + ledger）→ `verify_stage4.py`
+（数据完整性 + 执行覆盖率 + 控制面绑定验收）。
 
 续跑：同 `--out` 再跑一次，`run_id` 复用，终态行跳过。
 重跑失败：`--retry-failed`（只重跑 `official_success is False` 或
@@ -153,10 +182,10 @@ fresh ws、agent 会话、第二段、写 row）→ `backfill_fix_side.sh`（补
 
 ## 6. 本地验证
 
-- 单元测试：`python -m unittest discover -s tests`（85 项，含第二轮回归：
-  `tests.test_verify_stage4` 覆盖 B10 全部盲区反例，`tests.test_stage4_driver`
-  覆盖 B9 续跑选择、B12 进程清理回退与 B11 promote 语义；Windows 沙箱下需
-  避开既有 `tempfile` 测试，见 `tests/_scratch.py`）
+- 单元测试：`python -m unittest discover -s tests`（116 项，含第二轮回归与
+  第三轮隔离回归：`tests/test_trusted_boot.py` 覆盖树审计分类规则/控制面绑定/
+  复用校验/uid 池；`tests.test_stage4_driver` 新增 promoter 硬化反例；Windows
+  沙箱下需避开既有 `tempfile` 测试，见 `tests/_scratch.py`）
 - 端到端评分冒烟：`python smoke_score.py`（本地 HTTP `/query-poc`，验证
   final-only、ledger 对齐、mismatch fail-closed 三个场景 + 受保护账本验收）
 - 工作区/行冒烟：`python smoke_stage4.py`（评分前验收必须失败——B9/B10 语义）
@@ -180,9 +209,14 @@ fresh ws、agent 会话、第二段、写 row）→ `backfill_fix_side.sh`（补
 | `cybergym-agent/scripts/record_task_row.py` | 会话/账本 → 行（两段统计相加） |
 | `cybergym-agent/scripts/score_all.py` | 主机侧评分（最终提交 + ledger） |
 | `cybergym-agent/scripts/stage4.py` | 队列驱动（准备→跑→回填→评分→验收） |
-| `cybergym-agent/scripts/verify_stage4.py` | 数据完整性 + 执行覆盖率双维验收 |
-| `cybergym-agent/scripts/promote_ledger.py` | root 侧账本收割（B11：受保护账本唯一写入者） |
-| `root_code/stage4.sh` | 入口 |
+| `cybergym-agent/scripts/verify_stage4.py` | 数据完整性 + 执行覆盖率双维验收（R3：+控制面绑定/账本冲突） |
+| `cybergym-agent/scripts/promote_ledger.py` | root 侧账本收割（B11：受保护账本唯一写入者；R3：身份强制覆盖/坏行硬失败/冲突单列） |
+| `root_code/stage4.sh` | 可信启动器（T1：清 pycache → 树审计 → `python3 -B` exec） |
+| `root_code/assert_code_tree.py` | stdlib-only 树审计（部署 /root/，审计全树+祖先，拒绝符号链接/go-w/非 root 属主/不可信用户可写祖先） |
+
+第三轮新增测试：`tests/test_trusted_boot.py`（树审计规则/控制面/uid 池）、
+`tests/test_stage4_driver.py` 增 promoter 硬化 ×8、`tests/test_verify_stage4.py`
+增控制面/冲突 ×4。
 
 第二轮新增测试：`tests/test_verify_stage4.py`（B10 盲区反例 ×14）、
 `tests/test_stage4_driver.py`（B9 选择逻辑 / B12 清理回退 / B11 promote）。

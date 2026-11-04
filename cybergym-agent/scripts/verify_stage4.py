@@ -28,11 +28,22 @@ R2 changes (B10 + MAJORs):
   - scored/<task>.json is cross-checked against the row;
   - a missing cost_usd is a violation (not a counter), and the total never
     silently treats missing costs as 0.
+
+R3 changes (dedicated-user review):
+  - control-plane binding: when <out>/control exists (i.e. the run was
+    started by the R3 driver), every submitted row must have a root-owned
+    <out>/control/<task>/ whose run_id and agent_id match the row -- the
+    binding the driver established is the acceptance reference;
+  - ledger_conflict: a <protected>.conflicts.jsonl with content means the
+    root promoter saw the same poc_id with a DIFFERENT hash -- that is
+    tamper evidence, not a warning.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,6 +103,52 @@ def protected_ledger_state(out: Path, name: str):
     return True, True, str(prot)
 
 
+def control_binding_state(out: Path, name: str, row: dict):
+    """R3: (violation_kind, detail) for the per-task control-plane binding.
+    Only enforced when <out>/control exists (R3 driver layout)."""
+    croot = out / "control"
+    if not croot.is_dir():
+        return None, "control plane absent (pre-R3 run layout)"
+    cdir = croot / name
+    if not cdir.is_dir():
+        return "control_missing", f"{cdir} does not exist (binding not established)"
+    try:
+        if os.geteuid() == 0:  # best-effort trust check of the dir itself
+            st = os.lstat(cdir)
+            if stat.S_ISLNK(st.st_mode) or st.st_uid != 0:
+                return "control_mismatch", f"{cdir} is a symlink or not root-owned"
+    except (AttributeError, OSError):
+        pass
+    cvals = {}
+    for key in ("run_id", "agent_id"):
+        p = cdir / key
+        if p.exists():
+            try:
+                cvals[key] = p.read_text(encoding="utf-8").strip()
+            except OSError:
+                return "control_mismatch", f"{p} unreadable"
+    if not cvals:
+        return "control_missing", f"{cdir} has no binding fields"
+    if cvals.get("run_id") and row.get("run_id") and cvals["run_id"] != row["run_id"]:
+        return "control_mismatch", (f"control run_id={cvals['run_id']!r} != "
+                                    f"row run_id={row.get('run_id')!r}")
+    if cvals.get("agent_id") and row.get("agent_id") \
+            and cvals["agent_id"] != row["agent_id"]:
+        return "control_mismatch", (f"control agent_id={cvals['agent_id']!r} != "
+                                    f"row agent_id={row.get('agent_id')!r}")
+    return None, ""
+
+
+def ledger_conflicts(out: Path, name: str) -> bool:
+    """R3: True when the promoter recorded a same-poc_id/different-hash
+    conflict for this task."""
+    cpath = out / "protected_ledger" / f"{name}.jsonl.conflicts.jsonl"
+    try:
+        return cpath.exists() and cpath.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -117,6 +174,12 @@ def main() -> int:
     by_id = {r.get("task_id"): r for r in rows if r.get("task_id")}
     violations = []
     warnings = []
+    if not (out / "control").is_dir():
+        warnings.append({
+            "kind": "control_plane_absent", "task_id": None,
+            "detail": "<out>/control does not exist: this run was not started "
+                      "by the R3 driver; per-task identity bindings were not "
+                      "established and cannot be audited here"})
 
     def bad(kind, tid, detail):
         violations.append({"kind": kind, "task_id": tid, "detail": detail})
@@ -199,10 +262,19 @@ def main() -> int:
             elif not prot_parses:
                 bad("ledger_corrupt", tid,
                     f"protected ledger has unparseable lines ({prot_path})")
+            if ledger_conflicts(out, name):
+                bad("ledger_conflict", tid,
+                    "promoter recorded a same-poc_id/different-hash conflict "
+                    "(tamper evidence; see protected_ledger/*.conflicts.jsonl)")
             if row.get("ledger_source") and row["ledger_source"] != "protected":
                 bad("ledger_not_protected", tid,
                     f"scored from ledger_source={row['ledger_source']!r}; "
                     "only the root-written protected ledger is authoritative")
+
+            # ---- R3: the control-plane binding is the acceptance reference ---
+            ckind, cdetail = control_binding_state(out, name, row)
+            if ckind:
+                bad(ckind, tid, cdetail)
         else:
             if row.get("official_success") is not None:
                 bad("no_submission_scored", tid, "no submission but official_success set")

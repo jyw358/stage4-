@@ -22,27 +22,28 @@ cybergym-agent/
     env_manager.py       未改，RunOutcome 依赖
     diff_verifier.py     未改，测试依赖
   scripts/
-    make_agent_ws.py     工作区生成（--fresh / 无 intel / manifest / 白名单）
-    run_agent_task.sh    单题 root wrapper（两段会话、root 侧账本收割、写行）
-    stage4.py            队列驱动（阶段退出码传播 / 进程组清理 / run 锁）
+    make_agent_ws.py     工作区生成（--fresh / 无 intel / manifest / 白名单；R3: 路径自派生）
+    run_agent_task.sh    单题 root wrapper（R3: 控制面绑定 + 每题唯一 uid + 私有 HOME/TMPDIR）
+    stage4.py            队列驱动（阶段退出码传播 / 进程组清理 / run 锁 / 控制面 / uid 池）
     score_all.py         主机侧评分（最终提交 + ledger）
     score_task.py        单题评分（stage2/cleanpilot 路径）
     record_task_row.py   会话 + 账本 → 行；两段统计相加
-    verify_stage4.py     数据完整性 + 执行覆盖率双维验收
-    promote_ledger.py    root 侧账本收割（受保护账本唯一写入者，B11）
+    verify_stage4.py     数据完整性 + 执行覆盖率双维验收（R3: +控制面绑定/账本冲突）
+    promote_ledger.py    root 侧账本收割（R3: 身份强制覆盖 / 坏行硬失败 / 冲突单列）
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（85 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（116 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
-  stage4.sh              入口
+  stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
+  assert_code_tree.py    stdlib-only 树审计（部署 /root/，在 Python 启动前建立信任）
   score_all.sh           评分入口（薄包装）
   backfill_fix_side.sh   fix 侧回填
 docs/
   STAGE4_CHANGES.md      改了什么、fail-closed 状态表、已验证/未验证
-  STAGE4_DEPLOY.md       主机部署与 50 题 pilot 手册
-  PROPOSAL_DEDICATED_USER.md  专用运行用户隔离提案（未实施，待评审）
+  STAGE4_DEPLOY.md       主机部署与 50 题 pilot 手册（/opt 部署 + 隔离检查清单）
+  PROPOSAL_DEDICATED_USER.md  专用运行用户隔离提案（R3 已按评审裁决实施）
 smoke_stage4.py          本地冒烟：工作区 + 行 + 验收（评分前验收必须失败）
 smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + ledger
 ```
@@ -52,7 +53,7 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 85 tests ... OK（含第二轮 B7-B12 回归）
+# 预期：Ran 116 tests ... OK（含第二轮 B7-B12 回归 + 第三轮隔离回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -100,5 +101,26 @@ python3 smoke_score.py
     `scored/` 交叉核对、缺成本即 violation（B10）。
 14. 每题独立进程组，超时 SIGTERM→SIGKILL 整组清理后才归档/重试（B12）；
     `stage2.sh`/`cleanpilot.sh` 的 legacy 门禁先于 worker 子命令（MAJOR）。
+
+第三轮（专用用户隔离实施，R3）：
+
+15. 代码树的信任由 root 侧启动器在 **Python 启动前**建立：`/root/stage4.sh`
+    清 `__pycache__` 后运行 stdlib-only 的 `assert_code_tree.py`（部署在
+    /root/，不 import 被审计树），拒绝符号链接 / go-w / 非 root 属主 /
+    不可信用户可写祖先；`stage4.py` 内的 lstat 断言只是防御性兜底（T1）。
+16. 身份三分离且 fail-closed：root（驱动/评分/晋升）、`S4_PREP_USER`（默认
+    naco，仅 gen_task——绝不与 agent 同 uid）、每题**唯一数字 uid**
+    （池内取号、run 内不复用、跳过 passwd 已有 uid）。
+17. agent 会话以 `sudo -u '#<uid>'` + 显式 env 运行：全新 0700 的私有
+    HOME/TMPDIR/XDG_*/CLAUDE_CONFIG_DIR、umask 077、ws 属主=该 uid、
+    ws 根 root:root 0711（不能列兄弟目录）；`--preserve-env` 已删除。
+18. 控制面绑定 `<out>/control/<task>/`（root:root 0700，O_NOFOLLOW+原子写）
+    锁定 run_id/agent_id/submit.sh sha256/agent_uid；wrapper 消费前逐项校验，
+    复用题目录必须哈希+agent_id 全对得上（marker 降级为遗留提示）。
+19. `promote_ledger.py`：root 提供值强制覆盖（拒绝不可信预写值，rc=5）、
+    坏行/缺 poc_id 硬失败（rc=2）、同 poc_id 不同哈希单列 conflicts 文件
+    （rc=4）；受保护账本重述为“root 封存的不可信提交声明”，权威在服务器
+    final 记录+哈希门禁；verify 报 `control_missing`/`control_mismatch`/
+    `ledger_conflict`，控制面缺席即 warning（`control_plane_absent`）。
 
 评审请优先攻击这些主张，而不是重述它们。

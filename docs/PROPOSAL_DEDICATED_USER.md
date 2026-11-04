@@ -1,6 +1,28 @@
-# 提案：stage-4 专用运行用户（s4agent）——隔离加固，待评审
+# 提案：stage-4 专用运行用户（s4agent）——隔离加固
 
-状态：**提案，未实施**。先请评审 AI 评估方向与完备性，通过后再改代码。
+> ## 实施状态（R3，第三轮评审后更新）
+>
+> 状态：**已按第三轮评审裁决实施**（本文件保留原始提案文本作历史记录；
+> 真实实现见代码与 [STAGE4_CHANGES.md](STAGE4_CHANGES.md) 第 0.5 节、
+> [STAGE4_DEPLOY.md](STAGE4_DEPLOY.md) 第 2/4/9 节）。评审结论与落地对照：
+>
+> | 评审裁决 | 落地 |
+> |---|---|
+> | T1 成立（P0），且 3.2 的 `assert_code_tree_readonly()` 太晚太窄——信任必须由 root 拥有的外部启动脚本在 Python 启动前建立 | `root_code/stage4.sh` + `root_code/assert_code_tree.py` 部署到 `/root/`，exec 前审计全树+祖先；`stage4.py` 内仅留防御性早断言 |
+> | 单一 s4agent UID 不批准为唯一隔离措施（chmod 700 对同 UID 无效） | 每题唯一数字 uid（池 30001 起、run 内不复用），0700 私有工作区/HOME/TMPDIR/XDG |
+> | gen_task 不与 agent 同 UID | 保留独立准备身份 `S4_PREP_USER`（默认 naco）；`chown_prep` fail-closed |
+> | marker 绑定不可替换（软链接窗口/父目录可替换/未绑定 submit.sh） | 控制面 `<out>/control/<task>/` root:root 0700，O_NOFOLLOW+原子写，绑定 run_id+agent_id+submit.sh sha256+agent_uid；wrapper 逐项校验 |
+> | 账本信任描述失实；promoter 保留不可信预写值 | 信任模型重述为“root 封存的不可信提交声明”；promoter 强制覆盖身份值、坏行硬失败、同 ID 异哈希单列 conflicts |
+> | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 116 项单测 + 双 smoke 全过；上机检查清单见部署手册第 9 节（sudo '#uid' 语义/负向读测试等需真实主机验证） |
+>
+> 与原提案的差异：部署根从 `/home/naco/work/cybergym-agent` 改为
+> `/opt/cybergym-agent`（root 独占，文档 `chown naco:naco` 一行是 T1 反模式，
+> 已删除）；agcli 改 `/usr/local/bin/agcli`（无需开放 /home/naco 遍历）；
+> 3.2 的补丁预览已被真实实现取代（见下文标记）。
+
+原始提案文本（历史记录，未再逐字维护）：
+
+状态：~~提案，未实施~~（已被上文实施状态取代）。
 基线：第二轮修复后的 `main`（commit `28053f0`，B7–B12 已修）。
 
 ## 1. 现状信任模型（root / naco 双用户）
@@ -51,7 +73,7 @@ chmod -R go-w,a+rX /home/naco/work/cybergym-agent   # 所有人只读
 | GLM 凭据 | 0640 root:s4agent | 读 | 不可见 |
 | 受保护账本 / rows / out 根 | root（不变） | 不可见 | 不可见 |
 
-### 3.2 实施补丁预览（未合入；评审通过后按此落地）
+### 3.2 实施补丁预览（**已废弃——被 R3 真实实现取代**，保留原文以对照评审意见；与实现的差异：路径、chown 方向、单一 UID 模型均按评审意见修正，见顶部实施状态表）
 
 #### 补丁 A — `cybergym-agent/scripts/stage4.py`
 

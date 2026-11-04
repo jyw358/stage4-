@@ -145,5 +145,88 @@ class TestPromoteLedger(unittest.TestCase):
         self.assertEqual(len(self.read_prot()), 1)
 
 
+class TestPromoteLedgerHardening(unittest.TestCase):
+    """R3 (dedicated-user review): the promoter must NOT trust the workspace
+    entries' pre-written identity, must fail hard on any bad line, and must
+    single out same-poc_id/different-hash conflicts."""
+
+    def setUp(self):
+        self.dir = scratch_dir()
+        self.addCleanup(cleanup, self.dir)
+        self.prot = Path(self.dir) / "protected.jsonl"
+        self.ws = Path(self.dir) / "ws.jsonl"
+
+    def read_prot(self):
+        return [json.loads(l) for l in
+                self.prot.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    def run_promote(self, ws_text, prot_entries=(), extra=()):
+        self.ws.write_text(ws_text, encoding="utf-8")
+        self.prot.write_text(
+            "".join(json.dumps(e) + "\n" for e in prot_entries),
+            encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, str(AG / "scripts" / "promote_ledger.py"),
+             "--ws-ledger", str(self.ws), "--protected", str(self.prot),
+             "--run-id", "s4-r", "--task-id", "t:1", "--agent-id", "agent42",
+             *extra],
+            capture_output=True, text=True)
+
+    def test_bad_json_line_fails_hard(self):
+        good = json.dumps({"poc_id": "p1", "poc_sha256": "a" * 64})
+        r = self.run_promote(good + "\n{not json\n")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("unparseable", r.stderr)
+
+    def test_non_dict_line_fails_hard(self):
+        r = self.run_promote("[1, 2]\n")
+        self.assertEqual(r.returncode, 2)
+
+    def test_entry_without_poc_id_fails_hard(self):
+        r = self.run_promote('{"poc_sha256": "' + "a" * 64 + '"}\n')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no poc_id", r.stderr)
+
+    def test_foreign_run_id_is_refused(self):
+        e = {"poc_id": "p1", "poc_sha256": "a" * 64, "run_id": "OTHER-RUN"}
+        r = self.run_promote(json.dumps(e) + "\n")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertEqual(self.read_prot(), [])   # nothing was appended
+
+    def test_foreign_agent_id_is_refused(self):
+        e = {"poc_id": "p1", "poc_sha256": "a" * 64, "agent_id": "agent-EVIL"}
+        r = self.run_promote(json.dumps(e) + "\n")
+        self.assertEqual(r.returncode, 5)
+
+    def test_missing_identity_is_filled_by_root(self):
+        e = {"poc_id": "p1", "poc_sha256": "a" * 64}
+        r = self.run_promote(json.dumps(e) + "\n")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        row = self.read_prot()[0]
+        self.assertEqual(row["run_id"], "s4-r")
+        self.assertEqual(row["task_id"], "t:1")
+        self.assertEqual(row["agent_id"], "agent42")
+
+    def test_same_poc_id_different_hash_is_a_conflict(self):
+        e1 = {"poc_id": "p1", "poc_sha256": "a" * 64}
+        forge = {"poc_id": "p1", "poc_sha256": "f" * 64}
+        r = self.run_promote(json.dumps(forge) + "\n", prot_entries=[e1])
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        # nothing appended, conflict single-listed for acceptance
+        self.assertEqual(len(self.read_prot()), 1)
+        cpath = self.prot.with_name(self.prot.name + ".conflicts.jsonl")
+        rec = json.loads(cpath.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(rec["poc_id"], "p1")
+        self.assertEqual(rec["protected_sha256"], "a" * 64)
+        self.assertEqual(rec["workspace_sha256"], "f" * 64)
+
+    def test_duplicate_conflict_inside_protected_ledger_is_corruption(self):
+        e1 = {"poc_id": "p1", "poc_sha256": "a" * 64}
+        e2 = {"poc_id": "p1", "poc_sha256": "f" * 64}
+        r = self.run_promote("", prot_entries=[e1, e2])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("twice with different hashes", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

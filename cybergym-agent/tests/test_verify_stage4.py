@@ -233,6 +233,60 @@ class TestVerifyStage4(unittest.TestCase):
         report = json.load(open(self.out / "verify_stage4.json", encoding="utf-8"))
         self.assertEqual(report["coverage"]["infra_failed"], 1)
 
+    # ---- R3: control-plane binding + ledger conflicts -----------------------
+    def write_control(self, tid, run_id="s4-t", agent_id="ag1"):
+        d = self.out / "control" / tid.replace(":", "_")
+        d.mkdir(parents=True)
+        (d / "run_id").write_text(run_id + "\n", encoding="utf-8")
+        (d / "agent_id").write_text(agent_id + "\n", encoding="utf-8")
+
+    def test_control_binding_mismatch_is_rejected(self):
+        row = ok_row("t:1")
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        write_protected(self.out, "t:1")
+        self.write_control("t:1", agent_id="ag-EVIL")   # forged binding
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("control_mismatch", r.stdout)
+
+    def test_control_missing_for_submitted_row_is_rejected(self):
+        row = ok_row("t:1")
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        write_protected(self.out, "t:1")
+        (self.out / "control").mkdir()      # R3 layout present, task dir absent
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("control_missing", r.stdout)
+
+    def test_control_agreement_passes(self):
+        row = ok_row("t:1")
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        write_protected(self.out, "t:1")
+        self.write_control("t:1")           # matches run_id + agent_id
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("violations=0", r.stdout)
+
+    def test_ledger_conflict_file_is_a_violation(self):
+        row = ok_row("t:1")
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        write_protected(self.out, "t:1")
+        d = self.out / "protected_ledger"
+        (d / "t_1.jsonl.conflicts.jsonl").write_text(
+            json.dumps({"poc_id": "p1", "protected_sha256": "a" * 64,
+                        "workspace_sha256": "f" * 64}) + "\n", encoding="utf-8")
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("ledger_conflict", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
