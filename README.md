@@ -42,6 +42,7 @@ root_code/
 docs/
   STAGE4_CHANGES.md      改了什么、fail-closed 状态表、已验证/未验证
   STAGE4_DEPLOY.md       主机部署与 50 题 pilot 手册
+  PROPOSAL_DEDICATED_USER.md  专用运行用户隔离提案（未实施，待评审）
 smoke_stage4.py          本地冒烟：工作区 + 行 + 验收（评分前验收必须失败）
 smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + ledger
 ```
