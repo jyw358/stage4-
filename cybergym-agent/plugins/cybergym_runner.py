@@ -40,6 +40,12 @@ def parse_submit_sh(task_dir: str | Path) -> dict:
 
 
 def _multipart(metadata: dict, poc_path: str | Path):
+    """Build the multipart body; reads the PoC ONCE and hashes those bytes.
+
+    The returned (sha256, size) describe exactly what goes on the wire, so the
+    ledger never needs to re-read the path (the file could change between the
+    upload and a later read -- TOCTOU).
+    """
     boundary = uuid.uuid4().hex
     fields = ("\r\n".join([
         f"--{boundary}",
@@ -53,7 +59,9 @@ def _multipart(metadata: dict, poc_path: str | Path):
         f"Content-Type: application/octet-stream\r\n\r\n"
     ).encode()
     tail = f"\r\n--{boundary}--\r\n".encode()
-    return fields + header + Path(poc_path).read_bytes() + tail, boundary
+    data = Path(poc_path).read_bytes()
+    from plugins.evidence import sha256_bytes
+    return fields + header + data + tail, boundary, sha256_bytes(data), len(data)
 
 
 class CyberGymRunner:
@@ -74,8 +82,8 @@ class CyberGymRunner:
         with urllib.request.urlopen(req, timeout=self.http_timeout_s) as resp:
             return json.loads(resp.read().decode())
 
-    def _submit(self, mode: str, poc_path: str) -> dict:
-        data, boundary = _multipart(self.meta, poc_path)
+    def _submit(self, mode: str, poc_path: str) -> tuple[dict, str, int]:
+        body, boundary, sha_hex, size = _multipart(self.meta, poc_path)
         headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
         if mode == "fix":
             if not self.api_key:
@@ -83,24 +91,27 @@ class CyberGymRunner:
             headers["X-API-Key"] = self.api_key
         url = f"{self.server}/submit-{mode}"
         try:
-            return self._post(url, data, headers)
+            res = self._post(url, body, headers)
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="ignore")[:300]
             raise RuntimeError(f"{mode} submit failed: HTTP {e.code} {body}") from None
+        return res, sha_hex, size
 
     # ---- runner contract ----
     def run(self, binary: str, poc_path: str, timeout_s=None) -> RunOutcome:
         mode = "vul" if "vul" in str(binary) else "fix"
         t0 = time.monotonic()
-        res = self._submit(mode, poc_path)
+        res, sha_hex, size = self._submit(mode, poc_path)
         self.last_poc_id = res.get("poc_id")
         if mode == "vul":
-            # stage-4: bind the submitted bytes to the server's poc_id at the
-            # instant of submission.  A ledger failure must not abort the
+            # stage-4: bind the UPLOADED bytes (hashed when the body was
+            # built) to the server's poc_id at the instant of submission.
+            # Never re-read the path.  A ledger failure must not abort the
             # agent's submit; scoring fails closed on a missing ledger.
             try:
                 from plugins.evidence import record_submission
-                record_submission(self.meta, poc_path, res, server=self.server)
+                record_submission(self.meta, res, sha_hex, size,
+                                  server=self.server)
             except Exception as e:  # pragma: no cover - defensive
                 print(f"[ledger] WARN: {e}", file=sys.stderr)
         exit_code = res.get("exit_code")
@@ -150,15 +161,27 @@ class CyberGymRunner:
 
     @staticmethod
     def official_success(records: list) -> bool:
-        """DEPRECATED, final-only semantics: evaluate the LAST record only.
+        """DEPRECATED compat probe -- NOT a scoring path.
 
-        This helper cannot verify submission order or the submitted bytes, so
-        stage-4 scoring uses ``plugins.evidence.select_final`` (ledger-bound)
-        instead.  Kept for status probes; the any-of scan is gone on purpose.
+        Returns True only when the final vul-side record can be ordered
+        UNAMBIGUOUSLY by strictly parsed server ``created_at`` and satisfies
+        the official predicate.  Missing/unparseable timestamps, ties,
+        submit-fix rows (vul NULL) and empty input all return False: this
+        helper would rather under-report than guess.  Official scoring uses
+        ``plugins.evidence.select_final`` (ledger- and hash-bound).
         """
         if not records:
             return False
-        from plugins.evidence import official
-        last = records[-1]
-        return official(last.get("vul_exit_code"),
-                        last.get("fix_exit_code")) is True
+        from plugins.evidence import as_int, official, parse_ts
+        ours = [r for r in records if as_int(r.get("vul_exit_code")) is not None]
+        if not ours:
+            return False
+        stamped = [(r, parse_ts(r.get("created_at"))) for r in ours]
+        if any(ts is None for _, ts in stamped):
+            return False  # order cannot be established -> fail closed
+        top = max(ts for _, ts in stamped)
+        finals = [r for r, ts in stamped if ts == top]
+        if len(finals) != 1:
+            return False  # unresolvable same-instant tie
+        return official(finals[0].get("vul_exit_code"),
+                        finals[0].get("fix_exit_code")) is True

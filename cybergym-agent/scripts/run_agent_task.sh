@@ -33,6 +33,32 @@ chmod 700 "$LOGDIR"
 
 echo "=== agent task $TID start $(date -u +%FT%TZ) run=$RUN_ID ==="
 
+# ---- protected submission ledger (root-owned, append-only) ---------------
+# The workspace ledger is written by an agent-owned process and is therefore
+# agent-writable; scoring needs a copy the agent cannot rewrite.  chattr +a
+# makes the file append-only at the filesystem level (ext4).  If the FS does
+# not support it we log a warning and fall back to the workspace ledger +
+# server-side hash gate (weaker; visible in the scoring report).
+PROTDIR="$OUT/protected_ledger"
+PROT="$PROTDIR/$NAME.jsonl"
+PROT_ARGS=""
+mkdir -p "$PROTDIR"; chmod 755 "$PROTDIR"
+_probe="$PROTDIR/.probe.$$"
+: > "$_probe"
+if chattr +a "$_probe" 2>/dev/null; then
+  chattr -a "$_probe" 2>/dev/null; rm -f "$_probe"
+  [ -e "$PROT" ] || (umask 000; : > "$PROT")
+  chmod 666 "$PROT"
+  [ -e "$PROT.lock" ] || (umask 000; : > "$PROT.lock")
+  chmod 666 "$PROT.lock" 2>/dev/null
+  chattr +a "$PROT" 2>/dev/null
+  PROT_ARGS="--protected-ledger $PROT"
+  echo "protected ledger: $PROT (append-only)"
+else
+  rm -f "$_probe"
+  echo "WARN: chattr +a unsupported on $PROTDIR; protected ledger DISABLED (workspace ledger + hash gate only)" >&2
+fi
+
 # ---- fresh workspace ---------------------------------------------------
 # keep the previous attempt's ledger before wiping (--retry-failed needs the
 # whole chain to score the task's actual final submission)
@@ -44,7 +70,7 @@ fi
 rm -rf "$WS"
 if ! sudo -u naco env S4_RUN_ID="$RUN_ID" python3 "$AG/scripts/make_agent_ws.py" \
         --task-dir "$TDIR" --task-id "$TID" --ws-root "$WSROOT" --fresh \
-        --max-turns "$PASS1_TURNS" --checks "$CHECKS_BUDGET"; then
+        --max-turns "$PASS1_TURNS" --checks "$CHECKS_BUDGET" $PROT_ARGS; then
   python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
       --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage error \
       --status worker_error --error "make_agent_ws failed"

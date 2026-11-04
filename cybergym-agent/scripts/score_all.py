@@ -3,13 +3,21 @@
 
 For every row in <out>/results.json (or rows/*.json):
   - query the private /query-poc route for this task and run-scoped agent_id,
-  - require the submission ledger written by check.py,
-  - pick the FINAL submission and apply the official predicate to it only,
+  - require the submission ledger written by check.py (protected copy when
+    available; the workspace ledger otherwise),
+  - pick the FINAL submission by strictly parsed server created_at only,
+  - require the server-side poc_hash to match the ledger's poc_sha256,
   - persist poc_id / poc_sha256 / vul_exit / fix_exit / submitted_at / agent_id
     back into the row, plus a per-task evidence file under <out>/scored/.
 
 Fail-closed: any task whose final submission cannot be proven becomes
 official_success=None with an explicit score_status, never True.
+
+Exit codes: 0 = every row decided or legitimately undecidable (fix_pending /
+no_records); 1 = at least one integrity failure (no_ledger, ledger_mismatch,
+ledger_corrupt, order_unknown, ambiguous, timestamp_invalid, hash_mismatch,
+hash_unverified, agent_missing); 2 = infrastructure error (query_error,
+no_task_dir).  There is deliberately NO flag to score without a ledger.
 """
 from __future__ import annotations
 
@@ -24,6 +32,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from plugins import evidence, results_store  # noqa: E402
 from plugins.cybergym_runner import CyberGymRunner, parse_submit_sh  # noqa: E402
+
+INFRA_STATUSES = {"query_error", "no_task_dir"}
+BENIGN_STATUSES = {evidence.STATUS_OK, evidence.STATUS_FIX_PENDING,
+                   evidence.STATUS_NO_RECORDS}
 
 
 def api_key() -> str:
@@ -51,8 +63,6 @@ def main() -> int:
     ap.add_argument("--ws-root", default="/data/cybergym/stage4/r_engineer-ws")
     ap.add_argument("--server", default="http://172.17.0.1:8666")
     ap.add_argument("--run-id", default="", help="only score rows from this run")
-    ap.add_argument("--allow-missing-ledger", action="store_true",
-                    help="legacy mode: score without a ledger (marked legacy)")
     ap.add_argument("--only-unscored", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
@@ -62,13 +72,14 @@ def main() -> int:
     if not rows:
         rows = json.load(open(out / "results.json", encoding="utf-8"))
     if args.run_id:
-        rows = [r for r in rows if r.get("run_id") in (None, args.run_id)]
+        # strict run attribution: rows without a run_id belong to no run and
+        # must never be folded into this run's score
+        rows = [r for r in rows if r.get("run_id") == args.run_id]
     rows.sort(key=lambda r: r.get("task_id", ""))
     if args.limit:
         rows = rows[:args.limit]
 
     key = api_key()
-    want_ledger = not args.allow_missing_ledger
     counts = {}
     n_success = 0
     n_decided = 0
@@ -92,11 +103,20 @@ def main() -> int:
                 runner = CyberGymRunner(args.server, tdir, api_key=key)
                 recs = query_records(runner, tid)
                 hist = sorted((out / "ledger_history").glob(f"{name}.*.jsonl"))
+                prot = out / "protected_ledger" / f"{name}.jsonl"
+                if prot.exists() and prot.stat().st_size > 0:
+                    ledger_source = "protected"
+                    ledger_paths = [prot]
+                else:
+                    ledger_source = "workspace"
+                    ledger_paths = ([ws / "submissions.jsonl"] + hist) if hist else None
                 result = evidence.bind_evidence(
                     recs, agent_id, ledger_path=ws / "submissions.jsonl",
-                    require_ledger=want_ledger,
-                    ledger_paths=([ws / "submissions.jsonl"] + hist) if hist else None)
+                    require_ledger=True, ledger_paths=ledger_paths,
+                    run_id=row.get("run_id") or None)
+                result["ledger_source"] = ledger_source
                 patch["agent_id"] = agent_id
+                patch["ledger_source"] = ledger_source
             except Exception as e:  # never silently swallow a scoring failure
                 result = {"status": "query_error", "success": None, "final": None,
                           "reason": f"{type(e).__name__}: {e}", "ledger_entries": 0}
@@ -121,6 +141,9 @@ def main() -> int:
             json.dumps({"task_id": tid, **patch}, ensure_ascii=False, indent=2),
             encoding="utf-8")
 
+    n_infra = sum(counts.get(s, 0) for s in INFRA_STATUSES)
+    n_integrity = sum(n for s, n in counts.items() if s not in INFRA_STATUSES
+                      and s not in BENIGN_STATUSES)
     report = {
         "generated_at": evidence.utcnow(),
         "run_id": args.run_id or None,
@@ -128,7 +151,9 @@ def main() -> int:
         "official_success": n_success,
         "decided": n_decided,
         "by_status": counts,
-        "ledger_required": want_ledger,
+        "integrity_failures": n_integrity,
+        "infra_errors": n_infra,
+        "ledger_required": True,
     }
     (out / "scoring_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -139,7 +164,12 @@ def main() -> int:
         pass
     results_store.rebuild(out, order=order)
     print(f"[scored] official_success={n_success}/{len(rows)} "
-          f"decided={n_decided} by_status={counts}")
+          f"decided={n_decided} by_status={counts} "
+          f"integrity_fail={n_integrity} infra_err={n_infra}")
+    if n_infra:
+        return 2
+    if n_integrity:
+        return 1
     return 0
 
 

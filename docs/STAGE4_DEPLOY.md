@@ -172,15 +172,18 @@ PY
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 全部 `no_ledger` | `check.py` 没写账本：旧 ws 里的 check.py、或 env 没传 | 确认 `<ws>/check.py` 含 `CG_SUBMISSION_LEDGER`；确认 `--preserve-env` 列表；账本缺省会落到 agent cwd（即 ws） |
+| 全部 `no_ledger` | `check.py` 没写账本：旧 ws 里残留旧版 check.py | 确认 `<ws>/check.py` 顶部烘焙了 `LEDGER_PATH = r"<ws>/submissions.jsonl"`（生成器写入，env 重定向无效）；重跑该题 |
+| 大面积 `hash_unverified` | 服务器 `poc_hash` 算法/字节范围与 SHA-256 不可比 | **pilot 前必须先做一次受控提交核对哈希语义**；不可比时全部 fail-closed，不会虚增分数 |
+| `WARN: chattr +a unsupported` | `$OUT` 所在 FS 不支持 append-only（如 NFS） | 受保护账本被禁用，评分退回工作区账本+哈希门禁；尽量把 `<out>` 放 ext4/xfs |
 | 全部 `fix_pending` | 没跑/跑失败 backfill | `/root/backfill_fix_side.sh --dry-run` 看待补数量；完成后再评分 |
-| 个别 `ledger_mismatch` | 服务器有更晚提交，账本没有 | 看 `<out>/scored/<task>.json` 与 `<ws>/submissions.jsonl`；该题 fail-closed，不要手工改分 |
+| 个别 `ledger_mismatch` | 服务器有更晚提交，账本没有 | 看 `<out>/scored/<task>.json` 与 `<out>/protected_ledger/<task>.jsonl`；该题 fail-closed，不要手工改分 |
+| 个别 `hash_mismatch` / `ledger_corrupt` | 上传字节与服务器哈希不一致 / 账本中间行被改 | 均按篡改处理：fail-closed 并人工核查该题 |
 | `REFUSE: workspace ... already exists` | 复用了旧工作区 | 用 `--fresh`（stage4 默认）或手工 `rm -rf` 该题 ws |
 | `REFUSE: cross-task intel` | ws 里残留 `reference-intel*` | 直接删整个 ws 重跑；不要只删文件后复用 |
 | `make_agent_ws failed` | tar/权限/磁盘 | 看 `<out>/logs/<task>.log` 与 ws 生成器 stderr |
 | `refusing to reuse a pre-generated agent_id` | 指向了旧 `--task-base` | 换新 `--out`/`--task-base` 重新 gen_task；不要复用旧题目录 |
 | `stage2.sh is LEGACY` | 误用 stage-3 入口 | 用 `/root/stage4.sh`；只有复现历史波次才 `S2_LEGACY_OK=1` |
-| sudo `--preserve-env` 报错 | sudoers 限制 | 检查 wrapper 的 `AGENT_ENV` 列表；账本仍有 cwd 兜底 |
+| sudo `--preserve-env` 报错 | sudoers 限制 | 检查 wrapper 的 `AGENT_ENV` 列表；check.py 烘焙的账本路径不依赖 env，不受影响 |
 
 ## 8. 回滚
 

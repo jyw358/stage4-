@@ -49,6 +49,10 @@
 ## 需要主机才能验证的
 
 - 服务器 `/query-poc` 的真实返回结构、`created_at` 精度与排序
+- 服务器 `poc_hash` 的算法与字节范围（是否为上传字节的 SHA-256）——
+  pilot 前先做一次受控提交核对，否则评分会大面积 `hash_unverified`
+- `<out>` 所在文件系统是否支持 `chattr +a`（ext4/xfs 支持，NFS 不支持；
+  不支持时受保护账本自动禁用并打印 WARN）
 - `/submit-vul` 是否产生 `vul_exit_code=NULL` 的 fix-only 记录
 - `backfill_fix_side.sh` 对 `fix_exit IS NULL` 的实际回填行为
 - `/tmp` 残留、rootless docker、fix 侧可读性

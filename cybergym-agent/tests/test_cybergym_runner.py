@@ -90,18 +90,38 @@ class TestCyberGymRunner(TempCase):
         self.assertEqual(fake.calls[1][1], "k")    # fix carries the key
 
     def test_official_success_is_final_only(self):
-        # last record wins: an earlier success cannot rescue a failed final one
+        # ordered by created_at: an earlier success cannot rescue a failed final
         self.assertFalse(CyberGymRunner.official_success([
-            {"vul_exit_code": 1, "fix_exit_code": 0},
-            {"vul_exit_code": 0, "fix_exit_code": 0}]))
+            {"vul_exit_code": 1, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:01Z"},
+            {"vul_exit_code": 0, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:02Z"}]))
         self.assertTrue(CyberGymRunner.official_success([
-            {"vul_exit_code": 0, "fix_exit_code": None},
-            {"vul_exit_code": 1, "fix_exit_code": 0}]))
+            {"vul_exit_code": 0, "fix_exit_code": None, "created_at": "2026-01-01T00:00:01Z"},
+            {"vul_exit_code": 1, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:02Z"}]))
         self.assertFalse(CyberGymRunner.official_success([
-            {"vul_exit_code": 1, "fix_exit_code": 1}]))
+            {"vul_exit_code": 1, "fix_exit_code": 1, "created_at": "2026-01-01T00:00:01Z"}]))
         self.assertFalse(CyberGymRunner.official_success([
-            {"vul_exit_code": 300, "fix_exit_code": 0}]))
-        # a submit-fix-only record (vul NULL) is never a success
+            {"vul_exit_code": 300, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:01Z"}]))
+
+    def test_official_success_fails_closed_without_order(self):
+        # missing / unparseable / naive created_at: order cannot be established
+        self.assertFalse(CyberGymRunner.official_success([
+            {"vul_exit_code": 1, "fix_exit_code": 0}]))                      # missing
+        self.assertFalse(CyberGymRunner.official_success([
+            {"vul_exit_code": 1, "fix_exit_code": 0, "created_at": "soon"}]))  # garbage
+        self.assertFalse(CyberGymRunner.official_success([
+            {"vul_exit_code": 1, "fix_exit_code": 0,
+             "created_at": "2026-01-01 00:00:01"}]))                          # naive
+        # same-instant tie: cannot be resolved client-side
+        self.assertFalse(CyberGymRunner.official_success([
+            {"vul_exit_code": 1, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:02Z"},
+            {"vul_exit_code": 0, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:02Z"}]))
+
+    def test_official_success_ignores_fix_only_rows(self):
+        # a submit-fix-only record (vul NULL) never steals the final slot
+        # from the real vul submission -- which therefore stays the final one
+        self.assertTrue(CyberGymRunner.official_success([
+            {"vul_exit_code": 1, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:01Z"},
+            {"vul_exit_code": None, "fix_exit_code": 0, "created_at": "2026-01-01T00:00:09Z"}]))
         self.assertFalse(CyberGymRunner.official_success([
             {"vul_exit_code": None, "fix_exit_code": 0}]))
 
@@ -114,6 +134,25 @@ class TestCyberGymRunner(TempCase):
         self.assertEqual(entries[0]["poc_id"], "p9")
         self.assertEqual(entries[0]["poc_sha256"], evidence.sha256_bytes(b"AAAA"))
         self.assertEqual(entries[0]["agent_id"], "c5a0b335a900")
+
+    def test_ledger_hash_binds_uploaded_bytes_not_the_path(self):
+        # TOCTOU (B5): the file is rewritten while the request is in flight;
+        # the ledger must still hash the bytes that were uploaded.
+        poc_file = self.tmpdir / "poc"
+
+        class MutatingPost(FakePost):
+            def __call__(self, url, data, headers):
+                poc_file.write_bytes(b" TAMPERED ")  # mid-flight change
+                return super().__call__(url, data, headers)
+
+        runner = CyberGymRunner("http://x:8666", str(self.tmpdir), api_key="k",
+                                post_fn=MutatingPost(
+                                    {"exit_code": 1, "output": "", "poc_id": "p7"},
+                                    {"exit_code": 0, "output": "", "poc_id": "p7"}))
+        runner.run("vul", str(poc_file))
+        entry = evidence.read_ledger(self.tmpdir / "submissions.jsonl")[-1]
+        self.assertEqual(entry["poc_sha256"], evidence.sha256_bytes(b"AAAA"))
+        self.assertEqual(entry["poc_size"], 4)
 
     def test_fix_submit_does_not_write_ledger(self):
         r = self.runner({"exit_code": 0, "output": "", "poc_id": "p"},

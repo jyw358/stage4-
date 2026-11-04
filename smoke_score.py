@@ -1,8 +1,10 @@
 """End-to-end scoring smoke test: local HTTP /query-poc + score_all.py.
 
-Verifies the two stage-4 guarantees on the real script:
+Verifies the stage-4 guarantees on the real script:
   - final-only: an earlier success cannot rescue a failed final submission
   - ledger binding: a ledger that does not cover the final poc_id fails closed
+  - hash gate: a server poc_hash that disagrees with the ledger sha fails closed
+  - mixed-offset created_at orders by instant, not by string
 """
 import http.server
 import json
@@ -42,10 +44,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def rec(poc_id, vul, fix, ts):
+def rec(poc_id, vul, fix, ts, sha=None):
     return {"task_id": TID, "agent_id": "agent42", "poc_id": poc_id,
-            "poc_hash": "h" + poc_id, "vul_exit_code": vul,
-            "fix_exit_code": fix, "created_at": ts}
+            "poc_hash": sha if sha is not None else "sha" + poc_id,
+            "vul_exit_code": vul, "fix_exit_code": fix, "created_at": ts}
 
 
 def setup():
@@ -73,13 +75,14 @@ def write_ledger(poc_ids):
                                                      encoding="utf-8")
 
 
-def score(port):
+def score(port, expect_rc):
     env = dict(os.environ, CYBERGYM_API_KEY="k")
     r = subprocess.run([sys.executable, str(AG / "scripts" / "score_all.py"),
                         "--out", str(OUT), "--task-base", str(TASKS),
                         "--ws-root", str(WSROOT), "--server", f"http://127.0.0.1:{port}"],
                        env=env, capture_output=True, text=True)
     print("score rc=", r.returncode, r.stdout.strip(), r.stderr.strip()[-300:])
+    assert r.returncode == expect_rc, (r.returncode, r.stdout, r.stderr)
     return json.load(open(OUT / "rows" / (NAME + ".json"), encoding="utf-8"))
 
 
@@ -93,15 +96,16 @@ def main():
         RECORDS["items"] = [rec("p1", 1, 0, "2026-11-04T00:00:01Z"),
                             rec("p2", 0, 0, "2026-11-04T00:00:02Z")]
         write_ledger(["p1", "p2"])
-        row = score(port)
+        row = score(port, expect_rc=0)
         assert row["official_success"] is False, row
         assert row["final"]["poc_id"] == "p2", row
         assert row["final"]["poc_sha256"] == "shap2", row
+        assert row["final"]["hash_check"] == "match", row
 
         # 2. final submission succeeded -> True
         RECORDS["items"] = [rec("p1", 0, 0, "2026-11-04T00:00:01Z"),
                             rec("p2", 1, 0, "2026-11-04T00:00:02Z")]
-        row = score(port)
+        row = score(port, expect_rc=0)
         assert row["official_success"] is True, row
         assert row["final"]["vul_exit"] == 1 and row["final"]["fix_exit"] == 0
 
@@ -116,9 +120,30 @@ def main():
         RECORDS["items"] = [rec("p1", 1, 0, "2026-11-04T00:00:01Z"),
                             rec("p2", 1, 0, "2026-11-04T00:00:02Z")]
         write_ledger(["p1"])
-        row = score(port)
+        row = score(port, expect_rc=1)
         assert row["official_success"] is None, row
         assert row["score_status"] == "ledger_mismatch", row
+
+        # 4. server poc_hash != ledger sha -> hash gate fails closed (B4)
+        RECORDS["items"] = [rec("p1", 1, 0, "2026-11-04T00:00:01Z",
+                                sha="f" * 64)]
+        (WSROOT / NAME / "submissions.jsonl").write_text(json.dumps(
+            {"seq": 1, "ts": "2026-11-04T00:00:01Z", "poc_id": "p1",
+             "poc_sha256": "b" * 64, "poc_size": 4, "exit_code": 1}) + "\n",
+            encoding="utf-8")
+        row = score(port, expect_rc=1)
+        assert row["official_success"] is None, row
+        assert row["score_status"] == "hash_mismatch", row
+
+        # 5. mixed-offset timestamps order by instant (B2): the +01:00 record
+        #    is OLDER despite sorting later as a string
+        RECORDS["items"] = [rec("p1", 1, 0, "2026-11-04T10:30:00+01:00"),
+                            rec("p2", 0, 0, "2026-11-04T10:00:00Z")]
+        write_ledger(["p1", "p2"])
+        row = score(port, expect_rc=0)
+        assert row["final"]["poc_id"] == "p2", row
+        assert row["official_success"] is False, row
+
         print("SMOKE SCORE OK")
     finally:
         server.shutdown()

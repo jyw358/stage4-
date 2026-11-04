@@ -86,6 +86,21 @@ def main() -> int:
             for field in ("poc_id", "poc_sha256", "vul_exit", "submitted_at", "agent_id"):
                 if final.get(field) in (None, ""):
                     bad("evidence_missing", tid, f"final.{field} is empty")
+            # V2: an ok row whose server hash and ledger hash disagree (or were
+            # never cross-checked) must not pass acceptance
+            if row.get("score_status") == SCORE_OK:
+                if final.get("hash_check") != "match":
+                    bad("hash_unverified", tid,
+                        f"score_status=ok but final.hash_check={final.get('hash_check')!r}")
+                elif str(final.get("poc_hash", "")).lower() != str(final.get("poc_sha256", "")).lower():
+                    bad("hash_mismatch", tid, "final.poc_hash != final.poc_sha256")
+            # V3: run/agent attribution must be explicit and consistent
+            if not row.get("run_id"):
+                bad("run_unbound", tid, "submitted row has no run_id")
+            if (final.get("agent_id") and row.get("agent_id")
+                    and str(final["agent_id"]) != str(row["agent_id"])):
+                bad("agent_mismatch", tid,
+                    f"final.agent_id={final.get('agent_id')!r} != row.agent_id={row.get('agent_id')!r}")
             if final.get("fix_exit") is None and final.get("vul_exit") not in (0, 300):
                 bad("fix_pending", tid, "vul crashed but fix side was never scored (backfill missing?)")
             if row.get("official_success") not in (True, False):
@@ -99,14 +114,16 @@ def main() -> int:
 
         if ws_root:
             ws = ws_root / name
+            protected = out / "protected_ledger" / f"{name}.jsonl"
             if ws.exists():
                 if list(ws.glob("reference-intel*")):
                     bad("isolation_intel", tid, "reference-intel present in workspace")
                 if not (ws / "ws_manifest.json").exists():
                     bad("isolation_manifest", tid, "ws_manifest.json missing")
                 ledger = ws / "submissions.jsonl"
-                if submissions > 0 and (not ledger.exists() or ledger.stat().st_size == 0):
-                    bad("ledger_missing", tid, f"row says {submissions} submissions but ledger is empty")
+                prot_ok = protected.exists() and protected.stat().st_size > 0
+                if submissions > 0 and not prot_ok and (not ledger.exists() or ledger.stat().st_size == 0):
+                    bad("ledger_missing", tid, f"row says {submissions} submissions but neither the protected nor the workspace ledger has data")
             elif submissions > 0:
                 bad("workspace_missing", tid, "workspace gone but row claims submissions")
 
