@@ -188,9 +188,12 @@ now="$(date +%s)"
 
 # M5: reuse fresh cached probe results instead of re-probing every launch
 # (S4_KEY_POOL_TTL=0 disables caching entirely -- tests and ops can force a
-# probe with it)
+# probe with it).  The cache and marker are READ through the same trust
+# checks as every other pool file (r3 hardening): -s/-L guards short-circuit
+# for a missing file; a PRESENT but untrusted file dies.
 cache_usable=0
 if [ "$HEALTH_TTL" -gt 0 ] && [ -s "$HEALTH_F" ] && [ ! -L "$HEALTH_F" ]; then
+    trust_file "$HEALTH_F" "health cache"
     c_ts="$(head -1 "$HEALTH_F" 2>/dev/null)"
     case "$c_ts" in ''|*[!0-9]*) c_ts=0 ;; esac
     if [ $(( now - c_ts )) -ge 0 ] && [ $(( now - c_ts )) -le "$HEALTH_TTL" ]; then
@@ -226,7 +229,10 @@ for k in "${ORDER[@]}"; do
 done
 
 CUR="unknown"
-[ -s "$ACTIVE_MARK" ] && [ ! -L "$ACTIVE_MARK" ] && CUR="$(cat "$ACTIVE_MARK" 2>/dev/null || echo unknown)"
+if [ -s "$ACTIVE_MARK" ] && [ ! -L "$ACTIVE_MARK" ]; then
+    trust_file "$ACTIVE_MARK" "active marker"    # r3: marker read is trusted too
+    CUR="$(cat "$ACTIVE_MARK" 2>/dev/null || echo unknown)"
+fi
 case "$CUR" in senary|quaternary|quinary|primary|secondary) ;; *) CUR="unknown" ;; esac
 
 if [ -n "$NEW" ]; then

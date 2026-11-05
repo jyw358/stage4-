@@ -1,137 +1,126 @@
-﻿# PR #1 复审提示词 —— 整段粘贴给评审模型
+﻿# PR #1 第三轮复审提示词 —— 整段粘贴给评审模型
 
 ---
 
-# 任务：Stage-4 PR #1 复审（凭据加固 + GLM key 池）
+# 任务：Stage-4 PR #1 第三轮复审（r2 修复核验 + 新实现首次细审）
 
-你是一名怀疑立场的代码评审员。上一轮你评审了 PR #1 的单提交 `be9e69e`，
-裁决 **REQUEST CHANGES**（B1 BLOCKER：非空错误 key 的认证层 404 仍会被判
-`no_records`；B2：声称 root 凭据优先、实际 env 优先；B3：naco 可写历史
-`.env` 自动回退扩大信任边界）。项目方随后推送了两个新提交：
+你是一名怀疑立场的代码评审员。前两轮结论：
 
-- `1c92d8a` — 针对你 B1/B2/B3 的修复 + 13 项离线回归测试
-- `ebab608` — 新增：GLM 模型 key 池（stage-3 五 key 轮换移植；**此前完全未审**）
+- 第一轮（`be9e69e`）：B1 BLOCKER（认证层 404 误判 `no_records`）、B2（凭据
+  优先级名实不符）、B3（naco 可写 `.env` 自动回退）→ REQUEST CHANGES。
+- 第二轮（`c8b9859`）：**B1/B2/B3 已 CLOSED**（评分器修复获批）；但当时
+  新增、首次受审的 GLM key 池被判 **REQUEST CHANGES**：4 项 P0（P0-1
+  凭据文件被 root `source` 执行；P0-2 选择器写失败仍可 rc=0；P0-3 池逻辑
+  嵌在 `S4_AGENT_ENV_FILE` 条件内、env 未设即静默跳过；P0-4 属主检查不
+  构成信任边界）+ M1-M8（runner 双 id 回退可掩盖首次认证 404；query 与
+  证据异常混入同一 `query_error`；`_key_from_file` 真实解析无测试；双 id
+  序列无测试；每题 5 探针排队/配额；sticky 不验证 active 一致性；全失败
+  保 active 与 "probe-gated" 矛盾；stage-3 基线不可得）。
+
+项目方随后推送 `9f153d9`（r2 修复）+ 读侧信任加固。本轮任务：
+**A. 逐项核验 r2 修复是否真实成立、是否引入新洞；B. 对修复中的新实现
+（严格解析器、信任检查链、三态 wrapper、TTL 缓存、s4_business_404 标记、
+integrity_error 拆分）做首次细审。**
 
 **只审 PR #1 分支 head**（以 <https://github.com/jyw358/stage4-/pull/1/files>
-为准；内容指纹见仓库根 `MANIFEST.sha256`，47 条，含 `REVIEW_PROMPT_PR1.md`
-自身——即本提示词也在被审 commit 内，属预期）。截至本提示词定稿，代码改动
-分布于 4 个 commit：`be9e69e`（首版 api_key 修复）→ `1c92d8a`（B1/B2/B3）
-→ `ebab608`（GLM key 池）→ `c8b9859`（复审材料 + `stage4.sh` 拒绝
-`S4_DEV_LEGACY_KEYFILE`；本 commit 不含评分/池逻辑变更）。
+为准；内容指纹见仓库根 `MANIFEST.sha256`，48 条）。commit 链：
+`be9e69e` → `1c92d8a`（B1-B3）→ `ebab608`（key 池 v1）→ `c8b9859`/
+`face58e`（复审材料）→ `9f153d9`（r2 修复）→ 读侧信任加固（本轮 head）。
+r2 修复全部代码在 `9f153d9` 及之后。
 
-仓库 `docs/EVIDENCE_PR1_REREVIEW.md` 是项目方现场证据存档（服务端 404 契约
-源码摘录、探针输出、端到端正/负向记录、key 池指纹与测试）——全部按
-**项目方报告 / 需现场验证**采信，不得当作代码证据。先读代码；文档只作背景。
+`docs/EVIDENCE_PR1_REREVIEW.md` §6 是 r2 修复的现场验证存档（stub 15 场景、
+e2e、负向打分）——按**项目方报告 / 需现场验证**采信，不得当代码证据。
+先读代码；文档只作背景。**引用格式必须是 `path:line`。**
 
-**引用格式必须是 `path:line`。** 没有代码位置的结论会被退回。
-
-## 1. 上轮裁决 → 本轮待证伪的修复主张
+## 1. 本轮待证伪的主张（r2 修复声明，逐条攻击）
 
 | # | 上轮裁决 | 项目方主张 | 主要位置 |
 |---|---|---|---|
-| C1 | B1 BLOCKER：认证 404 ≠ 无记录未区分 | 仅 body 为 `{"detail":"Record not found"}` 的 404 映射 `no_records`；认证层 `"Not found"`、空 body、非 JSON body、非 404 一律传播为 `query_error`（infra，exit 2）；契约固定在 `BUSINESS_404_DETAIL`，写入模块 docstring | `scripts/score_all.py` `query_records`/`_is_business_not_found`/`_error_body` |
-| C2 | B2：优先级名实不符 | 次序为 显式授权覆盖（`S4_KEY_ENV_OVERRIDE=1` + env）> `/root/.cybergym_env` > env（仅 root 文件缺失时）> legacy（仅 `S4_DEV_LEGACY_KEYFILE=1`）；代码/docstring/测试三处一致 | `scripts/score_all.py` `api_key` |
-| C3 | B3：naco 可写文件入信任边界 | 正式路径彻底不读 `/home/naco/work/cybergym/.env`；且可信入口 `root_code/stage4.sh` 与 `S4_ALLOW_UNPROTECTED` 同型拒绝 `S4_DEV_LEGACY_KEYFILE=1` | `scripts/score_all.py`、`root_code/stage4.sh` |
-| C4 | 回归测试缺失 | `tests/test_score_all.py` 13 例覆盖你给的 4 行矩阵 + dev 旗标 + 404 body 各形态，含你上轮的 FakeRunner 负例 | `tests/test_score_all.py` |
+| R1 | P0-1 | 凭据文件（池文件/active.env/agent.env）全部按**严格数据**解析：白名单 `GLM_API_KEY/GLM_BASE_URL/GLM_MODEL/AGCLI_CTX`、可选 `export ` 前缀、可选成对引号、值域 `[A-Za-z0-9._:/+=-]`；额外键/命令替换/不可解析行拒绝该文件；任何路径都不再 `source` | `root_code/key_pool_s4.sh` `parse_env_strict`/`load_env_strict`、`run_agent_task.sh` `s4_parse_env_strict`/`s4_load_cred_env` |
+| R2 | P0-2 | 写路径每步 `|| die`；切换后 `cmp` 复验 active 与源一致；sticky 前同样验证，不一致原子修复；`.tmp.*` 残留清理 | `key_pool_s4.sh` `atomic_write`/主流程 |
+| R3 | P0-3 | wrapper 三态互斥：池存在→选择器必须成功、active.env 权威（与 `S4_AGENT_ENV_FILE` 无关）；无池→单 key 文件必须设置且可信；皆无→`model_credential_error` REFUSE | `run_agent_task.sh` 凭据段 |
+| R4 | P0-4 | 读侧与写侧同强度信任检查：普通文件、非 symlink、root 属主、**零 group/other 位**、祖先链 root 且不可 go-w；选择器对全部池文件预检；`S4_KEY_POOL_SCRIPT` 覆盖路径同检；**health.cache 与 glm_active 读取也过 `trust_file`**（r3 补强） | 两文件 `trust_*` 系列 |
+| R5 | M1 | runner 双 id 回退仅限业务 404（body 精确 `"Record not found"`）；认证/歧义 404 首次即抛；业务 404 在异常对象上标 `s4_business_404`，评分器优先看标记、body 已消费也不误判 | `plugins/cybergym_runner.py` `query_poc`/`is_business_not_found`、`scripts/score_all.py` `query_records` |
+| R6 | M2 | `score_all` 拆双捕获域：服务器查询→`query_error`（exit 2）；submit.sh 解析/账本/`bind_evidence`→`integrity_error`（exit 1）；docstring 状态清单已含 `integrity_error` | `scripts/score_all.py` 主循环 |
+| R7 | M3/M4 | 真实文件解析测试（plain/quoted/CRLF 过；export 前缀/BOM/缺键拒）+ 真 runner 双 id 序列测试（business×2、auth-first、business→success） | `tests/test_score_all.py` `TestRealFileParsing`/`TestRunnerDualIdSequences`/`TestIntegrityVsQuerySplit` |
+| R8 | M5 | 探针结果缓存 `health.cache`（`S4_KEY_POOL_TTL` 默认 120s；0=禁用）；锁内读缓存选择，二次启动 0 探针 | `key_pool_s4.sh` 缓存段 |
+| R9 | M6/M7 | sticky 需 active 与源逐字节一致；全失败仅**全 429** 保 active，任何非 429 且无健康 key → rc=1（REFUSE） | `key_pool_s4.sh` 主流程尾部 |
+| R10 | M8 | stage-3 部署版 `key_pool.sh` 已 vendor 为 `docs/reference/stage3_key_pool.sh`（sha256 `309d1cfa…`），策略可比对；文档明示触发点差异（每题启动 vs cron 5min） | `docs/reference/`、`docs/STAGE4_DEPLOY.md` |
 
-## 2. 新增未审改动：GLM key 池（`ebab608`，全部当作首次评审）
+另有两个项目方自报并已修的缺陷（验证修复真实性）：
+- probe 子 shell `die` 被吞 → 调用点 `|| die`（`key_pool_s4.sh` 探针循环注释处）；
+- `TTL=0` 同秒缓存仍可用 → 0 彻底禁用。
 
-背景：stage-4 的模型凭据此前钉死在 `/etc/cybergym-agent/agent.env` 单 key。
-本提交把 stage-3 的 5 个可用 GLM key 引入并轮换。**轮换策略基线是公开仓库
-<https://github.com/jyw358/stage3-> 的 `root_code/key_pool.sh`**（优先级
-senary > quaternary > quinary > primary > secondary，tertiary owner-retired
-排除；probe 门控非 200 不选；sticky；全限流保上一个 active）——请自行拉取
-对照，验证"策略一致"是否属实。
+## 2. 本轮重点攻击面（新实现首次细审）
 
-| # | 主张 | 主要位置 |
-|---|---|---|
-| P1 | 轮换策略与 stage3 `key_pool.sh` 完全一致（优先级/probe 门控/sticky/全限流保 active），仅实现载体不同 | `root_code/key_pool_s4.sh` vs stage3 `root_code/key_pool.sh` |
-| P2 | 信任边界：池文件与 active.env 全部 root:root 0600，位于 `/etc/cybergym-agent/keys/`；dir/selector/active.env 任一非 root 属主 → wrapper REFUSE rc=4；agent 只经 `env -i` 重注入拿值、永远拿不到文件 | `cybergym-agent/scripts/run_agent_task.sh`（S4_KEY_POOL_DIR 段）、`root_code/key_pool_s4.sh` |
-| P3 | 并发正确性：选择器 flock 串行；active.env 用同目录 mktemp+mv 原子替换；3 worker 并发启动时行为确定 | `root_code/key_pool_s4.sh` |
-| P4 | 预算保护：全部 key 限流且无历史 active → 选择器 rc=1 → 该题 REFUSE，不启动 agcli；池目录不存在 → 回落 agent.env 单 key，行为与改动前一致 | `root_code/key_pool_s4.sh`、`run_agent_task.sh` |
-| P5 | 无密钥泄漏：日志/输出只含 key 名称与探针状态码，不含密钥值；`[keypool] active=<name>` 逐题可审计 | 两个文件全部 echo/日志行 |
-| P6 | 文档：`docs/STAGE4_DEPLOY.md` 新增小节与实现一致（安装命令、自动启用条件、覆盖变量、REFUSE 语义） | `docs/STAGE4_DEPLOY.md` §GLM key 池 |
+### 2.1 严格解析器能否被绕过
+- 值内含 `=`（`KEY=a=b` 取 `a=b`？）；`export  KEY=`（多空格）；`export<TAB>`；
+  行内注释；同一键重复出现（谁赢？）；空值（`KEY=`）通过与否、通过后后果；
+- 引号成对剥离后值含空格/`$`/反引号：charset 正则是否兜住全部残余形态？
+  `[[ =~ ]]` 在 bash 各版本对 locale 的行为（`[A-Za-z]` vs `[[:alpha:]]`）；
+- `run_agent_task.sh` 与 `key_pool_s4.sh` 两份解析器是否逐行为一致？任何
+  分叉即轮换用键 A、wrapper 校验键 B 的窗口。
 
-## 3. 必须逐项回答的攻击面
+### 2.2 信任链与时序
+- TOCTOU：`trust_file` 通过后、`cat/cmp` 使用前，文件被换（root 内威胁
+  模型下是否可接受？请在威胁模型一节明确表态）；
+- 选择器（flock 内）写完 active.env 到 wrapper（无锁）读之间发生切换：
+  wrapper 读到的是哪份？是否原子（`mv` 同目录 rename 语义）？
+- `S4_KEY_POOL_SCRIPT` 默认 `/root/key_pool_s4.sh`：祖先链检查是否覆盖
+  `/root` 本身（0700 root）？攻击者可控的覆盖路径能通过哪些检查？
+- health.cache 被篡改（若绕过目录权限）最坏后果是什么？缓存毒化能否让
+  "全部 429 保 active" 分支被伪造触发？（rc 只影响启动，但请评估预算面）
 
-### 3.1 C1 的 404 分类
-- `_error_body` 对 `e.read()` 的所有失败路径（fp=None、已消费、编码错）是否
-  全部落入 fail-closed？`plugins/cybergym_runner.py` 的 `query_poc` 先 catch
-  HTTPError 存 `last_err` 再 re-raise——它在传播前有没有消费 body？两个
-  task_id 形态各试一次后 `raise last_err`，score_all 读的是哪次请求的 body，
-  两次的 body 是否可能不同型？
-- 服务器将来把 detail 字符串改掉（升级/本地化）：后果是全部 `query_error`
-  exit 2（响亮失败）还是悄悄退回 `no_records`？`BUSINESS_404_DETAIL` 的
-  相等比较是 `==` 还是模糊匹配？
-- 非 JSON body（代理错误页）、JSON 但无 `detail` 键、`detail` 为非字符串：
-  各走哪条分支？`.get("detail")` 对 list/dict 的返回值？
-- runner 对非 404 直接 `raise`：score_all 侧 `except Exception` 归为
-  `query_error`——有没有把本应是 integrity failure 的异常也吞进 infra？
+### 2.3 评分链新语义
+- `s4_business_404` 属性：除 runner 外还有谁会设置？评分器
+  `getattr(e, ...) or is_business_not_found(e)` 的短路顺序在 body 已消费
+  与未消费两种情况下各等价于什么？伪造该属性需要什么能力？
+- `integrity_error`：与 `verify_stage4.py` 的状态白名单交互（submitted 行
+  非 ok 即 violation；非 submitted 行的 (None/no_records/no_ledger) 集合）
+  是否会把 integrity_error 行报成别的类别或漏报？
+- 双捕获域边界：`parse_submit_sh`/runner 构造被归入哪域？与 M2 最小修法
+  的归类建议一致吗？
 
-### 3.2 C2/C3 的凭据次序
-- env key 带引号/空白/BOM：`strip().strip('"').strip("'")` 处理顺序的边界；
-  `S4_KEY_ENV_OVERRIDE` 设为 `"true"`/`"yes"`（非 `"1"`）时的行为？
-- `api_key()` 抛 RuntimeError → `main()` 写 `scoring_report.json` 并 return 2：
-  此路径在 `--only-unscored`、空 rows、`--run-id` 过滤后 rows 为空时是否仍成立？
-- `stage4.sh` 拒绝 `S4_DEV_LEGACY_KEYFILE=1`：绕过面——直接调
-  `scripts/score_all.py`、经 `S4_SCORE_ALL` 包装脚本、cron/手工重打分，这些
-  路径本 PR 是否声明为 dev/运维域？`S4_KEY_ENV_OVERRIDE` 为什么**不**同样
-  在可信入口拒绝，这个不对称是否成立（提示：上轮评审你自己要求"显式授权
-  覆盖模式"，区别在哪）？
+### 2.4 三态 wrapper
+- mode-2（无池、单 key）：`S4_AGENT_ENV_FILE` 设置但文件不可信（0644/
+  symlink/非 root）各拒绝路径；mode-3 REFUSE 是否在任何预算消耗之前；
+- `CRED_ARGS` 只含 4 白名单变量：池/agent.env 都解析后，AGCLI_CTX 的
+  合并次序（池文件无该键时是否保留 agent.env 值）与文档声明一致？
 
-### 3.3 key 池（全部首次评审）
-- `key_pool_s4.sh` 的 `set -a; . "$envf"`：池文件是 root:root 0600，但文件
-  内容若有恶意/失误的额外 export（如 `PATH=`、`S4_*=`），会进入哪个进程的
-  环境？`run_agent_task.sh` 里 `set -a; . active.env` 之后这些变量会不会被
-  转发进 agent 会话（对照 CRED_ARGS 白名单只有 4 个变量）？
-- 每题启动都跑 5 次探针（各 8 token）：50 题 × 5 key 的配额代价与 stage3
-  的 cron 每 5 分钟一次相比是否可接受？探针超时 20s × 5 串行（flock 下跨
-  worker 排队）最坏会把单题启动拖多久？有没有 probe timeout 可配？
-- sticky 判定用 `glm_active` 标记文件内容 vs 重新计算的最优：标记文件被
-  手工改坏/删掉、active.env 与标记不一致（半个写坏）时行为？
-- `mktemp "$POOL_DIR/.active.XXXXXX"` + `mv`：同目录原子性成立；但
-  `chmod 600` 在 mv 前对 mktemp 文件——中间态权限？崩溃残留 `.active.*`
-  文件会堆积吗，下一次运行会清吗？
-- 全限流保 active（B 场景）：active 里的 key 也限流时任务仍会带着它启动、
-  agcli 内部 429 失败——这是 stage3 同款行为还是 stage4 新引入的预算浪费？
-  REFUSE 只在"无历史 active"时发生，这个设计是否自洽？
-- `run_agent_task.sh` 的池段在 `if [ -n "${S4_AGENT_ENV_FILE:-}" ]` 块内：
-  agent.env 缺失但池存在时会怎样（静默单 key？REFUSE？）与文档是否一致？
+### 2.5 测试反同义反复
+- 24 例中仍 mock 掉什么？`TestIntegrityVsQuerySplit` 的 stub runner 绕过
+  了哪些真实路径？e2e 只覆盖 mode-1，mode-2/3 的 REFUSE 是静态确认
+  ——请按"代码确认/需现场验证"分级。
 
-### 3.4 测试是否同义反复
-- 13 例中哪些 mock 了 `_key_from_file` 本身——这类测试还能发现真实文件解析
-  bug 吗（引号、CRLF、`export ` 前缀）？`_key_from_file` 对
-  `export CYBERGYM_API_KEY=x` 格式（stage3 池文件即此格式！）返回什么？
-  这对 GLM 池文件解析是**可用**的、对 root 凭据文件格式是否留有假设？
-- FakeRunner 直抛 HTTPError：绕过了 runner 真实的两 id 重试逻辑，`query_poc`
-  的 `last_err` 路径有没有被任何测试覆盖？没有的话标记为盲区。
-
-## 4. 输出格式（与上轮相同，严格）
+## 3. 输出格式（与前两轮相同，严格）
 
 ```markdown
 ## 一、实际改动范围
 ## 二、BLOCKER（P0）
 ## 三、MAJOR（P1）
-## 四、修复确认表
-| 检查项 | 结果 | 依据(path:line) |
+## 四、r2 修复确认表
+| 上轮编号 | 是否关闭 | 依据(path:line) |
+覆盖 R1-R10 与两个自报缺陷
 ## 五、可被利用/退化路径（若有）
 ## 六、最终裁决
 | 维度 | 裁决 |
-含：B1/B2/B3 是否关闭、key 池可否进正式跑、PR #1 可否合并、50 题 GO
+至少含：R1-R10 逐项、key 池可否进正式跑、PR #1 可否合并（整只/拆分）、
+50 题 pilot GO/NO-GO
 ```
 
-## 5. 禁止
+## 4. 禁止
 
 - 不要重述项目方主张；逐条证伪。
-- 不要把 EVIDENCE_PR1_REREVIEW.md 的现场输出当代码证据；标"项目方报告"。
+- 不要把 `docs/EVIDENCE_PR1_REREVIEW.md` 的现场输出当代码证据。
 - 不要索要密钥明文、poc.db、会话日志、宿主机访问。
-- 不要建议"加强测试/完善文档"这类空话；每条落到 path:line 与最小修法。
-- 不要混用旧快照：只审 PR #1 分支 head（对照 `MANIFEST.sha256` 47 条指纹）。
+- 不要"加强测试/完善文档"空话；每条落到 path:line 与最小修法。
+- 不要混用旧快照：只审 PR #1 head（对照 `MANIFEST.sha256` 48 条指纹）。
 
-## 6. 建议读序
+## 5. 建议读序
 
-1. `scripts/score_all.py` 全文（4 个 commit 的改动都在这）→ 出 C1-C3 结论
-2. `tests/test_score_all.py` → 3.4
-3. `root_code/key_pool_s4.sh` + stage3 仓库 `root_code/key_pool.sh` 对照 → P1/P3
-4. `run_agent_task.sh` 的 S4_KEY_POOL 段 + `root_code/stage4.sh` 新拒绝 → P2/P4、3.2
-5. `docs/STAGE4_DEPLOY.md` §GLM key 池 → P6
+1. `root_code/key_pool_s4.sh` 全文 → R1/R2/R4/R8/R9 + 2.1/2.2
+2. `cybergym-agent/scripts/run_agent_task.sh` 凭据段 → R3/R4 + 2.4
+3. `plugins/cybergym_runner.py` `query_poc`/`is_business_not_found` +
+   `scripts/score_all.py` → R5/R6 + 2.3
+4. `tests/test_score_all.py` → R7 + 2.5
+5. `docs/reference/stage3_key_pool.sh` 对照 → R10
