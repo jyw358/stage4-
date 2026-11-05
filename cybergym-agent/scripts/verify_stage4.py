@@ -57,9 +57,13 @@ SCORE_OK = "ok"
 # execution outcomes that are data-valid end states for a formal pilot
 ALLOWED_FINAL = {"submitted", "no_submission", "submit_error"}
 # infrastructure failures: a formal pilot must have ZERO of these (B10)
+# R3.5: `process_inspection_incomplete` is deliberately NOT "clean": a host
+# that could not be inspected cannot be reported as left-clean.  The two
+# process states are never auto-retried (see stage4.EXECUTION_FAILURE_STATUSES).
 INFRA_FAILURE = {"gen_fail", "worker_error", "api_error", "evidence_error",
                  "agent_launch_error", "evidence_setup_error",
-                 "process_residual_error"}
+                 "workspace_setup_error", "process_residual_error",
+                 "process_inspection_incomplete"}
 
 INTEL_PATTERNS = ("reference-intel*", "reference_intel*", "ref-intel*",
                   "ref_intel*")

@@ -237,8 +237,38 @@ R3.4 复审确认 §0.8.3 两项 P1 静态 PASS（并明确撤销"chattr 失败�
 | 新：per-attempt token + `/proc/*/environ` | 对照组同场景下 `before=[3320288,3320289,3320290] → after=[] residual=0`；`token_members()`/`sweep_token()`（3 轮 SIGKILL）；wrapper `env -i` 白名单新增 `S4_TASK_TOKEN` |
 | 残留门禁 | 残留不为 0 → 行 `process_residual_error`，**不在** `EXECUTION_FAILURE_STATUSES`（`--retry-failed` 不重试），并加入 `verify_stage4.INFRA_FAILURE` |
 
-对抗性残余（后代 `exec` 时清空环境变量）仍需每题独立 cgroup，已在部署手册
-§10 标注。单测 154 OK（本地 skip 3 / 远端 skip 1）。
+对抗性残余（后代 `exec` 时清空环境变量）仍需每题独立 cgroup；已在 §0.8.6
+收口（R3.5）。单测 154 OK（本地 skip 3 / 远端 skip 1）。
+
+### 0.8.6 R3.5：每题独立 cgroup + 三态进程清理（2026-11-05，真机 nacocom）
+
+R3.4 复审的 B1/M1：token 兜杀依赖后代继续携带环境变量，后代 `setsid()` 后
+`env -u S4_TASK_TOKEN` 重执，既不属于原会话也扫不到 token，`residual=0`
+不能证明它已退出；同时 `/proc` 读失败会被静默跳过，`0` 只是"成功观测到的
+残留数"。修法与证据：
+
+| 项 | 实施 |
+|---|---|
+| B1 每题独立 cgroup | 每次 **attempt** 在 `/sys/fs/cgroup/stage4-<run>-<task>-<hex>` 建独立 cgroup；启动用 `/bin/sh -c 'echo $$ > "$0/cgroup.procs" && exec "$@"'` **先入组再 exec**（同 pid，无 fork 窗口）；结束（正常与超时**都**）`cgroup.kill` → 轮询 `cgroup.procs` 直到空。成员随 fork 继承，`setsid`/双 fork/清环境都无法脱离 |
+| 清理分层 | 进程组 TERM/KILL → **cgroup.kill（权威证明）** → 会话扫 → token 扫（保留为诊断层） |
+| M1 三态 | `KillReport(residual, complete, method)`：`0`=clean；`N`=residual_detected（行 `process_residual_error`）；`None + complete=False`=inspection_incomplete（行 `process_inspection_incomplete`，语义是"未知"，**不是**"已清空"）。任一探测器不完整 → 整体不完整 |
+| 不自动重试 | 两个进程状态**不在** `EXECUTION_FAILURE_STATUSES`，且加入 `results_store.TERMINAL`（否则续跑会把它们当"中途崩溃"自动重跑）；两者都在 `verify_stage4.INFRA_FAILURE` |
+| 启动门禁 | `stage4.py` 在 root 下、非 dry-run 时检查 cgroup v2；不可用即 `REFUSE`，无逃逸开关。**root cgroup 本身没有 `cgroup.kill`**（root 不可杀），所以 `cgroup_v2_usable()` 必须创建子探针再看 `<probe>/cgroup.kill` |
+| NIT | 新 ledger 建立前清理遗留 `.probe.*`（`chattr -a` + `rm`，失败显式 WARN）；workspace `chown -R` / `chmod 700` / 私有状态目录失败 → 行 `workspace_setup_error` + **rc=10**，不再等到 agcli 启动才暴露；已加入 `verify_stage4.INFRA_FAILURE` |
+
+真机证据（`/opt/cybergym-agent-r33`，kernel 5.15，`/sys/fs/cgroup` = `cgroup2fs`）：
+
+| 构造 | 结果 |
+|---|---|
+| A 机制：`setsid` + `env -i`（不带 token） | token 扫、会话扫都**看不到**该 pid；`cgroup.kill` 后 `residual=0 complete=True`，pid 已消失（6/6） |
+| B driver 超时全链路（`--task-timeout 2`） | rc=124；逃逸后代被杀；日志 `[kill] method=cgroup+session+token residual=0 complete=True`；`/sys/fs/cgroup` 无遗留；`--retry-failed` 允许重试（6/6） |
+| C cgroup 不可探测 | 行 `process_inspection_incomplete`；`--retry-failed` **不重试**；逃逸后代确实存活——"未知"绝不报成"已清空"（4/4） |
+| D 启动门禁 | 假 `S4_CGROUP_ROOT` → `REFUSE ... cgroup v2 is unavailable`；真实 root → 继续到 queue 检查 |
+| E wrapper NIT | 带 `+a` 的 `.probe.777` 被移除并 WARN，新 ledger `lsattr` 含 `a`；注入 workspace `chmod` 失败 → rc=10、行 `workspace_setup_error`、agcli 零调用（10/10） |
+
+单测 163 OK（本地 skip 7 / 远端 root skip 1）；§0.8.3 的 A–E ledger 回归
+19/19 仍全过。
+
 
 ## 1. 证据模型
 

@@ -48,6 +48,15 @@
 > 留下半初始化证据目录），失败即 `evidence_setup_error` + rc=8 并清理。
 > 详见 STAGE4_CHANGES.md 第 0.8.4 节与部署手册 §9.4。
 >
+> **R3.5 复审（第八轮）**：裁决 B1（对抗性后代 `setsid` + 清环境可逃出 token
+> 扫描）与 M1（`residual=0` 只是"成功观测到的残留数"）最小修法已实施：每次
+> attempt 独立 cgroup（先入组再 exec，结束由 `cgroup.kill` 终止并轮询
+> `cgroup.procs` 至空），清理结果改三态（clean / `process_residual_error` /
+> `process_inspection_incomplete`），后两者不自动重试；driver 正式运行前
+> 检查 cgroup v2 可用性。真机构造性负测 26 断言全过（`setsid` + `env -i` +
+> 超时 + 重试全链路；另修两项 NIT）。详见 STAGE4_CHANGES.md §0.8.6 与部署手册
+> §9.6。
+>
 > **R3.4 运行时验收（第七轮）**：真机 ext4 20/20 —— 跨 UID **写入**/删除/
 > `chmod` 他题 workspace 与 prepared dir 全部 denied；他题 `CLAUDE_CONFIG_DIR`
 > 状态文件读取与覆写 denied；**setsid 逃逸闭环**。关键对照：旧实现只按会话号

@@ -76,6 +76,20 @@ class TestSelectTodo(unittest.TestCase):
         self.assertEqual(todo, [])
         self.assertEqual(recovery, ["a:1"])
 
+    def test_process_isolation_failures_are_never_rerun(self):
+        # R3.5/M1: an unproven attempt boundary (survivors, or a host that
+        # could not be inspected) must never be silently re-run -- a resumed
+        # run would otherwise treat it as "crashed mid-run".
+        for tid, st in (("a:1", "process_residual_error"),
+                        ("b:2", "process_inspection_incomplete")):
+            self.row(tid, status=st, official_success=None)
+        todo, recovery = stage4.select_todo(["a:1", "b:2"], self.dir, "s4-r")
+        self.assertEqual(todo, [])
+        self.assertEqual(recovery, ["a:1", "b:2"])
+        todo, _ = stage4.select_todo(["a:1", "b:2"], self.dir, "s4-r",
+                                     retry_failed=True)
+        self.assertEqual(todo, [])
+
 
 class TestKillTaskTree(unittest.TestCase):
     """B12: on Windows the fallback kills the direct child and reaps it."""
@@ -88,6 +102,97 @@ class TestKillTaskTree(unittest.TestCase):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         stage4.kill_task_tree(proc)
         self.assertIsNotNone(proc.poll())  # reaped, not left running
+
+
+@unittest.skipUnless(os.name == "posix", "cgroup v2 is POSIX-only")
+class TestTaskCgroup(unittest.TestCase):
+    """R3.5/B1: the cgroup is the authoritative proof that an attempt left
+    nothing behind -- it must report CLEAN only when it actually saw an empty
+    cgroup, and INCOMPLETE (residual unknown) when it could not look."""
+
+    def setUp(self):
+        self.dir = Path(scratch_dir())
+        self.addCleanup(cleanup, self.dir)
+        self.root = self.dir / "cg"
+        self.root.mkdir()
+
+    def make(self, name="t-1", procs=""):
+        cg = stage4.TaskCgroup(name, root=str(self.root))
+        cg.create()
+        (Path(cg.path) / "cgroup.kill").write_text("", encoding="utf-8")
+        (Path(cg.path) / "cgroup.procs").write_text(procs, encoding="utf-8")
+        return cg
+
+    def test_empty_cgroup_is_reported_clean(self):
+        cg = self.make("t-two", "101 102\n")
+        rep = cg.kill(rounds=2)
+        # the fake cgroup.kill cannot reap anything: survivors stay listed
+        self.assertEqual(rep.residual, 2)
+        self.assertTrue(rep.complete)
+        cg2 = self.make("t-three")
+        self.assertEqual(cg2.kill().residual, 0)
+        self.assertTrue(cg2.kill().complete)
+
+    def test_uninspectable_cgroup_is_incomplete_not_clean(self):
+        cg = stage4.TaskCgroup("t-4", root=str(self.root))
+        cg.create()                       # no cgroup.procs in the fake root
+        rep = cg.kill()
+        self.assertIsNone(rep.residual)
+        self.assertFalse(rep.complete)
+        self.assertEqual(rep.method, "cgroup")
+
+    def test_incomplete_inspection_wins_over_a_clean_one(self):
+        rep = stage4._combine([stage4.KillReport(0, True, "cgroup"),
+                               stage4.KillReport(None, False, "token")])
+        self.assertIsNone(rep.residual)
+        self.assertFalse(rep.complete)
+
+    def test_usable_requires_cgroup_kill_and_write_access(self):
+        ok, why = stage4.cgroup_v2_usable(str(self.root))
+        self.assertFalse(ok)
+        self.assertIn("cgroup-v2", why)
+        (self.root / "cgroup.controllers").write_text("", encoding="utf-8")
+        # the ROOT cgroup has no cgroup.kill (it cannot be killed): only a
+        # CHILD probe can prove the host supports per-task cgroups
+        ok, why = stage4.cgroup_v2_usable(str(self.root))
+        self.assertFalse(ok)
+        self.assertIn("cgroup.kill", why)
+        probe = self.root / f".{stage4.CGROUP_PREFIX}probe.{os.getpid()}"
+        probe.mkdir()
+        (probe / "cgroup.kill").write_text("", encoding="utf-8")
+        ok, why = stage4.cgroup_v2_usable(str(self.root))
+        self.assertTrue(ok, why)
+
+
+class TestSessionScan(unittest.TestCase):
+    """R3.5/M1: a /proc entry that cannot be read makes the inspection
+    INCOMPLETE; it must never be silently skipped and reported as clean."""
+
+    def setUp(self):
+        self.dir = Path(scratch_dir())
+        self.addCleanup(cleanup, self.dir)
+        self.proc = self.dir / "proc"
+        self.proc.mkdir()
+
+    def test_unreadable_stat_marks_the_scan_incomplete(self):
+        d = self.proc / "101"
+        d.mkdir()
+        (d / "stat").write_text("101 (sh) S 1 101 101 101\n", encoding="utf-8")
+        bad = self.proc / "102"
+        bad.mkdir()
+        (bad / "stat").mkdir()            # stat is a directory -> OSError
+        rep = stage4.session_scan(101, str(self.proc))
+        self.assertEqual(rep.residual, [101])
+        self.assertFalse(rep.complete)
+
+    def test_members_of_the_session_are_listed(self):
+        for pid, sid in ((101, 101), (102, 101), (103, 999)):
+            d = self.proc / str(pid)
+            d.mkdir()
+            (d / "stat").write_text(f"{pid} (x) S 1 {sid} {sid}\n",
+                                    encoding="utf-8")
+        self.assertEqual(stage4.session_members(101, str(self.proc)), [101, 102])
+        self.assertTrue(stage4.session_scan(101, str(self.proc)).complete)
 
 
 class TestTokenSweep(unittest.TestCase):

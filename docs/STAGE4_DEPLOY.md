@@ -569,6 +569,30 @@ R3.4 上机另修两处环境问题（非代码）：`useradd s4agent` 在该机
 `s4neg4u`（uid 30001 未真正删除，见第 1 节命令）。`assert_code_tree` 现输出
 `root-clean (s4agent,naco refused write access)`，无缺号 WARN。
 
+### 9.6 R3.5 每题独立 cgroup 与三态进程清理（2026-11-05，真机 nacocom）
+
+R3.4 复审 B1/M1 的最小修法（"每任务独立 cgroup，由可信控制进程终止整个
+cgroup，并确认没有存活任务"）已落地，并做构造性负测。部署目录
+`/opt/cybergym-agent-r33`，kernel 5.15，`stat -fc %T /sys/fs/cgroup` =
+`cgroup2fs`：
+
+| 组 | 构造 | 结果 |
+|---|---|---|
+| J-A 机制 | 后代 `setsid` + `env -i`（无 token） | token 扫、会话扫都看不到该 pid；`cgroup.kill` 后 `residual=0 complete=True`，pid 已不存在（6/6） |
+| J-B 全链路 | `run_one`（stub wrapper）+ `--task-timeout 2` | rc=124、逃逸后代被杀、日志 `[kill] method=cgroup+session+token residual=0 complete=True`、`/sys/fs/cgroup/stage4-*` 无遗留、`select_todo --retry-failed` 允许重试（6/6） |
+| J-C 不可探测 | 假 cgroup（`cgroup.procs` 不可读） | 行 `process_inspection_incomplete`、`--retry-failed` 不重试、逃逸进程确实存活（"未知"≠"已清空"）（4/4） |
+| 启动门禁 | `S4_CGROUP_ROOT=/tmp/nope python3 scripts/stage4.py --queue /tmp/noqueue.json` | `REFUSE: per-task cgroup v2 is unavailable ...`；默认 root 下同一命令前进到 `queue not found` |
+| NIT F | `$OUT/protected_ledger/.probe.777`（`chattr +a`）+ 无 ledger | rc=0；`WARN: removed stale probe ...`；新 ledger `lsattr` 含 `a`（6/6） |
+| NIT G | 注入 workspace 的 `chmod` 失败 | rc=10、行 `workspace_setup_error`、agcli 零调用、`REFUSE: workspace setup failed`（4/4） |
+
+**cgroup 可用性判定**：`cgroup.kill` 在 **root cgroup 中不存在**（root 不可杀），
+所以 `cgroup_v2_usable()` 必须先创建子探针再检查 `<probe>/cgroup.kill`；直接
+查 `/sys/fs/cgroup/cgroup.kill` 会把所有可用主机误判为不可用。若宿主机把
+`/sys/fs/cgroup` 交给 systemd 统一管理，可用 `S4_CGROUP_ROOT` 指向一个
+delegated（`Delegate=yes`）的可写子树，driver 只在该子树下建/删子 cgroup。
+
+单测 163 OK（真机 root skip 1）；§9.3 的 A–E ledger 回归 19/19 仍全过。
+
 ## 10. 尚未覆盖的（上机后仍需补验）
 
 以下只能静态实现 + 文档化，**部署后按顺序实测**（结果记入 pilot 复核记录）。
@@ -578,16 +602,18 @@ setpriv + 私有 HOME 下的真实调用、umask 077 继承——见 §9、§9.2
 R3.3 复审再闭环**已有 ledger 重入**与 **chattr 失败前移 fail-closed**（§9.3），
 R3.4 复审闭环**正式入口拒绝开发降级开关**与 **ledger 初始化逐步错误处理**
 （§9.4），并在真机跑完**跨 UID 写入 / agcli 状态互访 / setsid 逃逸**三项
-运行时验收（§9.5，20/20）；余下：
+运行时验收（§9.5，20/20）；R3.5 闭环**每题独立 cgroup + 三态进程清理**
+（§9.6，B1/M1 的对抗性后代与"未知≠已清空"）；余下：
 
 - assert_code_tree 的边界：ACL（`setfacl`）与 bind mount 不在 stat 可见范围，
   在真实挂载布局上跑一次 `namei -l` + 负向 touch 测试（第 2 节）；
 - docker rootless 隔离的现场验证（沿用 stage-3 `scoring/smoke_isolation.sh`，
   本轮未改，也未在评审机执行）；
-- setsid 逃逸的**对抗性残余**：§9.5 已用 per-attempt token 扫 `/proc/*/environ`
-  兜杀（对照组证明无 token 时会静默漏杀）；后代若 `exec` 时清空环境变量仍能
-  逃出，彻底收口仍需每题独立 cgroup（`systemd-run --scope --slice=stage4-<task>`），
-  本轮未实现；
+- cgroup 的**真实任务**观测：§9.6 已在真机构造性验证（`setsid` + 清环境 +
+  超时 + 重试），仍要在 pilot 里看到一次真实超时的
+  `[kill] ... residual=0 complete=True` 且 `/sys/fs/cgroup` 无遗留；若宿主机
+  由 systemd 统一管理 cgroup，需确认 driver 建的子 cgroup 不被上层回收
+  （必要时 `Delegate=yes` 或把 `S4_CGROUP_ROOT` 指向可写子树）；
 - 服务器 `created_at` 已确认是**无时区 UTC、6 位微秒**（stage-4 在 HTTP 边界补
   `Z`，见 §9.2 S-10）；仍需在跑 5 题后观察同秒并列分布（并列会使
   `select_final` 判 `ambiguous`）。根治办法是服务端序列化带 `Z`，本仓库不改

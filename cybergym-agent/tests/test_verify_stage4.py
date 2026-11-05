@@ -346,6 +346,35 @@ class TestVerifyStage4(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("coverage_infra", r.stdout)
 
+    def test_process_isolation_states_are_infra_failures(self):
+        # R3.5: a surviving descendant, and just as importantly a host that
+        # could not be inspected, are both infra failures -- "unknown" is
+        # never accepted as "clean".
+        for i, status in enumerate(("process_residual_error",
+                                    "process_inspection_incomplete")):
+            tid = f"t:{i}"
+            row = {"task_id": tid, "run_id": "s4", "status": status,
+                   "submissions": 0, "official_success": None, "cost_usd": 0}
+            write_row(self.out, tid, row)
+            rebuild(self.out, [row])
+            q = self.queue_file([tid])
+            r = run_verify(self.out, queue=q)
+            self.assertEqual(r.returncode, 1, status)
+            self.assertIn("coverage_infra", r.stdout, status)
+
+    def test_workspace_setup_error_is_an_infra_failure(self):
+        # R3.5 NIT: an agent workspace that could not be chowned/chmod-ed is
+        # a setup defect, not a "agent ran and did not submit" result.
+        row = {"task_id": "t:1", "run_id": "s4",
+               "status": "workspace_setup_error",
+               "submissions": 0, "official_success": None, "cost_usd": 0}
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("coverage_infra", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

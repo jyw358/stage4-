@@ -58,6 +58,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -597,129 +598,251 @@ def _stat_fields(stat_line: str) -> list:
     return stat_line[rparen + 1:].split()
 
 
-def session_members(session_id: int, proc_root: str = "/proc") -> list:
-    """PIDs still in ``session_id`` (pure enough to unit-test with a fake
-    /proc).  R3-M4: SIGKILL on the process group does not reach descendants
-    that called setsid(); sweeping the SESSION catches those (it cannot catch
-    a descendant that started a brand-new session -- that still needs
-    cgroup/systemd scope recycling, documented as a residual)."""
-    out = []
+KillReport = namedtuple("KillReport", "residual complete method")
+
+CGROUP_ROOT = os.environ.get("S4_CGROUP_ROOT", "/sys/fs/cgroup")
+CGROUP_PREFIX = "stage4"
+
+
+def cgroup_v2_usable(root: str = "") -> tuple:
+    """(ok, reason): can this host give each task attempt its own cgroup?
+
+    ``cgroup.kill`` deliberately does NOT exist in the ROOT cgroup (the root
+    cannot be killed), so the check must create a child probe -- probing the
+    root for the file would reject every usable cgroup-v2 host."""
+    root = root or CGROUP_ROOT
+    if os.name != "posix":
+        return False, "not POSIX"
+    if not os.path.exists(os.path.join(root, "cgroup.controllers")):
+        return False, f"{root} is not a cgroup-v2 hierarchy"
+    probe = os.path.join(root, f".{CGROUP_PREFIX}probe.{os.getpid()}")
     try:
-        names = os.listdir(proc_root)
+        os.makedirs(probe, exist_ok=True)
+    except OSError as e:
+        return False, f"{root} not writable: {e}"
+    try:
+        if not os.path.exists(os.path.join(probe, "cgroup.kill")):
+            return False, f"{probe}/cgroup.kill missing (kernel < 5.14?)"
+    finally:
+        try:
+            os.rmdir(probe)
+        except OSError:
+            pass
+    return True, ""
+
+
+class TaskCgroup:
+    """One cgroup per task ATTEMPT (R3.5 / review B1).
+
+    Membership is inherited by fork and is NOT affected by setsid(), by
+    double-forking or by clearing the environment, so ``cgroup.kill`` followed
+    by an empty ``cgroup.procs`` is the only construction-independent proof
+    that the attempt left nothing behind.  The environment-token sweep stays
+    as a diagnostic layer; it cannot catch a descendant that scrubbed its env."""
+
+    def __init__(self, name: str, root: str = ""):
+        self.root = root or CGROUP_ROOT
+        self.path = os.path.join(self.root, f"{CGROUP_PREFIX}-{name}")
+
+    def create(self) -> str:
+        os.makedirs(self.path, exist_ok=True)
+        return self.path
+
+    def procs(self) -> tuple:
+        """(pids, complete): complete=False means the cgroup could not be
+        inspected, which must never be reported as 'confirmed empty'."""
+        try:
+            with open(os.path.join(self.path, "cgroup.procs"),
+                      encoding="utf-8") as fh:
+                return [int(x) for x in fh.read().split() if x.isdigit()], True
+        except OSError:
+            return [], False
+
+    def kill(self, rounds: int = 5) -> KillReport:
+        residual, complete = self.procs()
+        if not complete:
+            return KillReport(None, False, "cgroup")
+        for _ in range(rounds):
+            if not residual:
+                return KillReport(0, True, "cgroup")
+            try:
+                with open(os.path.join(self.path, "cgroup.kill"), "w") as fh:
+                    fh.write("1")
+            except OSError:
+                return KillReport(len(residual), False, "cgroup")
+            time.sleep(0.2)
+            residual, complete = self.procs()
+            if not complete:
+                return KillReport(None, False, "cgroup")
+        return KillReport(len(residual), True, "cgroup")
+
+    def remove(self) -> bool:
+        try:
+            os.rmdir(self.path)
+            return True
+        except OSError:
+            return False
+
+
+def _scan_proc(proc_root: str) -> tuple:
+    try:
+        return [n for n in os.listdir(proc_root) if n.isdigit()], True
     except OSError:
-        return out
+        return [], False
+
+
+def session_scan(session_id: int, proc_root: str = "/proc") -> KillReport:
+    """PIDs still in ``session_id``.  ``complete`` is False when some /proc
+    entry could not be read (hidepid/race), so a caller never reports a
+    partial inspection as a confirmed-empty task."""
+    names, complete = _scan_proc(proc_root)
+    out = []
     for name in names:
-        if not name.isdigit():
-            continue
         try:
             with open(os.path.join(proc_root, name, "stat"), encoding="utf-8") as fh:
                 line = fh.read()
+        except FileNotFoundError:
+            continue            # raced with exit
         except OSError:
+            complete = False
             continue
         f = _stat_fields(line)
         # f[0]=state f[1]=ppid f[2]=pgrp f[3]=session
         if len(f) >= 4 and f[3].isdigit() and int(f[3]) == session_id:
             out.append(int(name))
-    return sorted(out)
+    return KillReport(sorted(out) or 0, complete, "session")
 
 
-def sweep_session(session_id: int) -> int:
-    """SIGKILL every remaining member of a task session; returns how many
-    were still alive.  After this it also re-checks, so the caller can log
-    the residual count (0 = the session is confirmed empty)."""
-    left = session_members(session_id)
-    for pid in left:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-    time.sleep(0.2)
-    return len(session_members(session_id))
+def session_members(session_id: int, proc_root: str = "/proc") -> list:
+    """PIDs still in ``session_id`` (pure enough to unit-test with a fake
+    /proc).  R3-M4: SIGKILL on the process group does not reach descendants
+    that called setsid(); sweeping the SESSION catches those."""
+    rep = session_scan(session_id, proc_root)
+    return [] if rep.residual in (0, None) else list(rep.residual)
 
 
-def token_members(token: str, proc_root: str = "/proc") -> list:
-    """PIDs whose environment still carries ``S4_TASK_TOKEN=<token>``.
-
-    R3.4 (review: setsid escape): a descendant that calls setsid() leaves the
-    task's session, so neither the process-group kill nor the session sweep
-    reaches it.  The driver exports a per-attempt token into every agent
-    process's environment, so a root-side scan of /proc/<pid>/environ finds
-    those descendants whichever session/process group they moved to.  A
-    process that re-execs with a scrubbed environment still escapes; closing
-    that needs cgroups (documented residual)."""
-    out = []
-    needle = ("S4_TASK_TOKEN=" + token).encode()
-    try:
-        names = os.listdir(proc_root)
-    except OSError:
-        return out
-    for name in names:
-        if not name.isdigit():
-            continue
-        try:
-            with open(os.path.join(proc_root, name, "environ"), "rb") as fh:
-                blob = fh.read()
-        except OSError:
-            continue
-        if needle in blob.split(b"\0"):
-            out.append(int(name))
-    return sorted(out)
-
-
-def sweep_token(token: str, rounds: int = 3, proc_root: str = "/proc") -> int:
-    """SIGKILL everything still carrying the task token; returns the residual
-    count (0 = confirmed empty)."""
-    left = token_members(token, proc_root)
+def sweep_session(session_id: int, rounds: int = 3,
+                  proc_root: str = "/proc") -> KillReport:
+    """SIGKILL every remaining member of a task session; returns a report
+    whose ``complete`` flag says whether the /proc inspection itself worked."""
+    pids = session_members(session_id, proc_root)
+    complete = session_scan(session_id, proc_root).complete
     for _ in range(rounds):
-        if not left:
-            return 0
-        for pid in left:
+        if not pids:
+            return KillReport(0, complete, "session")
+        for pid in pids:
             try:
                 os.kill(pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
         time.sleep(0.2)
-        left = token_members(token, proc_root)
-    return len(left)
+        rep = session_scan(session_id, proc_root)
+        pids, complete = ([] if rep.residual in (0, None) else list(rep.residual)), rep.complete
+    return KillReport(len(pids), complete, "session")
 
 
-def kill_task_tree(proc: subprocess.Popen, token: str = "") -> int:
-    """B12/R3-M4: terminate the WHOLE process group of a task (the wrapper
-    starts a session, so sudo/agcli/timeout descendants are all inside it),
-    escalate to SIGKILL after a grace period, then sweep anything left in the
-    SESSION and anything that escaped it but still carries the task token
-    (R3.4: setsid'd descendants).  Returns the residual member count."""
+def token_scan(token: str, proc_root: str = "/proc") -> KillReport:
+    """PIDs whose environment still carries ``S4_TASK_TOKEN=<token>``.
+
+    Diagnostic layer only (R3.5): a descendant that setsid()'d AND scrubbed
+    its environment is invisible here, which is why task cgroups are the
+    authoritative mechanism.  ``complete`` is False if any /proc entry that
+    exists could not be read."""
+    if not token:
+        return KillReport(0, True, "token")
+    names, complete = _scan_proc(proc_root)
+    needle = ("S4_TASK_TOKEN=" + token).encode()
+    out = []
+    for name in names:
+        try:
+            with open(os.path.join(proc_root, name, "environ"), "rb") as fh:
+                blob = fh.read()
+        except FileNotFoundError:
+            continue            # raced with exit
+        except OSError:
+            complete = False
+            continue
+        if needle in blob.split(b"\0"):
+            out.append(int(name))
+    return KillReport(sorted(out) or 0, complete, "token")
+
+
+def token_members(token: str, proc_root: str = "/proc") -> list:
+    rep = token_scan(token, proc_root)
+    return [] if rep.residual in (0, None) else list(rep.residual)
+
+
+def sweep_token(token: str, rounds: int = 3,
+                proc_root: str = "/proc") -> KillReport:
+    """SIGKILL everything still carrying the task token (diagnostic layer)."""
+    rep = token_scan(token, proc_root)
+    pids, complete = ([] if rep.residual in (0, None) else list(rep.residual)), rep.complete
+    for _ in range(rounds):
+        if not pids:
+            return KillReport(0, complete, "token")
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        time.sleep(0.2)
+        rep = token_scan(token, proc_root)
+        pids, complete = ([] if rep.residual in (0, None) else list(rep.residual)), rep.complete
+    return KillReport(len(pids), complete, "token")
+
+
+def _combine(reports: list) -> KillReport:
+    """Worst-case combination: any incomplete inspection makes the whole
+    result incomplete (residual unknown), otherwise take the max residual."""
+    complete = all(r.complete for r in reports)
+    known = [r.residual for r in reports if r.residual is not None]
+    if not complete:
+        return KillReport(None, False, "+".join(r.method for r in reports))
+    return KillReport(max(known) if known else 0, True,
+                      "+".join(r.method for r in reports))
+
+
+def kill_task_tree(proc: subprocess.Popen, token: str = "",
+                   cgroup=None) -> KillReport:
+    """Terminate one task ATTEMPT.  Layers, in order: process group kill
+    (wrapper starts a session, so its descendants are inside it), then the
+    cgroup that the attempt was born in (survives setsid and env scrubbing),
+    then session and token sweeps as diagnostics.  Returns a tri-state report:
+    residual=0 => confirmed clean; residual=N => N survivors; residual=None
+    => the host could not be inspected, which is NOT 'clean'."""
     if os.name != "posix":
         proc.kill()
         try:
             proc.wait(timeout=15)
         except subprocess.TimeoutExpired:  # pragma: no cover
             pass
-        return 0
+        return KillReport(0, True, "windows")
     try:
         pgid = os.getpgid(proc.pid)
         sid = os.getsid(proc.pid)
     except ProcessLookupError:
-        return 0
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(pgid, sig)
-        except ProcessLookupError:
-            break
-        try:
-            proc.wait(timeout=15)
-            break
-        except subprocess.TimeoutExpired:
-            continue
-    else:
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:  # pragma: no cover - last resort
-            pass
-    residual = sweep_session(sid)
+        pgid = sid = None
+    if pgid is not None:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pgid, sig)
+            except ProcessLookupError:
+                break
+            try:
+                proc.wait(timeout=15)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    reports = []
+    if cgroup is not None:
+        reports.append(cgroup.kill())
+    if sid is not None:
+        reports.append(sweep_session(sid))
     if token:
-        residual += sweep_token(token)
-    return residual
+        reports.append(sweep_token(token))
+    if not reports:
+        return KillReport(0, True, "none")
+    return _combine(reports)
 
 
 def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
@@ -762,6 +885,34 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
 
         log(f"[run] {tid} -> {tdir}")
         cmd = ["bash", f"{AG}/scripts/run_agent_task.sh", tid, str(tdir), str(args.out)]
+        # R3.5 / review B1: every ATTEMPT gets its own cgroup.  Membership is
+        # inherited by fork and survives setsid() and an environment scrub, so
+        # `cgroup.kill` plus an empty `cgroup.procs` is the only proof of
+        # "nothing left" that does not depend on the descendant cooperating.
+        cg = None
+        if os.name == "posix" and getattr(args, "cgroup", False):
+            cg = TaskCgroup(f"{run_id}-{name}-{uuid.uuid4().hex[:8]}")
+            try:
+                cg.create()
+            except OSError as e:
+                log(f"[cgroup] {tid} cannot create {cg.path}: {e}; the "
+                    "attempt is NOT started (isolation cannot be established)")
+                results_store.merge_row(args.out, tid, {
+                    "task_id": tid, "run_id": run_id,
+                    "status": "process_inspection_incomplete",
+                    "error": (f"cannot create per-task cgroup {cg.path}: {e}; "
+                              "fix cgroup-v2 permissions before retrying"),
+                    "finished_at": utcnow(), "official_success": None,
+                })
+                return {"task_id": tid,
+                        "status": "process_inspection_incomplete"}
+            # Bind the wrapper to the cgroup BEFORE exec: after exec the shell
+            # IS the wrapper (same pid, same cgroup), so no forked child can
+            # slip out during start-up.
+            cmd = ["/bin/sh", "-c",
+                   'echo $$ > "$0/cgroup.procs" && exec "$@"', cg.path] + cmd
+            log(f"[cgroup] {tid} attempt bound to {cg.path}")
+
         rc = None
         if os.name == "posix":
             # B12: own session per task -> the whole tree is killable on timeout
@@ -771,25 +922,39 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
                 rc = proc.wait(timeout=args.task_timeout)
             except subprocess.TimeoutExpired:
                 rc = 124
-                log(f"[timeout] {tid} after {args.task_timeout}s; killing the process group")
-                residual = kill_task_tree(proc, token)
-                log(f"[timeout] {tid} process group terminated, "
-                    f"session+token residual={residual}")
-                if residual:
-                    # R3.4: something survived SIGKILL after leaving the
-                    # session -- retrying now would overlap two attempts on
-                    # the same task.  `process_residual_error` is deliberately
-                    # NOT in EXECUTION_FAILURE_STATUSES, so --retry-failed will
-                    # not touch it until an operator has cleaned the host.
-                    left = token_members(token)
-                    results_store.merge_row(args.out, tid, {
-                        "task_id": tid, "run_id": run_id,
-                        "status": "process_residual_error",
-                        "error": (f"{residual} process(es) survived the kill "
-                                  f"(setsid escape; pids={left}); clean them "
-                                  "before retrying this task"),
-                        "finished_at": utcnow(), "official_success": None,
-                    })
+                log(f"[timeout] {tid} after {args.task_timeout}s; killing the attempt")
+            # R3.5: the attempt boundary must be empty on BOTH paths -- a
+            # descendant that outlived a normally-exiting wrapper can still
+            # submit later and pollute the next attempt.
+            report = kill_task_tree(proc, token, cg)
+            log(f"[kill] {tid} method={report.method} "
+                f"residual={report.residual} complete={report.complete}")
+            if not report.complete:
+                # M1: an incomplete /proc or cgroup inspection is NOT "clean".
+                results_store.merge_row(args.out, tid, {
+                    "task_id": tid, "run_id": run_id,
+                    "status": "process_inspection_incomplete",
+                    "error": (f"process inspection incomplete after the attempt "
+                              f"({report.method}); survivors are unknown, so "
+                              "cleanliness is NOT confirmed -- inspect the host "
+                              "before retrying"),
+                    "finished_at": utcnow(), "official_success": None,
+                })
+            elif report.residual:
+                # R3.4: something survived SIGKILL after leaving the session.
+                # `process_residual_error` is deliberately not retryable.
+                pids = cg.procs()[0] if cg is not None else []
+                results_store.merge_row(args.out, tid, {
+                    "task_id": tid, "run_id": run_id,
+                    "status": "process_residual_error",
+                    "error": (f"{report.residual} process(es) survived the kill "
+                              f"({report.method}; cgroup_pids={pids}); clean "
+                              "them before retrying this task"),
+                    "finished_at": utcnow(), "official_success": None,
+                })
+            if cg is not None and not cg.remove():
+                log(f"[cgroup] {tid} WARN: {cg.path} not removed (processes may "
+                    "remain); inspect the host before the next attempt")
         else:  # Windows local tests
             try:
                 proc = subprocess.run(cmd, stdout=logfh, stderr=subprocess.STDOUT,
@@ -890,6 +1055,18 @@ def main() -> int:
 
     if euid() != 0 and not args.dry_run:
         raise SystemExit("stage4.py must run as root (it starts the root wrapper)")
+    # R3.5 / review B1: formal attempts are bound to a per-task cgroup.  A
+    # descendant that calls setsid() AND scrubs S4_TASK_TOKEN cannot be seen
+    # by any /proc sweep, so without a cgroup a timed-out attempt can never
+    # be proven clean.  No escape hatch on the formal driver entry: the dev
+    # wrapper (run_agent_task.sh) can still be invoked directly.
+    cgroup_ok, cgroup_why = cgroup_v2_usable()
+    if euid() == 0 and not args.dry_run and not cgroup_ok:
+        raise SystemExit(
+            f"REFUSE: per-task cgroup v2 is unavailable ({cgroup_why}); "
+            "a timed-out attempt cannot be proven clean without it "
+            "(see STAGE4_DEPLOY.md section 10)")
+    args.cgroup = bool(cgroup_ok and os.name == "posix")
     out = Path(args.out)
     queue_path = Path(args.queue)
     if not queue_path.exists():

@@ -32,7 +32,14 @@ from pathlib import Path
 from plugins.locks import FileLock
 
 TERMINAL = {"submitted", "no_submission", "submit_error", "worker_error",
-            "gen_fail", "api_error"}
+            "gen_fail", "api_error",
+            # R3.5: an UNPROVEN process boundary must never be re-run by a
+            # resumed run (it would otherwise look like "crashed mid-run").
+            # Unlike agent_launch_error/evidence_setup_error, these two are
+            # also absent from stage4.EXECUTION_FAILURE_STATUSES, so even
+            # --retry-failed leaves them alone until an operator inspects the
+            # host and clears the status by hand.
+            "process_residual_error", "process_inspection_incomplete"}
 
 # score_status values that mean scoring has NOT produced a verdict yet:
 # None/pending = never scored, query_error/no_task_dir = infra failure worth

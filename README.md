@@ -34,7 +34,7 @@ cybergym-agent/
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（154 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（163 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
@@ -54,8 +54,8 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 154 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
-#       R3/R3.1/R3.2/R3.3/R3.4 复审与运行时验收回归）
+# 预期：Ran 163 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
+#       R3/R3.1/R3.2/R3.3/R3.4/R3.5 复审与运行时验收回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -139,7 +139,8 @@ R3 复审修复：
 23. wrapper 的 uid 只信控制面：新增 `validate_agent_uid.py`（环境变量存在
     必须严格相等，拒绝 0/prep/池外）（M2）；promoter 失败立即记
     `evidence_error`、rc=6、不跑第二段（M3）；超时清理追加 `/proc` 会话
-    扫描复查（M4，setsid 另开会话仍需 cgroup，见部署手册第 9 节）。
+    扫描复查（M4；`setsid` 另开会话的兜杀已在 R3.5 由每题独立 cgroup 收口，
+    见部署手册第 9.5/9.6 节）。
 
 R3.1 增量复审修复：
 
@@ -191,6 +192,19 @@ R3.1 增量复审修复：
     静默漏杀），改为 per-attempt token 扫 `/proc/*/environ` 精确兜杀；残留
     不为 0 时写 `process_residual_error` 且 `--retry-failed` 不重试（人工
     清理后才能重跑）。详见 STAGE4_CHANGES.md §0.8.5 与部署手册 §9.5。
+33. R3.5 每题独立 cgroup + 三态清理（2026-11-05，真机 cgroup2fs，26 断言全过）：
+    每次 attempt 先入独立 cgroup 再 `exec`（无 fork 窗口），结束（含正常退出）
+    由 `cgroup.kill` 终止整组并轮询 `cgroup.procs` 至空——成员随 fork 继承，
+    `setsid` + `env -i` 清 token 的后代也无法逃出（token/session 两路在负测里
+    都看不到该 pid）。清理结果改三态：`0`=clean、`N`=`process_residual_error`、
+    `None+complete=False`=`process_inspection_incomplete`（"未知"绝不报成
+    "已清空"）；后两者不在 `EXECUTION_FAILURE_STATUSES` 且已进
+    `results_store.TERMINAL`，续跑与 `--retry-failed` 都不会自动重试。driver
+    在 root 正式运行前检查 cgroup v2 可用性，不可用即 REFUSE（注意 root cgroup
+    没有 `cgroup.kill`，必须建子探针判定）。同时修两项 NIT：遗留 `.probe.*`
+    建新 ledger 前清理；workspace 权限设置失败改报 `workspace_setup_error`
+    （rc=10，不再拖到 agcli 启动才暴露）。详见 STAGE4_CHANGES.md §0.8.6 与
+    部署手册 §9.6。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

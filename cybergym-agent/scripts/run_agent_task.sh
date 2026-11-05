@@ -203,6 +203,15 @@ if [ -e "$PROT" ] || [ -L "$PROT" ]; then
   fi
 else
   _probe="$PROTDIR/.probe.$$"
+  # R3.5: a leftover probe from an interrupted run must never be mistaken for
+  # a usable ledger state; remove it visibly before creating a fresh one.
+  for _old in "$PROTDIR"/.probe.*; do
+    [ -e "$_old" ] || continue
+    chattr -a "$_old" 2>/dev/null || true
+    rm -f "$_old" 2>/dev/null ||
+      echo "WARN: stale probe $_old could not be removed" >&2
+    echo "WARN: removed stale probe left by an interrupted run: $_old" >&2
+  done
   if ! : > "$_probe" 2>/dev/null; then
     refuse_unprotected "cannot create probe file $_probe under $PROTDIR"
   fi
@@ -306,12 +315,25 @@ fi
 
 # hand the fresh workspace to this task's uid; private state dirs are
 # per-task and FRESH (never shared across tasks or with any other session)
-chown -R "$AGENT_UID" "$WS"
-chmod 700 "$WS"
+ws_setup_error() {  # R3.5: a failed chown/mkdir here used to surface only
+  # later as an opaque agcli failure (or a silent no-op run); fail closed.
+  echo "REFUSE: workspace setup failed: $1" >&2
+  python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
+      --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage error \
+      --status workspace_setup_error --error "$1" --agent-id "$AGENT_ID"
+  exit 10
+}
+if ! chown -R "$AGENT_UID" "$WS"; then
+  ws_setup_error "chown -R $AGENT_UID $WS failed"
+fi
+if ! chmod 700 "$WS"; then
+  ws_setup_error "chmod 700 $WS failed"
+fi
 for d in .home .tmp .config .cache .state .claude-config; do
-  mkdir -p "$WS/$d"
-  chown "$AGENT_UID" "$WS/$d"
-  chmod 700 "$WS/$d"
+  if ! mkdir -p "$WS/$d" || ! chown "$AGENT_UID" "$WS/$d" \
+     || ! chmod 700 "$WS/$d"; then
+    ws_setup_error "could not prepare private state dir $d under $WS"
+  fi
 done
 
 cd "$WS" || exit 2
