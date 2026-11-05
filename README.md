@@ -199,12 +199,31 @@ R3.1 增量复审修复：
     都看不到该 pid）。清理结果改三态：`0`=clean、`N`=`process_residual_error`、
     `None+complete=False`=`process_inspection_incomplete`（"未知"绝不报成
     "已清空"）；后两者不在 `EXECUTION_FAILURE_STATUSES` 且已进
-    `results_store.TERMINAL`，续跑与 `--retry-failed` 都不会自动重试。driver
+    `results_store.TERMINAL`，续跑与 `--retry-failed` 都不会自动重 retry。driver
     在 root 正式运行前检查 cgroup v2 可用性，不可用即 REFUSE（注意 root cgroup
     没有 `cgroup.kill`，必须建子探针判定）。同时修两项 NIT：遗留 `.probe.*`
     建新 ledger 前清理；workspace 权限设置失败改报 `workspace_setup_error`
     （rc=10，不再拖到 agcli 启动才暴露）。详见 STAGE4_CHANGES.md §0.8.6 与
     部署手册 §9.6。
+34. PR#1 凭据加固（2026-11-05，真机正/负向端到端）：评分器 `api_key()` 以
+    `/root/.cybergym_env` 为权威（env 覆盖仅 `S4_KEY_ENV_OVERRIDE=1` 显式授权；
+    naco 可写历史 `.env` 仅 `S4_DEV_LEGACY_KEYFILE=1` dev 可读，可信入口
+    `stage4.sh` 与 `S4_ALLOW_UNPROTECTED` 同型拒绝该旗标）；`query_records` 按
+    响应体区分两种 404——仅服务端业务层 `{"detail":"Record not found"}` 映射
+    `no_records`，认证层 `"Not found"`/空 body/非 JSON 一律 `query_error` exit 2
+    （首轮 pilot 全题误判 `no_records` 的根因即空 key 触发网关 404）。契约实测：
+    好 key+假任务=业务 404，坏/空 key=网关 404，body 严格可分。新增 13 项离线
+    回归测试；负向实证 `S4_KEY_ENV_OVERRIDE=1`+坏 key → `{'query_error':5}` rc=2。
+35. PR#1 GLM key 池（2026-11-05，stub 5 场景 + 真机单题端到端）：stage-3 的
+    5 个可用 GLM key 移植为 `/etc/cybergym-agent/keys/` root:root 0600 池，
+    `root_code/key_pool_s4.sh` 按 stage3 同款策略轮换（优先级
+    senary>quaternary>quinary>primary>secondary、tertiary 退役排除、probe 门控
+    非 200 不选、sticky、全限流保上一 active），每题启动时 root 侧 flock 串行
+    选择、`mktemp+mv` 原子写 active.env、决策入 `/var/log/s4-keypool.log`；
+    `run_agent_task.sh` 校验 dir/selector/active.env 属主后 `env -i` 重注入，
+    agent 永远拿值不拿文件；全部 key 限流且无 active → REFUSE 不烧预算。真机
+    单题 `[keypool] active=senary` → submitted + official_success=True。
+    评审证据存档：docs/EVIDENCE_PR1_REREVIEW.md；复审提示词：REVIEW_PROMPT_PR1.md。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；
