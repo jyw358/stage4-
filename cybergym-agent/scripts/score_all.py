@@ -13,6 +13,13 @@ For every row in <out>/results.json (or rows/*.json):
 Fail-closed: any task whose final submission cannot be proven becomes
 official_success=None with an explicit score_status, never True.
 
+404 semantics (B1): /query-poc answers 404 both from the auth gate
+(rejected key, body {"detail": "Not found"}) and from the handler
+(genuinely no records, body {"detail": "Record not found"}).  Only the
+exact business detail maps to no_records; every other 404 propagates as
+query_error (infra, exit 2).  Verified against the deployed server source
+(cybergym/server/__main__.py: auth 404 vs query_db 404).
+
 Exit codes: 0 = every row decided or legitimately undecidable (fix_pending /
 no_records); 1 = at least one integrity failure (no_ledger, ledger_mismatch,
 ledger_corrupt, order_unknown, ambiguous, timestamp_invalid, hash_mismatch,
@@ -38,23 +45,46 @@ BENIGN_STATUSES = {evidence.STATUS_OK, evidence.STATUS_FIX_PENDING,
                    evidence.STATUS_NO_RECORDS}
 
 
-def api_key() -> str:
-    """Resolve the server key without ever returning an empty value.
+ROOT_KEY_FILE = "/root/.cybergym_env"
+# stage-3 era credential file, WRITABLE by the untrusted prep account (naco);
+# never read in a formal run (B3), only behind an explicit dev opt-in.
+LEGACY_KEY_FILE = "/home/naco/work/cybergym/.env"
 
-    The stage-3 host file (/home/naco/work/cybergym/.env) can carry an empty
-    CYBERGYM_API_KEY; an empty key makes the private route answer 404, which
-    would be misread as "no record" instead of an infrastructure failure.
+
+def api_key() -> str:
+    """Resolve the server key for FORMAL stage-4 scoring (B2/B3).
+
+    Precedence: the root-owned credential file is authoritative.  An
+    environment override is honoured ONLY under an explicit authorized
+    opt-in (S4_KEY_ENV_OVERRIDE=1), so a stale exported key can never
+    shadow the rotated root secret.  The legacy naco-writable .env is read
+    only in dev mode (S4_DEV_LEGACY_KEYFILE=1); formal runs never trust a
+    credential the untrusted prep account can modify.
+
+    Never returns an empty value (an empty key makes the auth gate answer
+    404, which must surface as an infra error, not as "no records").
     """
-    for key in (os.environ.get("CYBERGYM_API_KEY"),
-                _key_from_file("/root/.cybergym_env"),
-                _key_from_file("/home/naco/work/cybergym/.env")):
-        if key and key.strip():
-            return key.strip()
-    raise RuntimeError("CYBERGYM_API_KEY is empty/missing "
-                       "(env, /root/.cybergym_env, /home/naco/work/cybergym/.env)")
+    env_key = (os.environ.get("CYBERGYM_API_KEY") or "").strip().strip('"').strip("'")
+    if env_key and os.environ.get("S4_KEY_ENV_OVERRIDE") == "1":
+        return env_key                      # explicit authorized override
+    root_key = _key_from_file(ROOT_KEY_FILE)
+    if root_key:
+        return root_key                     # authoritative source
+    if env_key:
+        return env_key                      # tolerated only while root file absent
+    if os.environ.get("S4_DEV_LEGACY_KEYFILE") == "1":
+        legacy = _key_from_file(LEGACY_KEY_FILE)
+        if legacy:
+            return legacy
+    raise RuntimeError(
+        f"CYBERGYM_API_KEY unusable: nothing in {ROOT_KEY_FILE} and no usable "
+        "env fallback. An env override requires S4_KEY_ENV_OVERRIDE=1; the "
+        f"legacy {LEGACY_KEY_FILE} requires S4_DEV_LEGACY_KEYFILE=1 (dev only).")
 
 
 def _key_from_file(path: str) -> str | None:
+    # NB: parses only the simple KEY=value / KEY="value" forms; it is not a
+    # general .env parser (no exports, no interpolation) by design.
     try:
         text = open(path, encoding="utf-8").read()
     except OSError:
@@ -69,9 +99,33 @@ def query_records(runner, tid: str) -> list:
     try:
         return runner.query_poc(original_task_id=tid) or []
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        # B1: a 404 means "no records" ONLY when the server's query handler
+        # said so.  The auth gate hides rejected credentials behind the same
+        # status, so anything that is not the exact business detail is an
+        # infrastructure failure and must propagate (-> query_error, exit 2).
+        if _is_business_not_found(e):
             return []
         raise
+
+
+BUSINESS_404_DETAIL = "Record not found"
+
+
+def _error_body(e: urllib.error.HTTPError) -> str:
+    try:
+        return (e.read() or b"").decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def _is_business_not_found(e: urllib.error.HTTPError) -> bool:
+    if e.code != 404:
+        return False
+    try:
+        detail = json.loads(_error_body(e)).get("detail")
+    except (ValueError, AttributeError):
+        return False
+    return detail == BUSINESS_404_DETAIL
 
 
 def main() -> int:
