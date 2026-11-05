@@ -14,7 +14,12 @@
 
 ```bash
 id naco                                # prep 身份必须存在
-id s4agent || useradd -M -N -s /usr/sbin/nologin s4agent   # 基线账号（uid 必须落在池外）
+# 基线账号（uid 必须落在池外）。显式指定 -u：R3.4 实测 `useradd` 在
+# uid_registry 已有 30001/30002 的机器上会把新账号分到 30002 —— 正好与
+# 已发放的任务 uid 撞车（同一 uid 既是被命名的账号又是某题的 agent）。
+id s4agent || { useradd -u 4001 -U -m -s /usr/sbin/nologin s4agent 2>/dev/null \
+  || useradd -u 4001 -U -M -s /usr/sbin/nologin s4agent; chmod 750 /home/s4agent 2>/dev/null; }
+getent passwd s4agent | awk -F: '$3>=30001 && $3<=34096 {print "FAIL: uid in task pool"; exit 1}'
 python3.12 --version
 setpriv --version                      # R3.2 必需：降权不依赖 passwd 条目
 test -f /root/.cybergym_env && echo env-ok
@@ -522,6 +527,12 @@ wrapper 级负测合计 5 场景 / 19 断言，全 PASS；原语实测（root, e
 原版不动）；root 侧入口 `/root/stage4.sh` + `/root/assert_code_tree.py` 已按
 仓库 `root_code/` 同名文件安装（0755 / 0644，root:root）。单测 151 OK
 （真机 skip 1）。
+
+R3.4 上机另修两处环境问题（非代码）：`useradd s4agent` 在该机被分到
+**uid 30002**（uid_registry 已把 30002 发给 `r_smoke/arvo_10628`，命名账号
+与任务 uid 撞车）→ 改为显式 **uid 4001**（池外）；同时清掉负测遗留的
+`s4neg4u`（uid 30001 未真正删除，见第 1 节命令）。`assert_code_tree` 现输出
+`root-clean (s4agent,naco refused write access)`，无缺号 WARN。
 
 ## 10. 尚未覆盖的（上机后仍需补验）
 
