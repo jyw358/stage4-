@@ -360,6 +360,34 @@ if [ -n "${S4_AGENT_ENV_FILE:-}" ]; then
     exit 4
   }
   set -a; . "$S4_AGENT_ENV_FILE"; set +a
+  # GLM key pool (stage-3 rotation parity): probe-gated priority switch
+  # executed ROOT-SIDE right before the env is frozen for this task.  The
+  # agent still never sees a credential FILE -- only the re-injected values
+  # below; pool files and active.env are root:root 0600 and validated as
+  # such.  When the pool is absent the pinned key in agent.env applies.
+  S4_KEY_POOL_DIR="${S4_KEY_POOL_DIR:-/etc/cybergym-agent/keys}"
+  if [ -d "$S4_KEY_POOL_DIR" ]; then
+    [ "$(stat -c '%u' "$S4_KEY_POOL_DIR")" = "0" ] || {
+      echo "REFUSE: key pool dir $S4_KEY_POOL_DIR is not root-owned" >&2
+      exit 4
+    }
+    S4_KEY_POOL_SEL="${S4_KEY_POOL_SCRIPT:-/root/key_pool_s4.sh}"
+    [ "$(stat -c '%u' "$S4_KEY_POOL_SEL")" = "0" ] && [ -f "$S4_KEY_POOL_SEL" ] || {
+      echo "REFUSE: key pool selector $S4_KEY_POOL_SEL is missing or not root-owned" >&2
+      exit 4
+    }
+    if ! bash "$S4_KEY_POOL_SEL"; then
+      echo "REFUSE: no usable GLM key in the pool (all throttled, no active)" >&2
+      exit 4
+    fi
+    S4_KEY_ACTIVE_ENV="$S4_KEY_POOL_DIR/active.env"
+    [ -s "$S4_KEY_ACTIVE_ENV" ] && [ "$(stat -c '%u' "$S4_KEY_ACTIVE_ENV")" = "0" ] || {
+      echo "REFUSE: $S4_KEY_ACTIVE_ENV is missing, empty, or not root-owned" >&2
+      exit 4
+    }
+    set -a; . "$S4_KEY_ACTIVE_ENV"; set +a   # overrides GLM_* with the active key
+    echo "[keypool] active=$(cat "$S4_KEY_POOL_DIR/glm_active" 2>/dev/null || echo '?') run=$RUN_ID task=$TID"
+  fi
   for _v in GLM_API_KEY GLM_BASE_URL GLM_MODEL AGCLI_CTX; do
     eval "_val=\${$_v:-}"
     [ -n "$_val" ] && CRED_ARGS+=("$_v=$_val")
