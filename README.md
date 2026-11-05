@@ -224,6 +224,22 @@ R3.1 增量复审修复：
     agent 永远拿值不拿文件；全部 key 限流且无 active → REFUSE 不烧预算。真机
     单题 `[keypool] active=senary` → submitted + official_success=True。
     评审证据存档：docs/EVIDENCE_PR1_REREVIEW.md；复审提示词：REVIEW_PROMPT_PR1.md。
+36. PR#1 复审 r2 修复（2026-11-05，stub 15 场景 + 真机 e2e 全过）：key 池
+    4 项 P0——凭据文件改**严格数据解析**（白名单 4 键 + 值域
+    `[A-Za-z0-9._:/+=-]`，拒绝额外键/命令替换/不可解析行，绝不 source）；
+    选择器逐步写检查 + 写后 `cmp` 复验（写失败 rc=1，实测 chattr +i 下
+    切换响亮失败）；wrapper 三态模式（池存在即权威、与 S4_AGENT_ENV_FILE
+    无关；皆无凭据 `model_credential_error` REFUSE）；信任检查升级为
+    普通/非 symlink/root/无 group-other 位 + 祖先链（实测 0666 与 symlink
+    拒绝）。P1——runner 双 id 回退仅限业务 404（认证 404 首次即抛，测试
+    覆盖 auth→business 反例）；score_all 拆分 query_error 与
+    integrity_error 捕获域；探针健康缓存 TTL（默认 120s，0=强制探针，
+    实测二次启动 0 探针）；sticky 需 active 与源逐字节一致否则原子修复
+    （实测）；全失败仅全 429 保 active（实测混 500 即拒）。测试修复过程
+    抓出并修掉真实缺陷：probe 子 shell die 被吞、解析失败降级为"不健康
+    继续轮换"。新增解析/双 id 序列/integrity 拆分测试，套件 187 项全过；
+    stage-3 基线 vendor 入 `docs/reference/stage3_key_pool.sh`
+    （sha256=309d1cfa…，与主机部署版一致，公开仓库缺 root_code/）。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

@@ -345,54 +345,144 @@ export CLAUDE_CONFIG_DIR="$WS/.claude-config"
 # unlike sudo, so anything not listed here would otherwise leak from root).
 #
 # R3.3 (real-agcli smoke): `env -i` also strips the MODEL credentials, so a
-# dropped session can never authenticate.  They are re-injected here from a
-# ROOT-ONLY file (S4_AGENT_ENV_FILE, e.g. /etc/cybergym-agent/agent.env,
-# root:root 0600) -- the agent gets the values in ITS environment, never
-# read access to the file itself.  Only the model variables are forwarded.
-CRED_ARGS=()
-if [ -n "${S4_AGENT_ENV_FILE:-}" ]; then
-  [ -f "$S4_AGENT_ENV_FILE" ] || {
-    echo "REFUSE: S4_AGENT_ENV_FILE=$S4_AGENT_ENV_FILE does not exist" >&2
-    exit 4
-  }
-  [ "$(stat -c '%u' "$S4_AGENT_ENV_FILE")" = "0" ] || {
-    echo "REFUSE: $S4_AGENT_ENV_FILE is not root-owned (agent credentials must not be user-writable)" >&2
-    exit 4
-  }
-  set -a; . "$S4_AGENT_ENV_FILE"; set +a
-  # GLM key pool (stage-3 rotation parity): probe-gated priority switch
-  # executed ROOT-SIDE right before the env is frozen for this task.  The
-  # agent still never sees a credential FILE -- only the re-injected values
-  # below; pool files and active.env are root:root 0600 and validated as
-  # such.  When the pool is absent the pinned key in agent.env applies.
-  S4_KEY_POOL_DIR="${S4_KEY_POOL_DIR:-/etc/cybergym-agent/keys}"
-  if [ -d "$S4_KEY_POOL_DIR" ]; then
-    [ "$(stat -c '%u' "$S4_KEY_POOL_DIR")" = "0" ] || {
-      echo "REFUSE: key pool dir $S4_KEY_POOL_DIR is not root-owned" >&2
-      exit 4
-    }
-    S4_KEY_POOL_SEL="${S4_KEY_POOL_SCRIPT:-/root/key_pool_s4.sh}"
-    [ "$(stat -c '%u' "$S4_KEY_POOL_SEL")" = "0" ] && [ -f "$S4_KEY_POOL_SEL" ] || {
-      echo "REFUSE: key pool selector $S4_KEY_POOL_SEL is missing or not root-owned" >&2
-      exit 4
-    }
-    if ! bash "$S4_KEY_POOL_SEL"; then
-      echo "REFUSE: no usable GLM key in the pool (all throttled, no active)" >&2
-      exit 4
-    fi
-    S4_KEY_ACTIVE_ENV="$S4_KEY_POOL_DIR/active.env"
-    [ -s "$S4_KEY_ACTIVE_ENV" ] && [ "$(stat -c '%u' "$S4_KEY_ACTIVE_ENV")" = "0" ] || {
-      echo "REFUSE: $S4_KEY_ACTIVE_ENV is missing, empty, or not root-owned" >&2
-      exit 4
-    }
-    set -a; . "$S4_KEY_ACTIVE_ENV"; set +a   # overrides GLM_* with the active key
-    echo "[keypool] active=$(cat "$S4_KEY_POOL_DIR/glm_active" 2>/dev/null || echo '?') run=$RUN_ID task=$TID"
-  fi
-  for _v in GLM_API_KEY GLM_BASE_URL GLM_MODEL AGCLI_CTX; do
-    eval "_val=\${$_v:-}"
-    [ -n "$_val" ] && CRED_ARGS+=("$_v=$_val")
-  done
+# dropped session can never authenticate.  They are re-injected here as VALUES
+# -- the agent never gets read access to any credential file.
+#
+# Re-review round 2 (P0-1/P0-3/P0-4):
+#   - credential files are PARSED AS STRICT DATA (whitelist of 4 keys, value
+#     charset check) -- never sourced, so file content can never execute as
+#     root shell code;
+#   - three mutually exclusive modes: (1) key pool present => selector must
+#     succeed and active.env is authoritative, INDEPENDENT of whether
+#     S4_AGENT_ENV_FILE is set; (2) no pool => the single-key profile file
+#     must be set AND trusted; (3) neither => REFUSE before any budget is
+#     spent (model_credential_error), never silently start without creds;
+#   - trust checks go beyond uid==0: regular file, not a symlink, no
+#     group/other permission bits, and every ancestor dir root-owned and not
+#     group/other-writable.
+
+s4_mode_bits() { stat -c %a "$1" 2>/dev/null || echo "---"; }
+
+s4_trust_ancestors() {  # $1=path: every existing ancestor up to /
+    local p="$1" cur="" part m g o
+    local IFS='/'
+    for part in $p; do
+        cur="$cur/$part"
+        [ -e "$cur" ] || continue
+        [ "$(stat -c %u "$cur" 2>/dev/null)" = "0" ] || {
+            echo "REFUSE: ancestor of $1 not root-owned: $cur" >&2; return 1; }
+        m="$(s4_mode_bits "$cur")"; g=$(( m / 10 % 10 )); o=$(( m % 10 ))
+        [ $(( g & 2 | o & 2 )) -eq 0 ] || {
+            echo "REFUSE: ancestor of $1 group/other-writable: $cur ($m)" >&2; return 1; }
+    done
+}
+
+s4_trust_file() {  # $1=file $2=what: regular, non-symlink, root, no go bits
+    local f="$1" what="${2:-file}" m
+    [ -f "$f" ] || { echo "REFUSE: $what missing: $f" >&2; return 1; }
+    [ -L "$f" ] && { echo "REFUSE: $what is a symlink, refused: $f" >&2; return 1; }
+    [ "$(stat -c %u "$f")" = "0" ] || { echo "REFUSE: $what not root-owned: $f" >&2; return 1; }
+    m="$(s4_mode_bits "$f")"
+    [ $(( (m / 10 % 10) | (m % 10) )) -eq 0 ] || {
+        echo "REFUSE: $what has group/other permission bits: $f ($m)" >&2; return 1; }
+    s4_trust_ancestors "$f"
+}
+
+s4_trust_dir() {  # $1=dir: root-owned, no go-write, trusted ancestors
+    local d="$1" m g o
+    [ -d "$d" ] || { echo "REFUSE: not a directory: $d" >&2; return 1; }
+    [ -L "$d" ] && { echo "REFUSE: symlink dir refused: $d" >&2; return 1; }
+    [ "$(stat -c %u "$d")" = "0" ] || { echo "REFUSE: dir not root-owned: $d" >&2; return 1; }
+    m="$(s4_mode_bits "$d")"; g=$(( m / 10 % 10 )); o=$(( m % 10 ))
+    [ $(( g & 2 | o & 2 )) -eq 0 ] || {
+        echo "REFUSE: dir group/other-writable: $d ($m)" >&2; return 1; }
+    s4_trust_ancestors "$d"
+}
+
+# strict data parser: prints KEY<TAB>VALUE for whitelisted keys only; never
+# evaluates file content (kept in sync with root_code/key_pool_s4.sh -- there
+# is deliberately no shared sourced library: any shared file would itself
+# need the same trust bootstrap)
+S4_KEY_WHITELIST=" GLM_API_KEY GLM_BASE_URL GLM_MODEL AGCLI_CTX "
+s4_parse_env_strict() {  # $1=file
+    local f="$1" line key val first last
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        [ -z "$line" ] && continue
+        case "$line" in '#'*) continue ;; esac
+        case "$line" in 'export '*) line="${line#export }" ;; esac
+        case "$line" in *=*) ;; *)
+            echo "REFUSE: unparsable line in credential file $f" >&2; return 1 ;;
+        esac
+        key="${line%%=*}"
+        case "$S4_KEY_WHITELIST" in *" $key "*) ;; *)
+            echo "REFUSE: non-whitelisted key '$key' in $f" >&2; return 1 ;;
+        esac
+        val="${line#*=}"
+        if [ "${#val}" -ge 2 ]; then
+            first="${val:0:1}"; last="${val: -1}"
+            if { [ "$first" = '"' ] && [ "$last" = '"' ]; } || \
+               { [ "$first" = "'" ] && [ "$last" = "'" ]; }; then
+                val="${val:1:${#val}-2}"
+            fi
+        fi
+        # shellcheck disable=SC2076
+        if ! [[ "$val" =~ ^[A-Za-z0-9._:/+=-]+$ ]]; then
+            echo "REFUSE: unsafe value charset for $key in $f" >&2; return 1
+        fi
+        printf '%s\t%s\n' "$key" "$val"
+    done < "$f"
+}
+
+s4_load_cred_env() {  # $1=file: merges strict-parsed values into GLM_* vars
+    local f="$1" out k v
+    out="$(s4_parse_env_strict "$f")" || return 1
+    while IFS=$'\t' read -r k v; do
+        case "$k" in
+            GLM_API_KEY)  GLM_API_KEY="$v" ;;
+            GLM_BASE_URL) GLM_BASE_URL="$v" ;;
+            GLM_MODEL)    GLM_MODEL="$v" ;;
+            AGCLI_CTX)    AGCLI_CTX="$v" ;;
+        esac
+    done <<< "$out"
+}
+
+GLM_API_KEY="${GLM_API_KEY:-}"; GLM_BASE_URL="${GLM_BASE_URL:-}"
+GLM_MODEL="${GLM_MODEL:-}"; AGCLI_CTX="${AGCLI_CTX:-}"
+
+# mode 1: key pool (authoritative when present, independent of S4_AGENT_ENV_FILE)
+S4_KEY_POOL_DIR="${S4_KEY_POOL_DIR:-/etc/cybergym-agent/keys}"
+S4_POOL_ON=0
+if [ -d "$S4_KEY_POOL_DIR" ]; then
+    s4_trust_dir "$S4_KEY_POOL_DIR" || exit 4
+    S4_POOL_ON=1
 fi
+
+# single-key profile: base/model defaults when the pool is on, authoritative when off
+if [ -n "${S4_AGENT_ENV_FILE:-}" ]; then
+    s4_trust_file "$S4_AGENT_ENV_FILE" "agent credentials" || exit 4
+    s4_load_cred_env "$S4_AGENT_ENV_FILE" || exit 4
+fi
+
+if [ "$S4_POOL_ON" = 1 ]; then
+    S4_KEY_POOL_SEL="${S4_KEY_POOL_SCRIPT:-/root/key_pool_s4.sh}"
+    s4_trust_file "$S4_KEY_POOL_SEL" "key pool selector" || exit 4
+    if ! bash "$S4_KEY_POOL_SEL"; then
+        echo "REFUSE: key pool selector failed (no healthy GLM key)" >&2
+        exit 4
+    fi
+    s4_trust_file "$S4_KEY_POOL_DIR/active.env" "active key" || exit 4
+    s4_load_cred_env "$S4_KEY_POOL_DIR/active.env" || exit 4
+    echo "[keypool] active=$(cat "$S4_KEY_POOL_DIR/glm_active" 2>/dev/null || echo '?') run=$RUN_ID task=$TID"
+fi
+
+# mode 3: no usable credentials at all -- refuse BEFORE any model budget
+if [ -z "$GLM_API_KEY" ] || [ -z "$GLM_BASE_URL" ] || [ -z "$GLM_MODEL" ]; then
+    echo "REFUSE: model_credential_error -- no usable GLM credentials (pool=$S4_POOL_ON env_file=${S4_AGENT_ENV_FILE:-unset})" >&2
+    exit 4
+fi
+CRED_ARGS=("GLM_API_KEY=$GLM_API_KEY" "GLM_BASE_URL=$GLM_BASE_URL" "GLM_MODEL=$GLM_MODEL")
+[ -n "$AGCLI_CTX" ] && CRED_ARGS+=("AGCLI_CTX=$AGCLI_CTX")
 RUN_ENV=(env -i
   PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8
   HOME="$WS/.home" TMPDIR="$WS/.tmp"

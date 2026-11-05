@@ -23,8 +23,9 @@ query_error (infra, exit 2).  Verified against the deployed server source
 Exit codes: 0 = every row decided or legitimately undecidable (fix_pending /
 no_records); 1 = at least one integrity failure (no_ledger, ledger_mismatch,
 ledger_corrupt, order_unknown, ambiguous, timestamp_invalid, hash_mismatch,
-hash_unverified, agent_missing); 2 = infrastructure error (query_error,
-no_task_dir).  There is deliberately NO flag to score without a ledger.
+hash_unverified, agent_missing, integrity_error); 2 = infrastructure error
+(query_error, no_task_dir).  There is deliberately NO flag to score without
+a ledger.
 """
 from __future__ import annotations
 
@@ -38,7 +39,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from plugins import evidence, results_store  # noqa: E402
-from plugins.cybergym_runner import CyberGymRunner, parse_submit_sh  # noqa: E402
+from plugins.cybergym_runner import (CyberGymRunner, is_business_not_found,  # noqa: E402
+                                     parse_submit_sh)
 
 INFRA_STATUSES = {"query_error", "no_task_dir"}
 BENIGN_STATUSES = {evidence.STATUS_OK, evidence.STATUS_FIX_PENDING,
@@ -100,32 +102,14 @@ def query_records(runner, tid: str) -> list:
         return runner.query_poc(original_task_id=tid) or []
     except urllib.error.HTTPError as e:
         # B1: a 404 means "no records" ONLY when the server's query handler
-        # said so.  The auth gate hides rejected credentials behind the same
-        # status, so anything that is not the exact business detail is an
-        # infrastructure failure and must propagate (-> query_error, exit 2).
-        if _is_business_not_found(e):
+        # said so.  The runner marks business 404s (s4_business_404) when it
+        # classifies them itself (its read consumes the body); the imported
+        # classifier only applies to errors we are the first to read
+        # (tests, direct callers).  Everything else is an infrastructure
+        # failure and must propagate (-> query_error, exit 2).
+        if getattr(e, "s4_business_404", False) or is_business_not_found(e):
             return []
         raise
-
-
-BUSINESS_404_DETAIL = "Record not found"
-
-
-def _error_body(e: urllib.error.HTTPError) -> str:
-    try:
-        return (e.read() or b"").decode("utf-8", errors="ignore")
-    except Exception:
-        return ""
-
-
-def _is_business_not_found(e: urllib.error.HTTPError) -> bool:
-    if e.code != 404:
-        return False
-    try:
-        detail = json.loads(_error_body(e)).get("detail")
-    except (ValueError, AttributeError):
-        return False
-    return detail == BUSINESS_404_DETAIL
 
 
 def main() -> int:
@@ -190,28 +174,43 @@ def main() -> int:
             result = {"status": "no_task_dir", "success": None, "final": None,
                       "reason": f"missing {tdir / 'submit.sh'}", "ledger_entries": 0}
         else:
+            # M2 (re-review r2): two DISTINCT capture regions.  Server query
+            # failures (network/auth/protocol) -> query_error (infra, exit 2);
+            # local-evidence failures (submit.sh parse, ledger discovery,
+            # evidence binding invariants) -> integrity_error (exit 1).  An
+            # unclassified evidence exception must never masquerade as an
+            # infrastructure problem.
+            result = None
+            agent_id = row.get("agent_id") or ""
             try:
-                agent_id = row.get("agent_id") or parse_submit_sh(tdir).get("agent_id", "")
+                agent_id = agent_id or parse_submit_sh(tdir).get("agent_id", "")
                 runner = CyberGymRunner(args.server, tdir, api_key=key)
                 recs = query_records(runner, tid)
-                hist = sorted((out / "ledger_history").glob(f"{name}.*.jsonl"))
-                prot = out / "protected_ledger" / f"{name}.jsonl"
-                if prot.exists() and prot.stat().st_size > 0:
-                    ledger_source = "protected"
-                    ledger_paths = [prot]
-                else:
-                    ledger_source = "workspace"
-                    ledger_paths = ([ws / "submissions.jsonl"] + hist) if hist else None
-                result = evidence.bind_evidence(
-                    recs, agent_id, ledger_path=ws / "submissions.jsonl",
-                    require_ledger=True, ledger_paths=ledger_paths,
-                    run_id=row.get("run_id") or None)
-                result["ledger_source"] = ledger_source
-                patch["agent_id"] = agent_id
-                patch["ledger_source"] = ledger_source
-            except Exception as e:  # never silently swallow a scoring failure
+            except Exception as e:
                 result = {"status": "query_error", "success": None, "final": None,
                           "reason": f"{type(e).__name__}: {e}", "ledger_entries": 0}
+            else:
+                try:
+                    hist = sorted((out / "ledger_history").glob(f"{name}.*.jsonl"))
+                    prot = out / "protected_ledger" / f"{name}.jsonl"
+                    if prot.exists() and prot.stat().st_size > 0:
+                        ledger_source = "protected"
+                        ledger_paths = [prot]
+                    else:
+                        ledger_source = "workspace"
+                        ledger_paths = ([ws / "submissions.jsonl"] + hist) if hist else None
+                    result = evidence.bind_evidence(
+                        recs, agent_id, ledger_path=ws / "submissions.jsonl",
+                        require_ledger=True, ledger_paths=ledger_paths,
+                        run_id=row.get("run_id") or None)
+                    result["ledger_source"] = ledger_source
+                    patch["agent_id"] = agent_id
+                    patch["ledger_source"] = ledger_source
+                except Exception as e:
+                    result = {"status": "integrity_error", "success": None,
+                              "final": None,
+                              "reason": f"{type(e).__name__}: {e}",
+                              "ledger_entries": 0}
 
         patch.update({
             "official_success": result.get("success"),

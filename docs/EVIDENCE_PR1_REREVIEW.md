@@ -153,3 +153,54 @@ row: submitted / official_success=True / score_status=ok / cost $0.506358
   `cybergym-agent/scripts/window_budget.py`。
 - 本地+部署机测试套件：176 OK（7 项既有 skip），含新增
   `tests/test_score_all.py` 13 例。
+
+---
+
+## 6. 复审 r2 修复的现场验证（P0-1..4 / M1-M8，2026-11-05）
+
+> 本节针对复审 r2 的裁决。代码层面见 `root_code/key_pool_s4.sh`（v2）、
+> `run_agent_task.sh`（三态模式 + 严格解析）、`plugins/cybergym_runner.py`
+> （M1）、`scripts/score_all.py`（M2）。以下仍是**项目方现场报告**。
+
+### 6.1 确定性选择器测试（stub curl，15/15 PASS，sandbox 在 /root 下）
+
+```
+PASS A-skip-throttled-top (rc=0 active=quinary)
+PASS B-all-429-keep-active (rc=0 active=quinary)      # M7: 仅全 429 保 active
+PASS C-all-429-no-active (rc=1)
+PASS D-recovery-switch-up (rc=0 active=senary)
+PASS E-only-secondary (rc=0 active=secondary)
+PASS F-all-500-refuses (rc=1)                          # M7: 非 429 全败即拒
+PASS F2-mixed-429-500-refuses (rc=1)
+PASS G-0666-pool-file-refused (rc=1)                   # P0-4
+PASS H-symlink-pool-file-refused (rc=1)                # P0-4
+PASS I-extra-key-refused (rc=1)                        # P0-1 白名单
+PASS J-cmdsubstitution-refused (rc=1)                  # P0-1 值域（rootfs 完好）
+PASS L1-establish-senary / L2-repair-active / L3-active-content-restored  # M6
+PASS M5-fresh-cache-skips-probes (first=5 second=0)    # M5 TTL 缓存
+PASS M-immutable-active-fails-loudly (rc=1)            # P0-2: chattr +i 下切换失败
+```
+
+测试过程抓出并修复两个真实缺陷（非测试问题）：
+1. `probe_one` 在命令替换子 shell 内 `die` 只退出子 shell，解析失败被
+   吞成"不健康"继续轮换 → 外层 `|| die` 捕获（I/J 由此从 FAIL 转 PASS）；
+2. `S4_KEY_POOL_TTL=0` 时同秒缓存仍可用 → 语义改为 0 = 彻底禁用缓存。
+
+### 6.2 端到端（真机）
+
+- 单题 e2e（pool-smoke2，run s4-20261105T131558Z-b453c8，v2 全链路）：
+  `[keypool] active=senary` → submitted / official_success=True /
+  score_status=ok / 三阶段 rc=0 / verify violations=0 / $0.37。
+- 负向打分 v2（pilot5b，M1 runner + M2 拆分后）：坏 key + 授权覆盖 →
+  `{'query_error': 5}` rc=2；正式恢复 → 5/5 ok rc=0。
+- 测试套件：本地与部署机 187 OK（7 项既有 skip）。
+
+### 6.3 M8 基线补正
+
+stage-3 公开仓库确实没有 `root_code/`（复审所见属实）。部署版
+`/root/key_pool.sh` 与本地归档 `stage3-src/root_code/key_pool.sh` 哈希一致
+（`309d1cfa41acdb4f4a07b3c42a0a1e0df5cf00db00deb9e9e14851f96c2954aa`），
+已 vendor 为 `docs/reference/stage3_key_pool.sh` 供独立对照。另注：stage-4
+选择器为**每题启动时**选择（锁内读 TTL 缓存），与 stage-3 的 cron 每 5 分钟
+节奏不同——策略一致（优先级/门控/sticky），运行触发点不同，文档已如实
+区分。

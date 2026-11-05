@@ -66,14 +66,33 @@ export S4_AGENT_ENV_FILE=/etc/cybergym-agent/agent.env
 wrapper 以 root 读取该文件，仅把上述四个变量放进会话环境；agent 得到的是
 **值**，拿不到文件本身。文件非 root 属主时 wrapper 直接 `REFUSE`（rc=4）。
 
-### GLM key 池（stage-3 轮换同款，正式跑推荐）
+### GLM key 池（stage-3 轮换同款，正式跑推荐；复审 r2 加固后语义）
 
 stage-3 的 5 个可用 GLM key 引入 stage-4，按同样的策略轮换：固定优先级
 `senary > quaternary > quinary > primary > secondary`（tertiary 沿用 stage-3
-的 owner-retired，排除），probe 门控（非 200 不选），sticky（最优未变不重写），
-全部限流时保留上一个 active。与 stage-3 的差别只在信任模型：池文件与
-active.env 一律 `root:root 0600`，选择器在每题启动时由 root 侧执行并 flock
-串行，决策追加到 `/var/log/s4-keypool.log`；agent 依旧只见值不见文件。
+的 owner-retired，排除），probe 门控（非 200 不选），sticky（最优未变且
+active 与源文件逐字节一致才不重写）。与 stage-3 的差别：
+
+- **信任模型**：池文件、active.env、health.cache 一律 `root:root 0600`；
+  使用前校验整条路径——普通文件、非 symlink、root 属主、无 group/other
+  权限位，且每个祖先目录 root 属主且不可被 group/other 写。
+- **凭据文件按数据解析，绝不 source**：只接受白名单键
+  `GLM_API_KEY/GLM_BASE_URL/GLM_MODEL/AGCLI_CTX`，值域
+  `[A-Za-z0-9._:/+=-]`（可选成对引号）；额外键、命令替换、不可解析行
+  一律拒绝（选择器 rc=1、该题 REFUSE）。
+- **三态模式**：池存在 → 选择器必须成功，active.env 为权威（与
+  `S4_AGENT_ENV_FILE` 是否设置无关）；池不存在 → 单 key profile 必须设置
+  且通过信任检查；两者皆无 → `model_credential_error` REFUSE，绝不无凭据
+  启动。
+- **写失败响亮**：active/标记/缓存每步写入都检查，写后复验与源文件一致
+  （`cmp`）；sticky 前先验证一致性，不一致则原子修复并记日志。
+- **预算策略**：全部 key 失败时，仅当**全部为 429**（限流）才保留上一
+  active；任何非 429（认证/传输/5xx）且无健康 key → REFUSE 不烧预算。
+- **探针缓存**：健康状态缓存 `health.cache`（`S4_KEY_POOL_TTL` 秒，默认
+  120；0 = 禁用缓存强制探针），任务启动在锁内读缓存选择，避免每题 5 连
+  探针的启动排队与配额开销。
+- 决策与审计：`/var/log/s4-keypool.log` + 任务日志
+  `[keypool] active=<name>`。
 
 ```bash
 install -d -o root -g root -m 700 /etc/cybergym-agent/keys
@@ -83,12 +102,13 @@ install -o root -g root -m 600 <glm5.env> /etc/cybergym-agent/keys/glm-quinary.e
 install -o root -g root -m 600 <glm2.env> /etc/cybergym-agent/keys/glm-primary.env
 install -o root -g root -m 600 <glm.env>  /etc/cybergym-agent/keys/glm-secondary.env
 install -o root -g root -m 700 key_pool_s4.sh /root/key_pool_s4.sh
+# 池文件格式（严格）：[export ]KEY=VALUE，仅上述 4 键，值域见上
 ```
 
-`/etc/cybergym-agent/keys/` 存在即启用（`run_agent_task.sh` 自动探测，无需
-额外环境变量；`S4_KEY_POOL_DIR` / `S4_KEY_POOL_SCRIPT` 可覆盖）。池不存在时
-回落到 agent.env 的单 key。全部 key 限流且无历史 active 时该题 `REFUSE`，
-不烧模型预算。任务日志中 `[keypool] active=<name>` 行可审计当题用的 key。
+`/etc/cybergym-agent/keys/` 存在即启用（`S4_KEY_POOL_DIR`/`S4_KEY_POOL_SCRIPT`
+可覆盖，覆盖路径同样过信任检查）。轮换策略基线对照：
+`docs/reference/stage3_key_pool.sh`（stage-3 部署版原样 vendor，
+sha256 `309d1cfa…`；stage-3 公开仓库无 `root_code/`，故以此副本为准）。
 
 ## 2. 备份与部署
 
