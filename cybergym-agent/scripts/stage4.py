@@ -205,6 +205,15 @@ def ancestors_trusted(path: Path, root_uid: int = 0) -> tuple:
             return False, f"{cur} owned by uid={st.st_uid}, not root"
         if st.st_mode & (_st.S_IWGRP | _st.S_IWOTH):
             return False, f"{cur} is group/other-writable"
+        # R3.3 (real-task smoke): a root-owned 0700 ancestor (e.g. /root) also
+        # blocks the run -- the PREP identity writes <out>/tasks/<task> and the
+        # per-task uid enters <out>-ws/<task>, and neither can traverse a
+        # root-only directory.  Fail here with a clear message instead of a
+        # cryptic gen_task PermissionError.
+        if not st.st_mode & _st.S_IXOTH:
+            return False, (f"{cur} is not other-traversable (mode "
+                           f"{oct(st.st_mode & 0o777)}): prep/agent uids must "
+                           "be able to reach their own subdirectories")
         if cur == "/":
             return True, ""
         nxt = os.path.dirname(cur)
@@ -230,9 +239,6 @@ def control_dir_trusted(d: Path) -> tuple:
         return False, f"{d} owned by uid={st.st_uid}, not root"
     if st.st_mode & (_st.S_IWGRP | _st.S_IWOTH):
         return False, f"{d} is group/other-writable"
-    ok, why = ancestors_trusted(d)
-    if not ok:
-        return False, why
     return True, ""
 
 
@@ -242,6 +248,12 @@ def control_write(out: Path, name: str, key: str, value: str) -> None:
     d = control_root(out) / name
     d.mkdir(parents=True, exist_ok=True)
     ok, why = control_dir_trusted(d)
+    if not ok:
+        raise SystemExit(f"control plane for {name} is not trustworthy: {why}")
+    # R3.3: the chain check starts ABOVE <out>/control: the control root is
+    # deliberately root-only 0700, so it is not other-traversable and must not
+    # be judged by the prep/agent traversal rule.
+    ok, why = ancestors_trusted(control_root(out).parent)
     if not ok:
         raise SystemExit(f"control plane for {name} is not trustworthy: {why}")
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
@@ -351,8 +363,14 @@ def allocate_agent_uid(out: Path, name: str, run_id: str = "") -> int:
     """R3: ONE numeric uid per task, never reused within the run OR across
     runs on this host (global append-only registry, S4_UID_STATE)."""
     rp = _registry_path()
+    # Harden the registry's directory ONLY when we create it: S4_UID_STATE may
+    # point at an existing shared directory (the R3.2 host negative test keeps
+    # it directly under /var/tmp/s4neg), and lock-chmod'ing someone else's
+    # directory as root silently breaks every other user of it.  The registry
+    # FILE is 0600 root below, which is what actually protects its content.
+    created = not rp.parent.exists()
     rp.parent.mkdir(parents=True, exist_ok=True)
-    if os.name == "posix" and euid() == 0:
+    if created and os.name == "posix" and euid() == 0:
         os.chown(rp.parent, 0, 0)
         os.chmod(rp.parent, 0o700)
     lock = rp.with_name(".uid.lock")
@@ -803,7 +821,9 @@ def main() -> int:
     except results_store.ResultsIntegrityError as e:
         raise SystemExit(str(e))
     task_base = Path(args.task_base or (out / "tasks"))
-    ws_root = Path(args.ws_root or "/data/cybergym/stage4/r_engineer-ws")
+    # R3.3: no hardcoded /data/cybergym path -- the workspace root defaults to
+    # a sibling of the run dir, so one --out fully describes the run layout.
+    ws_root = Path(args.ws_root or (out.parent / f"{out.name}-ws"))
     for d in (out, out / "rows", out / "logs", task_base, ws_root):
         d.mkdir(parents=True, exist_ok=True)
     # R3: the run dirs stay ROOT-owned.  task_base gets per-task subdirs
@@ -909,7 +929,10 @@ def _main_locked(args, out: Path, queue_path: Path, queue: list,
 
     def run_phase(name: str, cmd: list) -> None:
         print(f"[stage4] {name}: {' '.join(str(c) for c in cmd)}")
-        r = subprocess.run(cmd, check=False)
+        # phases must see the deployment + this run: root_code/score_all.sh
+        # resolves $S4_AGENT_HOME and $S4_RUN_ID from its environment
+        child_env = {**os.environ, "S4_AGENT_HOME": str(AG), "S4_RUN_ID": run_id}
+        r = subprocess.run(cmd, check=False, env=child_env)
         phase_rc[name] = r.returncode
         if r.returncode != 0:
             print(f"[stage4] {name} FAILED rc={r.returncode}")
@@ -922,11 +945,23 @@ def _main_locked(args, out: Path, queue_path: Path, queue: list,
             print(f"[stage4] backfill script not found at {backfill}")
             phase_rc["backfill"] = 127
     if not args.no_score:
-        score_all = os.environ.get("S4_SCORE_ALL", "/root/score_all.sh")
-        if Path(score_all).exists():
+        # R3.3: score with the deployment's OWN scorer by default.  The old
+        # default (/root/score_all.sh) was a stage-3 host wrapper that only
+        # filled official_success in results.json: the row kept score_status
+        # None / final.* empty, so verify reported a submitted-but-unscored
+        # task.  S4_SCORE_ALL still overrides for hosts that need a wrapper
+        # (it is called with <out> <task_base> <ws_root> positionally).
+        score_all = os.environ.get("S4_SCORE_ALL", "")
+        scorer = Path(AG) / "scripts" / "score_all.py"
+        if score_all and Path(score_all).exists():
             run_phase("score", ["bash", score_all, str(out), str(task_base), str(ws_root)])
+        elif not score_all and scorer.exists():
+            run_phase("score", [sys.executable, str(scorer), "--out", str(out),
+                                "--task-base", str(task_base),
+                                "--ws-root", str(ws_root), "--run-id", run_id])
         else:
-            print(f"[stage4] score_all script not found at {score_all}")
+            print(f"[stage4] score_all script not found (S4_SCORE_ALL={score_all!r}, "
+                  f"deployment={scorer})")
             phase_rc["score"] = 127
     if not args.skip_verify:
         verify = Path(AG) / "scripts" / "verify_stage4.py"

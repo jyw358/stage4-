@@ -13,7 +13,24 @@
 > | gen_task 不与 agent 同 UID | 保留独立准备身份 `S4_PREP_USER`（默认 naco）；`chown_prep` fail-closed |
 > | marker 绑定不可替换（软链接窗口/父目录可替换/未绑定 submit.sh） | 控制面 `<out>/control/<task>/` root:root 0700，O_NOFOLLOW+原子写，绑定 run_id+agent_id+submit.sh sha256+agent_uid；wrapper 逐项校验 |
 > | 账本信任描述失实；promoter 保留不可信预写值 | 信任模型重述为“root 封存的不可信提交声明”；promoter 强制覆盖身份值、坏行硬失败、同 ID 异哈希单列 conflicts |
-> | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 137 项单测 + 双 smoke 全过；上机负向测试 2026-11-04 于 192.168.49.13 跑 14/14 通过（部署手册第 9 节），并据现场证据把降权从 sudo 改为 setpriv |
+> | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 148 项单测 + 双 smoke 全过；上机负向测试 2026-11-04 于 192.168.49.13 跑 **9 个场景 / 25 条断言**全过（部署手册第 9 节），并据现场证据把降权从 sudo 改为 setpriv |
+>
+> **R3.2 复审（第四轮）**：裁决 CONDITIONAL PASS（代码修复），50 题 pilot 仍
+> NO-GO（真实 agcli / 评分闭环 / 进程残留未验收）。已修复三个 P1：启动失败
+> 独立归因（`agent_launch_error` + rc=7，不进第二段）、真实 ledger 的
+> `chattr +a` 由 `lsattr` 验证、protected ledger 改 0700/0600 并在验收中新增
+> `ledger_open`。随后按 P0 跑单题真实链路 smoke，暴露并修掉 agcli 部署位置、
+> 私有 HOME 与凭据注入（`S4_AGENT_ENV_FILE`）、`--out` 祖先链"他人可遍历"
+> 校验三处真机问题。详见 STAGE4_CHANGES.md 第 0.8/0.8.1 节。
+>
+> **R3.3 单题 smoke 结果**：`arvo:10628`（uid 30005）真实跑通
+> `submitted → promote → score → verify`（`official_success=1/1`、
+> `violations=0`、`cost=$0.42`）。现场又暴露并修掉五项：会话内 `check.py`
+> 因运行时树对每题 uid 不可读而 `ModuleNotFoundError`（新增 agent uid 探针 +
+> 拒绝 group/other 可写的运行时树）、启动证据放在工作区会被删（改为 root
+> 侧已打开 fd 记录）、驱动默认评分脚本是 stage-3 遗留 wrapper、新 run 的行
+> 继承旧 run 统计、服务器 `created_at` 无时区导致全部 `timestamp_invalid`。
+> 详见 STAGE4_CHANGES.md 第 0.8.2 节与部署手册 §9.2 S-5～S-10。
 >
 > **R3 复审（第二轮）**：裁决 REQUEST CHANGES，唯一 P0 是“准备目录仍可跨题
 > 读取”（R3-B1）。已修复：题目录 prep 后整树归本题 uid + 0700、父级 0711、

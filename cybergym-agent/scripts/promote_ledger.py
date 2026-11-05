@@ -30,13 +30,15 @@ Usage (from run_agent_task.sh, as root):
 
 Exit codes: 0 promoted/nothing-to-do; 1 bad usage; 2 corrupt/bad-line ledger;
 3 not root or protected ledger missing; 4 poc_id hash conflict (recorded);
-5 identity mismatch (run_id/task_id/agent_id disagrees with the caller).
+5 identity mismatch (run_id/task_id/agent_id disagrees with the caller);
+6 protected ledger mode cannot be tightened to 0600 (append-only refuses chmod).
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -89,6 +91,23 @@ def protected_index(prot: Path) -> dict:
     return idx
 
 
+def canonical_task_id(task_dir: str | Path) -> str:
+    """The task id the generator baked into submit.sh metadata.
+
+    R3.3 (real-task smoke): the queue id is the PUBLIC label (``arvo:10628``)
+    while check.py/CyberGymRunner put the server's INTERNAL id (``1e87eeeb8d69``)
+    into the workspace ledger.  Both name the same task; validating only the
+    label made every real submission end in evidence_error.
+    """
+    try:
+        from plugins.cybergym_runner import parse_submit_sh
+        return str(parse_submit_sh(task_dir).get("task_id") or "")
+    except Exception as e:  # missing/unparsable submit.sh -> keep label-only
+        print(f"[promote] WARN: cannot read task id from {task_dir}/submit.sh: "
+              f"{e}", file=sys.stderr)
+        return ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ws-ledger", required=True,
@@ -99,6 +118,9 @@ def main() -> int:
                     help="root-provided run binding (validated + enforced)")
     ap.add_argument("--task-id", default="",
                     help="root-provided task binding (validated + enforced)")
+    ap.add_argument("--task-dir", default="",
+                    help="prepared task dir; its submit.sh metadata task_id is "
+                         "the canonical in-ledger id (R3.3)")
     ap.add_argument("--agent-id", default="",
                     help="root-provided agent binding from the control plane")
     args = ap.parse_args()
@@ -112,6 +134,9 @@ def main() -> int:
         print(f"protected ledger does not exist: {prot}", file=sys.stderr)
         return 3
 
+    canon = canonical_task_id(args.task_dir) if args.task_dir else ""
+    allowed_task_ids = {v for v in (args.task_id, canon) if v}
+
     try:
         known = protected_index(prot)
         ws_entries = load_entries(Path(args.ws_ledger))
@@ -123,12 +148,16 @@ def main() -> int:
     # agent is tampering, not metadata to preserve
     identity_errors = []
     for e in ws_entries:
-        for key, val in (("run_id", args.run_id), ("task_id", args.task_id),
-                         ("agent_id", args.agent_id)):
+        for key, val in (("run_id", args.run_id), ("agent_id", args.agent_id)):
             if val and e.get(key) not in (None, "", val):
                 identity_errors.append(
                     f"poc_id={e['poc_id']}: entry {key}={e.get(key)!r} != "
                     f"caller {val!r}")
+        if allowed_task_ids and e.get("task_id") not in (None, "",
+                                                        *allowed_task_ids):
+            identity_errors.append(
+                f"poc_id={e['poc_id']}: entry task_id={e.get('task_id')!r} "
+                f"not in {sorted(allowed_task_ids)!r}")
     if identity_errors:
         for msg in identity_errors[:20]:
             print(f"[promote] REFUSE identity mismatch: {msg}", file=sys.stderr)
@@ -153,6 +182,9 @@ def main() -> int:
                 fh.write(json.dumps(c, ensure_ascii=False, sort_keys=True) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
+        # R3.2-M3: the protected ledger is root-only evidence (0700 dir);
+        # a newly created file must not inherit the 022 umask and become 0644.
+        os.chmod(cpath, 0o600)
         for c in conflicts:
             print(f"[promote] CONFLICT: poc_id {c['poc_id']} already protected "
                   f"with a different hash ({c['protected_sha256'][:12]}... != "
@@ -174,8 +206,10 @@ def main() -> int:
             # a partially-forged line cannot smuggle metadata through.
             if args.run_id:
                 out["run_id"] = args.run_id
-            if args.task_id:
-                out["task_id"] = args.task_id
+            if canon or args.task_id:
+                # keep the CANONICAL (submit.sh) id when known: that is what
+                # check.py wrote and what the server record uses
+                out["task_id"] = canon or args.task_id
             if args.agent_id:
                 out["agent_id"] = args.agent_id
             out["promoted_by"] = "root"
@@ -183,6 +217,19 @@ def main() -> int:
             fh.write(json.dumps(out, ensure_ascii=False, sort_keys=True) + "\n")
         fh.flush()
         os.fsync(fh.fileno())
+    # R3.2-M3: root-only evidence, never 0644.  The wrapper already creates the
+    # file 0600 BEFORE chattr +a, and an append-only file REFUSES chmod (EPERM)
+    # -- so only tighten when the mode is actually wrong (R3.3 smoke: an
+    # unconditional chmod turned every real promotion into rc=1/evidence_error).
+    mode = stat.S_IMODE(os.stat(prot).st_mode)
+    if mode != 0o600:
+        try:
+            os.chmod(prot, 0o600)
+        except PermissionError as e:
+            print(f"[promote] REFUSE: {prot} is mode {oct(mode)} and cannot be "
+                  f"tightened ({e}); protected evidence must not stay readable "
+                  "by group/other", file=sys.stderr)
+            return 6
     print(f"[promote] +{len(fresh)} entr{'y' if len(fresh) == 1 else 'ies'} "
           f"-> {prot}")
     return 0

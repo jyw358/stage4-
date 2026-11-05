@@ -2,6 +2,7 @@
 must fail (exit 1) on rounds that are merely self-consistent but have no
 effective execution, and on every blind spot the review enumerated."""
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -47,12 +48,18 @@ def ok_row(tid, **kw):
 
 
 def write_protected(out, tid, entries=("p1",)):
+    """Mirror run_agent_task.sh: root-only 0700 dir + 0600 files (R3.2-M3),
+    otherwise the POSIX-only ledger_open check fires on the fixture itself."""
     d = out / "protected_ledger"
     d.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix" and os.geteuid() == 0:
+        os.chmod(d, 0o700)
     lines = [json.dumps({"poc_id": e, "poc_sha256": "a" * 64})
              for e in entries]
-    (d / (tid.replace(":", "_") + ".jsonl")).write_text(
-        "\n".join(lines) + "\n", encoding="utf-8")
+    f = d / (tid.replace(":", "_") + ".jsonl")
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if os.name == "posix" and os.geteuid() == 0:
+        os.chmod(f, 0o600)
 
 
 class TestVerifyStage4(unittest.TestCase):
@@ -286,6 +293,33 @@ class TestVerifyStage4(unittest.TestCase):
         r = run_verify(self.out, queue=q)
         self.assertEqual(r.returncode, 1)
         self.assertIn("ledger_conflict", r.stdout)
+
+    def test_agent_launch_error_is_an_infra_failure(self):
+        # R3.2-M1: setpriv failing to start the session must be an infra
+        # failure, never a "ran but did not submit" result.
+        row = {"task_id": "t:1", "run_id": "s4", "status": "agent_launch_error",
+               "submissions": 0, "official_success": None, "cost_usd": 0}
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("coverage_infra", r.stdout)
+
+    @unittest.skipUnless(os.name == "posix" and os.geteuid() == 0,
+                         "mode bits only bite on POSIX as root")
+    def test_world_readable_protected_ledger_is_a_violation(self):
+        # R3.2-M3: 0755 dir + 0644 file let another task uid read evidence.
+        row = ok_row("t:1")
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        write_protected(self.out, "t:1")
+        d = self.out / "protected_ledger"
+        os.chmod(d, 0o755)
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("ledger_open", r.stdout)
 
     def test_evidence_error_is_an_infra_failure(self):
         # R3-M3: a promoter failure ends the task as evidence_error and must

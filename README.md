@@ -34,7 +34,7 @@ cybergym-agent/
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（137 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（148 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
@@ -54,8 +54,8 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 137 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
-#       R3/R3.1 复审回归）
+# 预期：Ran 148 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
+#       R3/R3.1/R3.2/R3.3 复审回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -151,9 +151,25 @@ R3.1 增量复审修复：
 26. wrapper 在入口处把题目录与 `<out>/tasks` 都 `readlink -f` 收敛，题目录
     越界即 `REFUSE`（MAJOR-3）；控制面 `agent_id` 为空一律拒绝正式任务
     （MAJOR-4）。
-27. 上机负向测试（2026-11-04）14/14 通过：跨题读、跨 run uid、wrapper uid
-    冲突、空 agent_id、promoter 失败、降权身份与环境探针；并据此修掉
-    sudo→setpriv 与 `evidence_error` 被改写两处缺陷（部署手册 §9）。
+27. 上机负向测试（2026-11-04）**9 个场景 / 25 条断言全通过**：跨题读、跨 run
+    uid、wrapper uid 冲突、空 agent_id、promoter 失败、降权身份与环境探针、
+    ledger 0700/0600 跨 uid 不可读、真实 `lsattr` 的 append-only、setpriv 启动
+    失败独立归因（`agent_launch_error`）；并据此修掉 sudo→setpriv、
+    `evidence_error` 被改写两处缺陷（部署手册 §9/§9.1）。
+28. 真实链路 smoke（2026-11-04）：`gen_task`（naco）→ `setpriv` 会话 → 真实模型
+    调用 → 受保护账本 → 评分/验收。前几次失败暴露了只能在真机上出现的问题：
+    agcli 装在 0750 家目录导致每题 uid 无法执行、agcli 依赖 `$HOME` 与私有 HOME
+    冲突、`env -i` 清空后模型凭据无法注入（新增 `S4_AGENT_ENV_FILE` root 侧注入）；
+    `--out` 祖先链新增"他人可遍历"校验（0700 的 `/root`、naco 属主的 `/data` 会被拒）。
+29. 端到端 smoke 最终通过（2026-11-04，`arvo:10628`，uid 30005）：
+    `status=submitted`、1 次 check、1 条真实提交、`cost=$0.42`；protected ledger
+    目录 700 / 文件 600 / `lsattr` 含 `a`；`promote_ledger` 写服务器内部 id；
+    `score_all` → `official_success=1/1`；`verify_stage4` → `violations=0
+    warnings=0`。为此修掉五个现场缺陷，见部署手册 §9.2 S-5～S-10：会话内的
+    `check.py` 因运行时树不可读而 `ModuleNotFoundError`（于是加了 agent uid 探针
+    + 拒绝 group/other 可写的运行时树）、启动证据放在工作区会被删（改为 root
+    侧已打开 fd）、默认评分脚本是 stage-3 遗留 wrapper、新 run 的行继承了旧 run
+    统计、服务器 `created_at` 无时区导致全部 `timestamp_invalid`。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

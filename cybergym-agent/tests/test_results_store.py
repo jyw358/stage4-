@@ -23,6 +23,20 @@ class TestResultsStore(unittest.TestCase):
         agg = json.load(open(Path(self.dir) / "results.json", encoding="utf-8"))
         self.assertEqual(len(agg), 2)
 
+    def test_new_run_does_not_inherit_old_accounting(self):
+        # R3.3: the smoke run's error row reported a PREVIOUS session's
+        # turns/cost/result because merge_row merged the stale file on disk.
+        results_store.merge_row(self.dir, "t1", {
+            "run_id": "s4-OLD", "status": "submitted", "turns": 21,
+            "cost_usd": 0.649, "result": "foreign session text"})
+        row = results_store.merge_row(self.dir, "t1", {
+            "task_id": "t1", "run_id": "s4-NEW", "status": "agent_launch_error",
+            "error": "agent session did not start"})
+        self.assertEqual(row["run_id"], "s4-NEW")
+        self.assertEqual(row["status"], "agent_launch_error")
+        for stale in ("turns", "cost_usd", "result"):
+            self.assertNotIn(stale, row)
+
     def test_concurrent_writers_do_not_lose_rows(self):
         ids = [f"arvo:{i}" for i in range(40)]
         errors = []

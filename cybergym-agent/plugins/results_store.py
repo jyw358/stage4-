@@ -162,6 +162,13 @@ def merge_row(out, tid: str, patch: dict) -> dict:
         current = read_row(out, tid)          # rows/ is the only authority
         if current is None:
             current = {"task_id": tid}
+        elif patch.get("run_id") and current.get("run_id") not in (None, patch["run_id"]):
+            # R3.3 (real-task smoke): a NEW run must not inherit the previous
+            # run's accounting.  record_task_row already resets its in-memory
+            # row when the run_id changes, but merging the patch with the STALE
+            # file on disk put the old session's turns/cost/result back into the
+            # new run's row (the row then reported a foreign session's outcome).
+            current = {"task_id": tid}
         current.update(patch)
         current["task_id"] = tid
         _atomic_json(row_path(out, tid), current)          # authority first

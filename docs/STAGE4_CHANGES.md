@@ -113,19 +113,60 @@ per-run 分配表损坏 fail-closed）。
 
 ## 0.8 上机负向测试（R3.2，2026-11-04）
 
-在测试机（内网 `192.168.49.13`，root）对同一 commit 的树跑 14 项负测，
-**14/14 通过**（明细见部署手册第 9 节）。负测暴露出两个此前静态审查
-看不到的真实缺陷：
+在测试机（内网 `192.168.49.13`，root）对同一 commit 的树跑负测，计数口径：
+**9 个场景 / 25 条断言，全部 PASS**（明细见部署手册第 9 节；断言脚本
+`/root/s4_neg.sh` 14 条 + `/root/s4_neg3.sh` 11 条，返回码随日志留档）。
+负测暴露出两个此前静态审查看不到的真实缺陷：
 
 | 编号 | 缺陷 | 现场证据 | 修复 |
 |---|---|---|---|
 | HOST-1 | `sudo -u '#<uid>'` 在本机无法启动会话 | `sudo 1.9.9` → `sudo: unknown user #30001`；每题 uid 故意不是 passwd 账号，故 **所有题零执行** | wrapper 改用 `setpriv --reuid --regid --clear-groups`；setpriv 不重置环境，因此 `RUN_ENV` 改为 `env -i` 显式注入；缺 setpriv 直接 `REFUSE`（rc=4），不回退 root |
 | HOST-2 | `record_task_row.py` 在 `--stage error` 时无条件写 `worker_error` | promoter 返回 5 后行状态为 `worker_error` 而非 `evidence_error`，吞掉证据链失败的具体语义 | 改为 `row["status"] = args.status or "worker_error"` |
 
-T7 额外验证降权本身：会话内 `id -u`=30001、`id` 显示 `uid=30001 gid=30001`、
-环境仅 9 个变量、无 `S4_*` 与 `SSH_/MAIL/HOSTNAME/PWD=/root` 泄漏。
+同轮另做了会话身份抽查（T7）：会话内 `id -u`=30001、环境仅显式注入项、
+无 `S4_*` 与 `SSH_/MAIL/HOSTNAME/PWD=/root` 泄漏（该检查未纳入新一轮脚本，
+改用 T10 覆盖启动失败路径）。
+
+### 0.8.1 R3.2 复审三个 P1 的修复（2026-11-04 晚）
+
+| 编号 | 复审问题 | 修复 | 上机断言 |
+|---|---|---|---|
+| R3.2-M1 | setpriv 存在但执行失败时未中止，可能被当成"未提交" | `launch_session()` 在 `exec` 前让沙箱内 shell 先写启动记录；两段会话后都校验记录必须等于 `AGENT_UID`，缺失即 `agent_launch_error` + `exit 7`，且**不进第二段**（真 agcli 非零退出但记录存在时仍按原语义记录）。R3.3 现场发现工作区内标记会被删除，记录改为 root 侧已打开 fd（见 0.8.2 S-7） | T10（4） |
+| R3.2-M2 | `chattr +a` 只看 probe 结果就宣告 append-only | 改为对**真实 ledger** 执行 `chattr +a` 并检查退出码 + `lsattr -d` 必须出现 `a`，任一失败则不设 `HAVE_PROT=1`，并 `chattr -a` 回滚 + 告警 | T9（3） |
+| R3.2-M3 | protected ledger 目录 0755 / 文件 0644，跨题可读 | 目录 `0700`、文件 `0600`（`promote_ledger.py` 同步 `chmod 0600`）；`verify_stage4.py` 新增 `ledger_open`：POSIX+root 下目录/文件带 group/other 位即违规 | T8（4）+ verify 单测 |
+| R3.2-N1 | 14/14 与文档标签数不符 | 改为分别公布场景数与断言数（9 / 25），断言脚本输出每步 PASS/FAIL 并整份留档 | — |
+
+`agent_launch_error` 同时加入 `verify_stage4.INFRA_FAILURE`，因此该类行会让
+验收 fail-closed（不允许被平均成"正常完成"）。
 
 首页/README 的主张 #17 相应更新：降权不是 sudo，而是 setpriv + 空环境。
+
+### 0.8.2 真实 agcli 单题端到端 smoke（R3.3，2026-11-04 晚）
+
+按 R3.2「下一步最有价值的是跑 1 题真实 agcli smoke」执行：队列 `arvo:10628`，
+每题 uid 30005，真实模型（glm-5.3）、真实提交。**结果：submit → promote →
+score → verify 全链路通过**（`official_success=1/1`、`violations=0`、
+`cost=$0.42`、15 轮、1 次 check）。过程中暴露并修掉 5 个只有现场才能发现的缺陷：
+
+| 编号 | 现场缺陷 | 证据 | 修复 |
+|---|---|---|---|
+| S-5 | agent 运行时树对每题 uid 不可读 | 首次 smoke：会话 21 轮、真实提交，但 `check.py` 在 `import plugins.cybergym_runner` 处 `ModuleNotFoundError`（树在 `/root/s4test`，`/root` 0700）→ `checks=0 / submissions=0`，行仍是"无提交"，白烧 $0.65 | wrapper 在启动前**以 agent uid 身份探针** `test -r $AG/plugins/cybergym_runner.py`，并拒绝 group/other 可写的运行时树（否则会话可改写提交客户端），失败记 `agent_launch_error` + `exit 7`；部署改 `/opt/cybergym-agent`（root:root 0755/0644） |
+| S-7 | 启动证据放在 agent 工作区内不可靠 | 第三次 smoke：会话开始 14:10:40，agent 自己的 `ls` 在 14:10:44 明确列出 `.session_uid`（6 字节），会话 14:14:01 正常结束（rc=0、真实提交），但结束时该文件已不存在 → 被误判 `agent_launch_error` | 启动记录改由 **root 打开、沙箱内 shell 写已打开的 fd**（`sh -c 'id -u >&9; 9>&-; exec "$@"'`，记录在 `$LOGDIR/<task>.launch`），并在 exec 前关闭 fd；证据在 root 侧、agent 无删改路径，内容必须等于 `AGENT_UID` |
+| S-8 | 驱动默认评分脚本是 stage-3 遗留 wrapper | `/root/score_all.sh` 只写 `results.json` 的 `official_success`，行里 `score_status=None`、`final.*` 空 → verify 报"已提交未评分" | 默认改用部署自带 `scripts/score_all.py`（`S4_SCORE_ALL` 仍可覆盖旧 wrapper，仍按 `<out> <task_base> <ws_root>` 位置参数调用） |
+| S-9 | 新 run 的行继承了上一个 run 的会话统计 | 第三次 smoke 的 error 行带 `turns=21 / cost=0.649 / result="Still failing…"`，全部来自前一次 run 的同一行文件 | `results_store.merge_row` 在 `run_id` 变化时**丢弃磁盘上的旧行**（此前 `record_task_row` 只在内存里重置，落盘合并又把旧值带回来）；新增回归测试 |
+| S-10 | 服务器 `created_at` 无时区，严格解析器全部拒绝 | `/query-poc` 返回 `"2026-11-04T14:32:33.742270"`（无 Z），而同一提交的账本 `ts` 是 `14:32:34.936Z` → 所有真实记录判 `timestamp_invalid`，任何任务都无法评分 | 在 HTTP 边界（`CyberGymRunner.query_poc`）只对"服务器原样无时区 ISO"补 `Z`；`evidence.parse_ts` 仍拒绝 naive 时间戳，因此客户端账本时间戳的标准没有被放宽；新增 4 项单测 |
+
+smoke 现场证据（脱敏后）：
+
+- wrapper 日志：`uid=30005` → `protected ledger … (root-written 0600, append-only verified)` → `[promote] +1 entry` → `status=submitted subs=1 checks=1 turns=15 cost=$0.4159`
+- 启动记录 `$LOGDIR/arvo_10628.launch`：`root:root 0600`，内容 `30005`
+- protected ledger：目录 `700 root:root`、文件 `600 root:root`、`lsattr` = `-----a--------e-------`
+- 账本行 `task_id` 为服务器内部 id `1e87eeeb8d69`，队列标签 `arvo:10628` 由 `--task-dir` 规范化后接受
+- 验收：`[verify] rows=1 expected=1 submitted=1 official=1 infra_failed=0 cost=$0.42`；`violations=0 warnings=0`
+
+仍未闭环（不因本次通过而消失）：`.session_uid` 在工作区内**被谁删除**未定位（
+因此不再依赖工作区内的任何证据）；`setsid` 残留与完整进程树清理、umask 现场实测、
+跨 UID 对 workspace 的写入负测，仍需按部署手册第 10 节逐项验收。
 
 ## 1. 证据模型
 
@@ -137,8 +178,9 @@ T7 额外验证降权本身：会话内 `id -u`=30001、`id` 显示 `uid=30001 g
    哈希在构造请求体时对上传字节一次性计算，之后**永不重读文件路径**）：
    `seq / ts / task_id / agent_id / run_id / poc_id / poc_sha256 / poc_size /
    exit_code / output_sha256 / server`
-3. **受保护账本**（`<out>/protected_ledger/<task>.jsonl`，root:root 0644、
-   `chattr +a`；由 root 侧 `scripts/promote_ledger.py` 在每段 agent 会话结束后
+3. **受保护账本**（`<out>/protected_ledger/<task>.jsonl`，root:root 0600、
+   目录 0700 + `chattr +a`（真实文件经 `lsattr` 验证）；由 root 侧
+   `scripts/promote_ledger.py` 在每段 agent 会话结束后
    从工作区账本校验后追加，agent 无任何写路径）：存在时评分只信它，工作区账本
    退化为诊断数据；验收要求它存在、非空、逐行可解析。**R3 信任模型**：它封存
    的是 root 复制的**不可信提交声明**——root 落盘不是独立见证，评分的权威仍是

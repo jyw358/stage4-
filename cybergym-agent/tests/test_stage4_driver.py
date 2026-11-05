@@ -2,6 +2,7 @@
 root-side ledger promoter (B11).  Runs on Windows too: the POSIX-only paths
 are guarded inside the implementation."""
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -226,6 +227,81 @@ class TestPromoteLedgerHardening(unittest.TestCase):
         r = self.run_promote("", prot_entries=[e1, e2])
         self.assertEqual(r.returncode, 2)
         self.assertIn("twice with different hashes", r.stderr)
+
+
+class TestPromoteLedgerTaskIds(unittest.TestCase):
+    """R3.3 (real-task smoke): check.py writes the submit.sh metadata task_id
+    (the server's INTERNAL id), while the wrapper passes the public queue label
+    (``arvo:10628``).  Both name the same task; the promoter must accept the
+    canonical id from --task-dir instead of failing every real submission."""
+
+    INTERNAL = "1e87eeeb8d69"
+
+    def setUp(self):
+        self.dir = scratch_dir()
+        self.addCleanup(cleanup, self.dir)
+        self.prot = Path(self.dir) / "protected.jsonl"
+        self.prot.write_text("", encoding="utf-8")
+        self.ws = Path(self.dir) / "ws.jsonl"
+        self.tdir = Path(self.dir) / "task"
+        self.tdir.mkdir()
+        (self.tdir / "submit.sh").write_text(
+            "curl -s -X POST http://srv/submit-vul \\\n"
+            f"  -F 'metadata={{\"task_id\": \"{self.INTERNAL}\", "
+            "\"agent_id\": \"agent42\", \"checksum\": \"x\"}' \\\n"
+            "  -F 'file=@poc'\n", encoding="utf-8")
+
+    def run_promote(self, entries, task_dir=True):
+        self.ws.write_text("".join(json.dumps(e) + "\n" for e in entries),
+                           encoding="utf-8")
+        cmd = [sys.executable, str(AG / "scripts" / "promote_ledger.py"),
+               "--ws-ledger", str(self.ws), "--protected", str(self.prot),
+               "--run-id", "s4-r", "--task-id", "arvo:10628",
+               "--agent-id", "agent42"]
+        if task_dir:
+            cmd += ["--task-dir", str(self.tdir)]
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    def test_internal_task_id_is_accepted_and_kept(self):
+        e = {"poc_id": "p1", "poc_sha256": "a" * 64,
+             "task_id": self.INTERNAL}
+        r = self.run_promote([e])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        row = json.loads(self.prot.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["task_id"], self.INTERNAL)
+
+    def test_foreign_task_id_is_refused(self):
+        e = {"poc_id": "p1", "poc_sha256": "a" * 64, "task_id": "somebody-else"}
+        r = self.run_promote([e])
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertEqual(self.prot.read_text(encoding="utf-8"), "")
+
+    def test_label_only_when_no_task_dir(self):
+        e = {"poc_id": "p1", "poc_sha256": "a" * 64}
+        r = self.run_promote([e], task_dir=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        row = json.loads(self.prot.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["task_id"], "arvo:10628")
+
+    @unittest.skipUnless(os.name == "posix", "chattr is POSIX-only")
+    def test_append_only_target_is_promoted_without_chmod(self):
+        """R3.3 smoke regression: the wrapper chattr +a's the protected file
+        BEFORE the session, and an append-only file REFUSES chmod (EPERM).
+        Promoter used to chmod unconditionally -> every real task ended
+        rc=1/evidence_error.  Tighten only when the mode is actually wrong."""
+        os.chmod(self.prot, 0o600)
+        subprocess.run(["chattr", "+a", str(self.prot)], capture_output=True)
+        attrs = subprocess.run(["lsattr", "-d", str(self.prot)],
+                               capture_output=True, text=True)
+        tokens = attrs.stdout.split()
+        if not tokens or "a" not in tokens[0]:
+            self.skipTest("chattr +a unsupported on this filesystem")
+        self.addCleanup(subprocess.run, ["chattr", "-a", str(self.prot)],
+                        capture_output=True)
+        e = {"poc_id": "p1", "poc_sha256": "a" * 64, "task_id": self.INTERNAL}
+        r = self.run_promote([e])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("+1 entry", r.stdout)
 
 
 if __name__ == "__main__":

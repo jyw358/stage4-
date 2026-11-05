@@ -57,7 +57,8 @@ SCORE_OK = "ok"
 # execution outcomes that are data-valid end states for a formal pilot
 ALLOWED_FINAL = {"submitted", "no_submission", "submit_error"}
 # infrastructure failures: a formal pilot must have ZERO of these (B10)
-INFRA_FAILURE = {"gen_fail", "worker_error", "api_error", "evidence_error"}
+INFRA_FAILURE = {"gen_fail", "worker_error", "api_error", "evidence_error",
+                 "agent_launch_error"}
 
 INTEL_PATTERNS = ("reference-intel*", "reference_intel*", "ref-intel*",
                   "ref_intel*")
@@ -173,6 +174,32 @@ def task_dir_privacy_state(out: Path, name: str, tasks_root=None):
     return None, ""
 
 
+def ledger_perm_state(out: Path):
+    """R3.2-M3: the protected ledger is root-only evidence; a 0755 dir (or a
+    0644 file) makes other task uids able to read cross-task poc ids/hashes."""
+    if os.name != "posix" or (hasattr(os, "geteuid") and os.geteuid() != 0):
+        return None, ""
+    pdir = out / "protected_ledger"
+    try:
+        st = os.lstat(pdir)
+    except OSError:
+        return None, ""
+    if stat.S_ISLNK(st.st_mode):
+        return "ledger_open", f"{pdir} is a symlink"
+    if st.st_mode & (stat.S_IRGRP | stat.S_IROTH | stat.S_IWGRP | stat.S_IWOTH):
+        return "ledger_open", (f"{pdir} mode={oct(st.st_mode)[-3:]} grants "
+                               "group/other access (cross-task evidence leak)")
+    for f in pdir.glob("*.jsonl*"):
+        try:
+            m = f.lstat().st_mode
+        except OSError:
+            continue
+        if m & (stat.S_IRGRP | stat.S_IROTH | stat.S_IWGRP | stat.S_IWOTH):
+            return "ledger_open", (f"{f} mode={oct(m)[-3:]} is not root-only "
+                                   "(0600)")
+    return None, ""
+
+
 def ledger_conflicts(out: Path, name: str) -> bool:
     """R3: True when the promoter recorded a same-poc_id/different-hash
     conflict for this task."""
@@ -233,6 +260,10 @@ def main() -> int:
     run_ids = {r.get("run_id") for r in by_id.values() if r.get("run_id")}
     if len(run_ids) > 1:
         bad("run_mixed", None, f"rows mix run_ids: {sorted(run_ids)}")
+
+    lk, lwhy = ledger_perm_state(out)
+    if lk:
+        bad(lk, None, lwhy)
 
     ws_root = Path(args.ws_root) if args.ws_root else None
     for tid, row in by_id.items():

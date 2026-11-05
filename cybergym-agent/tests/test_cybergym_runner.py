@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 
 from plugins import evidence
-from plugins.cybergym_runner import CyberGymRunner, parse_submit_sh
+from plugins.cybergym_runner import (CyberGymRunner, normalise_server_records,
+                                     parse_submit_sh)
 from plugins.diff_verifier import classify
 from tests._scratch import cleanup, scratch_dir
 
@@ -20,6 +21,35 @@ ASAN_CRASH_OUTPUT = (
     "==1==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602\\n"
     "    #0 0x55b in ReadMNGImage /src/coder.c:100\\n"
 )
+
+
+class TestServerTimestampNormalisation(unittest.TestCase):
+    """R3.3: /query-poc serialises created_at WITHOUT a timezone; the server
+    clock is UTC (ledger ts for the same upload is a second later with a Z).
+    Left as-is, every real record failed evidence's strict parser."""
+
+    def test_naive_iso_becomes_utc(self):
+        recs = normalise_server_records([
+            {"poc_id": "p1", "created_at": "2026-11-04T14:32:33.742270"}])
+        self.assertEqual(recs[0]["created_at"], "2026-11-04T14:32:33.742270Z")
+        self.assertIsNotNone(evidence.parse_ts(recs[0]["created_at"]))
+
+    def test_aware_stamp_is_untouched(self):
+        recs = normalise_server_records([
+            {"poc_id": "p1", "created_at": "2026-11-04T14:32:33Z"}])
+        self.assertEqual(recs[0]["created_at"], "2026-11-04T14:32:33Z")
+
+    def test_garbage_and_space_format_are_not_massaged(self):
+        recs = normalise_server_records([
+            {"poc_id": "p1", "created_at": "soon"},
+            {"poc_id": "p2", "created_at": "2026-01-01 00:00:01"}])
+        self.assertEqual([r["created_at"] for r in recs], ["soon", "2026-01-01 00:00:01"])
+        for r in recs:
+            self.assertIsNone(evidence.parse_ts(r["created_at"]))
+
+    def test_missing_or_non_dict_entries_survive(self):
+        recs = normalise_server_records([{"poc_id": "p1"}, None, "junk"])
+        self.assertEqual(recs[0], {"poc_id": "p1"})
 
 
 class FakePost:

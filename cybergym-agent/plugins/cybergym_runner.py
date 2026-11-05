@@ -25,6 +25,34 @@ CLEAN_CODES = {0}
 TIMEOUT_CODE = 300  # server_utils.Timeout
 
 
+_NAIVE_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$")
+
+
+def normalise_server_records(records) -> list:
+    """Stamp the server's NAIVE UTC ``created_at`` as UTC (interface defect).
+
+    R3.3 (real-task smoke): /query-poc returns e.g.
+    ``"created_at": "2026-11-04T14:32:33.742270"`` -- ISO-8601 WITHOUT any
+    timezone, while the ledger row for the same upload says 14:32:34.936Z,
+    i.e. the server clock IS UTC and only the offset is missing from its
+    serialisation.  evidence.parse_ts deliberately rejects naive stamps
+    (order would be ambiguous), so every REAL record was rejected as
+    ``timestamp_invalid`` and no task could ever be scored.
+
+    This is done at the HTTP boundary -- ONLY for values that are exactly the
+    server's naive ISO shape -- so client-supplied ledgers keep the strict
+    parser: evidence.parse_ts still refuses naive timestamps.
+    """
+    out = []
+    for rec in records or []:
+        if isinstance(rec, dict):  # tolerate malformed payloads
+            ts = rec.get("created_at")
+            if isinstance(ts, str) and _NAIVE_ISO.match(ts.strip()):
+                rec = {**rec, "created_at": ts.strip() + "Z"}
+        out.append(rec)
+    return out
+
+
 def parse_submit_sh(task_dir: str | Path) -> dict:
     """Extract {task_id, agent_id, checksum, require_flag} from the generated submit.sh."""
     text = (Path(task_dir) / "submit.sh").read_text(encoding="utf-8")
@@ -152,7 +180,7 @@ class CyberGymRunner:
             )
             try:
                 with urllib.request.urlopen(req, timeout=60) as resp:
-                    return json.loads(resp.read().decode())
+                    return normalise_server_records(json.loads(resp.read().decode()))
             except urllib.error.HTTPError as e:
                 last_err = e
                 if e.code != 404:
