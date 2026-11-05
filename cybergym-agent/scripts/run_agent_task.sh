@@ -79,6 +79,21 @@ if [ "$T_UID" != "$AGENT_UID" ] || [ "$T_MODE" != "700" ]; then
   exit 4
 fi
 
+# agent_id from the prepared submit.sh.  Computed BEFORE any path that can
+# record a row (runtime probes, ledger setup): those fail-closed paths run
+# under `set -u`, so referencing a not-yet-assigned AGENT_ID there would die
+# with "unbound variable" instead of recording the row.
+AGENT_ID=$(python3 - "$TDIR" "$AG" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[2])
+from plugins.cybergym_runner import parse_submit_sh
+try:
+    print(parse_submit_sh(sys.argv[1]).get("agent_id", ""))
+except Exception:
+    print("")
+PY
+)
+
 # ---- agent runtime must be usable AS the agent uid ----------------------
 echo "=== agent task $TID start $(date -u +%FT%TZ) run=$RUN_ID uid=$AGENT_UID ==="
 
@@ -127,14 +142,18 @@ fi
 # ---- protected submission ledger (root-owned, append-only) ---------------
 # R2/B11: the workspace ledger is written by an agent-owned process and is
 # therefore agent-writable; the protected copy used by scoring must have NO
-# agent write path.  It is created root:root 0644 (NOT 666) and chattr +a
-# keeps even root from rewriting history; the ONLY writer is the root-side
-# promoter (promote_ledger.py) invoked between/after agent passes.  If the FS
-# does not support chattr we log a warning: scoring then falls back to the
-# workspace ledger + server-side hash gate and the acceptance checker reports
-# ledger_not_protected (fail-closed at verify time).  The protected ledger is
-# a root-copied, sealed record of UNTRUSTED submission claims -- the server's
-# final records + hash gate remain the scoring authority.
+# agent write path.  It is created root:root 0600 and chattr +a keeps even
+# root from rewriting history; the ONLY writer is the root-side promoter
+# (promote_ledger.py) invoked between/after agent passes.  The protected
+# ledger is a root-copied, sealed record of UNTRUSTED submission claims --
+# the server's final records + hash gate remain the scoring authority.
+#
+# R3.3-M2 (fail-closed): if the protected ledger cannot be established, a
+# FORMAL run stops HERE, before any model call burns budget -- scoring would
+# fail-closed later anyway, so running the agent first only converts an
+# infra defect into wasted cost.  S4_ALLOW_UNPROTECTED=1 keeps the degraded
+# path (workspace ledger + hash gate, verify reports ledger_not_protected)
+# for development only; its rows must never enter a formal pilot.
 PROTDIR="$OUT/protected_ledger"
 PROT="$PROTDIR/$NAME.jsonl"
 HAVE_PROT=0
@@ -143,26 +162,64 @@ mkdir -p "$PROTDIR"
 # hashes.  It is root-only evidence, not shared input: 0700 dir + 0600 file
 # so cross-task readability never depends on <out> ancestor permissions.
 chmod 700 "$PROTDIR"; chown root:root "$PROTDIR"
-_probe="$PROTDIR/.probe.$$"
-: > "$_probe"
-if chattr +a "$_probe" 2>/dev/null; then
-  chattr -a "$_probe" 2>/dev/null; rm -f "$_probe"
-  [ -e "$PROT" ] || (umask 077; : > "$PROT")
-  chown root:root "$PROT"; chmod 600 "$PROT"    # the agent has NO write path
-  # R3.2-M2: a successful probe on a scratch file does NOT prove the real
-  # target took the attribute (different existing attrs / path / FS state).
-  # Verify the real file with lsattr before claiming append-only.
-  if chattr +a "$PROT" 2>/dev/null &&
-     lsattr -d "$PROT" 2>/dev/null | awk '{print $1}' | grep -q 'a'; then
+
+refuse_unprotected() {  # $1 = why protection could not be established
+  echo "REFUSE: $1; formal stage-4 requires the protected ledger (set S4_ALLOW_UNPROTECTED=1 for a degraded DEV run that verify will not accept)" >&2
+  python3 "$AG/scripts/record_task_row.py" --out "$OUT" --task-id "$TID" \
+      --run-id "$RUN_ID" --ws "$WS" --tdir "$TDIR" --stage error \
+      --status evidence_setup_error --error "$1" \
+      --agent-id "$AGENT_ID"
+  exit 8
+}
+
+if [ -e "$PROT" ] || [ -L "$PROT" ]; then
+  # R3.3-M1 (re-entry): on a retry / resumed run the ledger already exists
+  # with chattr +a.  Linux setattr_prepare() rejects chown/chmod/utimes on an
+  # append-only file with EPERM, so the old unconditional
+  # chown/chmod/chattr re-init was fragile.  Verify the existing file and
+  # reuse it untouched; a non-conforming existing ledger is an integrity
+  # problem -- refuse, never rewrite evidence to make it fit.
+  _p_uid="$(stat -c '%u:%g' "$PROT" 2>/dev/null || echo '?')"
+  _p_mode="$(stat -c '%a' "$PROT" 2>/dev/null || echo '?')"
+  _p_attr="$(lsattr -d "$PROT" 2>/dev/null | awk '{print $1}')"
+  if [ ! -L "$PROT" ] && [ -f "$PROT" ] && [ "$_p_uid" = "0:0" ] &&
+     [ "$_p_mode" = "600" ] && printf '%s' "$_p_attr" | grep -q 'a'; then
     HAVE_PROT=1
-    echo "protected ledger: $PROT (root-written 0600, append-only verified)"
+    echo "protected ledger: $PROT reused (root:root 0600, append-only already set)"
   else
-    chattr -a "$PROT" 2>/dev/null || true
-    echo "WARN: chattr +a did NOT take effect on $PROT (lsattr shows no 'a'); protected ledger DISABLED (workspace ledger + hash gate only; verify will fail-closed)" >&2
+    refuse_unprotected "existing protected ledger $PROT does not conform (owner=$_p_uid mode=$_p_mode attrs=$_p_attr symlink=$([ -L "$PROT" ] && echo yes || echo no); want regular file root:root 0600 + append-only)"
   fi
 else
-  rm -f "$_probe"
-  echo "WARN: chattr +a unsupported on $PROTDIR; protected ledger DISABLED (workspace ledger + hash gate only; verify will fail-closed)" >&2
+  _probe="$PROTDIR/.probe.$$"
+  : > "$_probe"
+  if chattr +a "$_probe" 2>/dev/null; then
+    chattr -a "$_probe" 2>/dev/null; rm -f "$_probe"
+    (umask 077; : > "$PROT")
+    chown root:root "$PROT"; chmod 600 "$PROT"    # the agent has NO write path
+    # R3.2-M2: a successful probe on a scratch file does NOT prove the real
+    # target took the attribute (different existing attrs / path / FS state).
+    # Verify the real file with lsattr before claiming append-only.
+    if chattr +a "$PROT" 2>/dev/null &&
+       lsattr -d "$PROT" 2>/dev/null | awk '{print $1}' | grep -q 'a'; then
+      HAVE_PROT=1
+      echo "protected ledger: $PROT (root-written 0600, append-only verified)"
+    else
+      chattr -a "$PROT" 2>/dev/null || true
+      rm -f "$PROT"
+      if [ "${S4_ALLOW_UNPROTECTED:-0}" = "1" ]; then
+        echo "WARN: chattr +a did NOT take effect on $PROT; protected ledger DISABLED by S4_ALLOW_UNPROTECTED=1 (dev only; verify fails closed)" >&2
+      else
+        refuse_unprotected "chattr +a did NOT take effect on $PROT (lsattr shows no 'a')"
+      fi
+    fi
+  else
+    rm -f "$_probe"
+    if [ "${S4_ALLOW_UNPROTECTED:-0}" = "1" ]; then
+      echo "WARN: chattr +a unsupported on $PROTDIR; protected ledger DISABLED by S4_ALLOW_UNPROTECTED=1 (dev only; verify will fail-closed)" >&2
+    else
+      refuse_unprotected "chattr +a unsupported on $PROTDIR (filesystem cannot seal the ledger)"
+    fi
+  fi
 fi
 
 promote_ledger() {  # root-side copy of new workspace entries into $PROT
@@ -267,16 +324,6 @@ RUN_ENV=(env -i
   CG_CHECKS_BUDGET="$CHECKS_BUDGET"
   ${CRED_ARGS[@]+"${CRED_ARGS[@]}"})
 
-AGENT_ID=$(python3 - "$TDIR" "$AG" <<'PY'
-import sys
-sys.path.insert(0, sys.argv[2])
-from plugins.cybergym_runner import parse_submit_sh
-try:
-    print(parse_submit_sh(sys.argv[1]).get("agent_id", ""))
-except Exception:
-    print("")
-PY
-)
 # R3.1: the prepared dir must be THIS run's task dir -- a wrapper pointed at
 # an arbitrary path (other run's tasks, /home/naco, ...) is refused, so
 # CG_TASK_DIR handed to the agent is always inside <out>/tasks.

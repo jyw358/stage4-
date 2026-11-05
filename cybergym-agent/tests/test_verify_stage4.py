@@ -333,6 +333,19 @@ class TestVerifyStage4(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("coverage_infra", r.stdout)
 
+    def test_evidence_setup_error_is_an_infra_failure(self):
+        # R3.3-M2: chattr/protected-ledger setup failing before the model
+        # call must be an infra failure, never a billable no-submission.
+        row = {"task_id": "t:1", "run_id": "s4",
+               "status": "evidence_setup_error",
+               "submissions": 0, "official_success": None, "cost_usd": 0}
+        write_row(self.out, "t:1", row)
+        rebuild(self.out, [row])
+        q = self.queue_file(["t:1"])
+        r = run_verify(self.out, queue=q)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("coverage_infra", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

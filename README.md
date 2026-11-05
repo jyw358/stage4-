@@ -34,7 +34,7 @@ cybergym-agent/
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（148 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（149 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
@@ -54,7 +54,7 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 148 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
+# 预期：Ran 149 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
 #       R3/R3.1/R3.2/R3.3 复审回归）
 
 cd ..
@@ -170,6 +170,13 @@ R3.1 增量复审修复：
     + 拒绝 group/other 可写的运行时树）、启动证据放在工作区会被删（改为 root
     侧已打开 fd）、默认评分脚本是 stage-3 遗留 wrapper、新 run 的行继承了旧 run
     统计、服务器 `created_at` 无时区导致全部 `timestamp_invalid`。
+30. R3.3 复审两个 P1 修复（2026-11-05，WSL2 root/ext4 实测 5 场景/19 断言全过）：
+    已有 append-only ledger 重入时 `chown`/`chmod` 会 EPERM（内核
+    `setattr_prepare` 实测确认），改为先核验后原样复用、不符即拒
+    （`evidence_setup_error` + rc=8，不改写证据）；`chattr` 不可用时从"降级
+    跑完再被验收拒"改为**模型调用前 fail-closed**（`S4_ALLOW_UNPROTECTED=1`
+    仅限开发降级）；并前移 `AGENT_ID` 赋值修复 `set -u` 下 fail-closed 路径
+    丢行的潜伏 bug。详见 STAGE4_CHANGES.md §0.8.3 与部署手册 §9.3。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

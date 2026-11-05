@@ -172,7 +172,7 @@ from plugins import evidence, results_store
 print("evidence.utcnow", evidence.utcnow())
 print("final-only predicate:", evidence.official(1, 0), evidence.official(0, 0))
 PY
-python3 -m unittest discover -s tests     # 148 项（含 R3 / R3.1 / R3.2 / R3.3 回归）
+python3 -m unittest discover -s tests     # 149 项（含 R3 / R3.1 / R3.2 / R3.3 回归）
 ```
 
 ## 3. 数据目录与 queue
@@ -372,6 +372,7 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
 | `S4_SCORE_EXTRA` | 空 | 传给 score_all.py 的额外参数 |
 | `S4_SCORE_ALL` | `/root/score_all.sh` | 评分入口 |
 | `S4_BACKFILL` | `/root/backfill_fix_side.sh` | fix 侧回填 |
+| `S4_ALLOW_UNPROTECTED` | 空（关闭） | 仅开发：`chattr` 无法建立 protected ledger 时允许降级跑（verify 仍 fail-closed，行不得进正式成绩）；正式 pilot 不得设置 |
 
 ## 7. 常见故障
 
@@ -393,8 +394,9 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
 | agent 会话里 HOME 指向 /root | `env -i` 的显式变量被外层覆盖（异常） | wrapper 用 `env -i` + 显式 `HOME=`，正常不应出现；检查是否有人改回 sudo/`--preserve-env` |
 | 全部 `no_ledger` | `check.py` 没写账本：旧 ws 里残留旧版 check.py | 确认 `<ws>/check.py` 顶部烘焙了 `LEDGER_PATH = r"<ws>/submissions.jsonl"`（生成器写入，env 重定向无效）；重跑该题 |
 | 大面积 `hash_unverified` | 服务器 `poc_hash` 算法/字节范围与 SHA-256 不可比 | **pilot 前必须先做一次受控提交核对哈希语义**；不可比时全部 fail-closed，不会虚增分数 |
-| `WARN: chattr +a unsupported` | `$OUT` 所在 FS 不支持 append-only（如 NFS） | 受保护账本被禁用：评分退回工作区账本+哈希门禁，且验收将报 `ledger_missing`（fail-closed）。必须把 `<out>` 放 ext4/xfs 再跑正式 pilot |
-| `WARN: chattr +a did NOT take effect on ...` | `chattr` 返回成功但 `lsattr -d` 看不到 `a`（历史目标属性/路径异常） | R3.2-M2：不再宣告 append-only，`HAVE_PROT=0` 并已 `chattr -a` 回滚；按上一条处理（换 FS 或修属性后重跑） |
+| `REFUSE: chattr +a unsupported on ...` + 行状态 `evidence_setup_error`（rc=8） | `$OUT` 所在 FS 不支持 append-only（如 NFS）；R3.3-M2 起正式模式在**模型调用前**拒绝 | 把 `<out>` 放 ext4/xfs 再跑；仅开发可用 `S4_ALLOW_UNPROTECTED=1` 降级（verify 仍 fail-closed） |
+| `REFUSE: chattr +a did NOT take effect on ...` + 行状态 `evidence_setup_error`（rc=8） | `chattr` 返回成功但 `lsattr -d` 看不到 `a`（属性/路径异常） | 同上用 ext4/xfs；修属性后重跑该题（resume 会重跑，该状态不进 TERMINAL） |
+| `REFUSE: existing protected ledger ... does not conform` + 行状态 `evidence_setup_error`（rc=8） | 重入时已有 ledger 的属主/模式/属性不符（含符号链接）；R3.3-M1 起不改写证据去迎合检查 | 按安全事件核查该题 ledger 为何被动过；确认后以 root 移除该文件再重跑 |
 | `REFUSE: agent session did not start (setpriv uid=...)` | setpriv/环境注入失败，会话根本没起来（rc=7，行 `agent_launch_error`） | R3.2-M1：不进入第二段、不产生"正常完成"；按基础设施故障排查（`setpriv --version`、HOME/TMPDIR 可写、`--out` 祖先可遍历） |
 | `REFUSE: ledger promotion failed rc=5` | 工作区账本里 run_id/task_id/agent_id 与 root 提供值不一致（篡改或串轮） | wrapper 以 rc=6 退出、行状态 `evidence_error`，不进入第二段；按安全事件核查，不要手工改受保护账本 |
 | `REFUSE: ledger promotion failed rc=4` | 同 poc_id 不同哈希冲突，已单列 | `protected_ledger/<task>.jsonl.conflicts.jsonl` 有记录；验收报 `ledger_conflict`（fail-closed），wrapper 不再继续 |
@@ -444,7 +446,7 @@ stage-4 不修改 stage-3 的历史数据目录；回滚只影响代码入口。
 | T9（3） | 真实 ledger 有 `a` 属性（`lsattr`）；wrapper 日志声明 verified；无虚假声明 | PASS |
 | T10（4） | setpriv 启动失败 → rc=7；独立 REFUSE 文案；行 `agent_launch_error`；不进第二段 | PASS |
 
-单测：`python3 -m unittest discover -s tests` → **148 项 OK**（Linux root 下 1 项
+单测：`python3 -m unittest discover -s tests` → **149 项 OK**（Linux root 下 1 项
 skip 为 Windows-only 用例）。
 
 ### 9.1 测试机暴露的问题（已修）
@@ -489,12 +491,31 @@ skip 为 Windows-only 用例）。
 `agent_launch_error`）。已改为**只在自建父目录时**才 chmod/chown；注册表文件
 本身仍 0600。
 
+### 9.3 R3.3 复审两个 P1（2026-11-05，WSL2 root / ext4）
+
+复审确认 R3.2 三个修复静态 PASS 后新提两项，均已修复并做了 wrapper 级验证
+（测试机 192.168.49.13 当日不可达；WSL2 为相同内核语义）：
+
+| 编号 | 问题 | 修复 | 验证 |
+|---|---|---|---|
+| R3.3-M1 | 已有 append-only ledger 重入：`chown`/`chmod` 对带 `a` 属性的文件返回 **EPERM**（`setattr_prepare` 原语实测），旧初始化无条件重复属主/模式变更是脆弱路径 | 重入先核验（常规文件 + `root:root` + `0600` + `lsattr` 含 `a`）→ 符合**原样复用**、不符一律 `evidence_setup_error` + rc=8 拒绝，不改写证据 | 场景 B/C：重入 rc=0 且无 EPERM 噪声；丢失 `a` 的旧 ledger → rc=8 且 agcli 未被调用 |
+| R3.3-M2 | `chattr` 不可用时只 WARN 降级，Agent 照常烧模型预算，验收才 fail-closed | 正式模式把失败**前移到模型调用之前**：`evidence_setup_error` + rc=8；`S4_ALLOW_UNPROTECTED=1` 仅保留开发降级 | 场景 D/E：chattr 注入失败时正式模式 rc=8、agcli 零调用；开发开关下 rc=0 且 WARN 留痕 |
+
+新状态 `evidence_setup_error` 已加入 `verify_stage4.INFRA_FAILURE`（正式 pilot
+出现即违规），不进 `results_store.TERMINAL`（主机修复后 resume 直接重跑）。
+同段顺带修复：`AGENT_ID` 赋值前移到所有 fail-closed 记行路径之前（`set -u`
+下原顺序会以 unbound variable 退出、丢行）。
+
+wrapper 级负测合计 5 场景 / 19 断言，全 PASS；原语实测（root, ext4）：
+`chown`/`chmod` 于 `+a` 文件 → EPERM，`chattr +a` 幂等 rc=0，追加允许、覆写拒绝。
+
 ## 10. 尚未覆盖的（上机后仍需补验）
 
 以下只能静态实现 + 文档化，**部署后按顺序实测**（结果记入 pilot 复核记录）。
 R3.2 一轮已消除四项（chattr +a 实测、protected ledger 属主/权限、agcli 在
 setpriv + 私有 HOME 下的真实调用、umask 077 继承——见 §9、§9.2），R3.3 的
 单题真实 smoke 又闭环了"真实提交 → promoter 封存 → 评分 → 验收"（§9.2 结尾），
+R3.3 复审再闭环**已有 ledger 重入**与 **chattr 失败前移 fail-closed**（§9.3），
 余下：
 
 - 跨任务负向测试扩展：uid A **写入** uid B 工作区、读 `/root`、读其他任务

@@ -168,6 +168,38 @@ smoke 现场证据（脱敏后）：
 因此不再依赖工作区内的任何证据）；`setsid` 残留与完整进程树清理、umask 现场实测、
 跨 UID 对 workspace 的写入负测，仍需按部署手册第 10 节逐项验收。
 
+### 0.8.3 R3.3 复审两个 P1 的修复（2026-11-05）
+
+R3.3 复审（对上表三个修复的增量复核）判原 M1/M2/M3 静态 PASS，新提两个 P1，
+均已修复并在 WSL root + ext4 上完成 wrapper 级验证（19/19）：
+
+| 编号 | 问题 | 修复 |
+|---|---|---|
+| R3.3-M1 | 已有 append-only ledger 的重入行为：Linux `setattr_prepare()` 对带 `a` 属性的文件的 `chown`/`chmod` 直接返回 **EPERM**（原语实测确认），旧初始化段无条件 `chown/chmod/chattr` 属脆弱路径 | 重入时先核验现有文件：常规文件 + `root:root` + `0600` + `lsattr` 含 `a` 则**原样复用**（不做任何属性变更）；任何不符（含符号链接）一律拒绝，记 `evidence_setup_error` + `exit 8`，**不改写证据去迎合检查** |
+| R3.3-M2 | `chattr +a` 不可用时仅 WARN 降级（`HAVE_PROT=0`），Agent 照常运行烧模型预算，验收虽 fail-closed 但成本已产生 | 正式模式 **fail-closed 前移到模型调用之前**：保护无法建立即 `evidence_setup_error` + `exit 8`；`S4_ALLOW_UNPROTECTED=1` 保留降级路径但仅限开发（verify 仍 fail-closed，行不得进入正式成绩） |
+
+新状态 `evidence_setup_error`：加入 `verify_stage4.INFRA_FAILURE`（正式 pilot
+出现即 `coverage_infra` 违规），刻意**不进** `results_store.TERMINAL`——与
+`agent_launch_error`/`evidence_error` 一致，主机问题修复后 resume 可直接重跑该题。
+
+顺带修复一个同段潜伏 bug：`AGENT_ID` 原本在运行时探针/账本初始化之后才赋值，
+而这些 fail-closed 路径在 `set -u` 下引用它（`--agent-id "$AGENT_ID"`）会直接
+"unbound variable" 退出、行记录丢失；现已将 `AGENT_ID` 计算前移到控制面校验之后、
+任何记行路径之前。
+
+wrapper 级负测（WSL2 root，ext4；测试机 192.168.49.13 当时不可达，语义相同）：
+
+| 场景 | 断言结果 |
+|---|---|
+| A 新建初始化 | rc=0，`lsattr` 含 `a`，`root:root 0600`（4/4） |
+| B 已有 `+a` ledger 重入 | rc=0，命中"reused"，日志**无** `Operation not permitted` 噪声（3/3） |
+| C 已有 ledger 丢失 `a`（不符） | rc=8，行=`evidence_setup_error`，agcli 未被调用（4/4） |
+| D `chattr` 注入失败·正式模式 | rc=8，行=`evidence_setup_error`，agcli 未被调用（模型预算零消耗）（4/4） |
+| E 同 D 但 `S4_ALLOW_UNPROTECTED=1` | rc=0 降级运行，WARN 留痕，无 protected ledger（4/4） |
+
+单测：`test_verify_stage4.py` 新增 `evidence_setup_error` 计入 infra failure 的回归；
+本地 149 OK（skip 3，POSIX/root-only 项）。
+
 ## 1. 证据模型
 
 每题有三份互相独立的记录，评分时**必须一致**：
