@@ -807,6 +807,17 @@ def main() -> int:
     ap.add_argument("--task-timeout", type=int, default=7200)
     args = ap.parse_args()
 
+    # R3.4: the degraded (unprotected-ledger) mode is a DEV-only escape hatch
+    # that the wrapper alone honours.  The FORMAL driver refuses it up front:
+    # a switch left in the environment by mistake would otherwise cost model
+    # budget on the first task before anything rejected the run.  Dev runs
+    # that really need it call run_agent_task.sh directly.
+    if os.environ.get("S4_ALLOW_UNPROTECTED", "") == "1":
+        raise SystemExit(
+            "REFUSE: S4_ALLOW_UNPROTECTED=1 is a DEV-only escape hatch "
+            "(unprotected ledger) and is not accepted on the formal driver "
+            "entry point; unset it")
+
     if euid() != 0 and not args.dry_run:
         raise SystemExit("stage4.py must run as root (it starts the root wrapper)")
     out = Path(args.out)

@@ -304,5 +304,37 @@ class TestPromoteLedgerTaskIds(unittest.TestCase):
         self.assertIn("+1 entry", r.stdout)
 
 
+class TestFormalEntryRejectsDegradedMode(unittest.TestCase):
+    """R3.4: S4_ALLOW_UNPROTECTED=1 is a DEV-only escape hatch.  The formal
+    driver must refuse it before preparing or running anything -- relying on
+    downstream verify to reject the rows would still burn model budget first.
+    The guard runs right after argument parsing, so a bogus --queue is enough
+    to prove the refusal happens before any real work."""
+
+    def run_main(self, env_value):
+        env = {**os.environ}
+        if env_value is None:
+            env.pop("S4_ALLOW_UNPROTECTED", None)
+        else:
+            env["S4_ALLOW_UNPROTECTED"] = env_value
+        return subprocess.run(
+            [sys.executable, "-B", str(AG / "scripts" / "stage4.py"),
+             "--queue", "/nonexistent/queue.json", "--out", "/tmp/x"],
+            capture_output=True, text=True, env=env)
+
+    def test_degraded_mode_is_refused(self):
+        r = self.run_main("1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("S4_ALLOW_UNPROTECTED", r.stderr)
+        self.assertIn("REFUSE", r.stderr)
+
+    def test_absent_flag_does_not_emit_the_refusal(self):
+        # control: without the switch the guard stays silent.  (What fails
+        # next depends on the host -- non-root exits on the root check, root
+        # exits on the missing queue -- so only the absence is asserted.)
+        r = self.run_main(None)
+        self.assertNotIn("S4_ALLOW_UNPROTECTED", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

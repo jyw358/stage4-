@@ -200,6 +200,27 @@ wrapper 级负测（WSL2 root，ext4；测试机 192.168.49.13 当时不可达�
 单测：`test_verify_stage4.py` 新增 `evidence_setup_error` 计入 infra failure 的回归；
 本地 149 OK（skip 3，POSIX/root-only 项）。
 
+### 0.8.4 R3.4 复审两项加固（2026-11-05）
+
+R3.4 复审确认 §0.8.3 两项 P1 静态 PASS（并明确撤销"chattr 失败仍烧预算"的
+旧判断），另提两项加固，均已实施：
+
+| 项 | 内容 | 实施 |
+|---|---|---|
+| 开发降级开关可被误用 | `S4_ALLOW_UNPROTECTED=1` 只靠后续验收拒绝，操作失误仍会先烧预算 | 正式入口**启动即拒**：`root_code/stage4.sh` 在 root 校验后、`scripts/stage4.py` 在参数解析后各有一处守卫，命中即 `exit 4` / `SystemExit`；开发降级仍只允许直接调用 `run_agent_task.sh` |
+| ledger 初始化缺逐步错误处理 | wrapper 只有 `set -u`（无 `-e`），`mkdir/chown/chmod`、probe 创建/清理、受保护文件创建失败会被静默跳过，留下"半初始化"证据目录 | 每个文件操作独立检查：目录 `mkdir/chown/chmod`、probe 创建失败 → `evidence_setup_error`；`chown/chmod`/文件创建失败 → 删半成品后 `evidence_setup_error`；probe / 未封存 ledger 清理失败 → 显式 WARN 留痕（不静默） |
+
+验证（真机 `nacocom`，ext4）：
+
+| 项 | 结果 |
+|---|---|
+| `/root/stage4.sh` + `S4_ALLOW_UNPROTECTED=1` | `REFUSE ... exit 4`，未触及 driver |
+| `stage4.py` 直调 + 同名变量 | `REFUSE ... unset it`，rc=1 |
+| 无该变量时 `/root/stage4.sh` | 通过守卫 → 树审计 → `queue not found`（控制组） |
+| 注入 `chmod` 失败（场景 F） | rc=8，行 `evidence_setup_error`，agcli 零调用，消息 `cannot chmod`（4/4） |
+| §0.8.3 五场景（A–E）回归 | 19/19 全过（部署目录 `/opt/cybergym-agent-r33`） |
+| 全量单测 | 本地 151 OK（skip 3）；远端 151 OK（skip 1） |
+
 ## 1. 证据模型
 
 每题有三份互相独立的记录，评分时**必须一致**：

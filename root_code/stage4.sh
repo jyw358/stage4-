@@ -20,6 +20,15 @@
 set -eu
 [ "$(id -u)" -eq 0 ] || { echo "stage4.sh must run as root" >&2; exit 3; }
 
+# R3.4: refuse the DEV-only degraded (unprotected-ledger) escape hatch HERE,
+# at the trusted entry, before the driver queues anything.  Renaming the
+# variable is not enough to make a run formal; the protected ledger is the
+# precondition for spending model budget at all.
+if [ "${S4_ALLOW_UNPROTECTED:-0}" = "1" ]; then
+  echo "REFUSE: S4_ALLOW_UNPROTECTED=1 is a DEV-only escape hatch (unprotected ledger); the formal stage-4 entry point will not run with it. Unset it (dev runs call run_agent_task.sh directly)." >&2
+  exit 4
+fi
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AG="${S4_AGENT_HOME:-/opt/cybergym-agent}"
 UNTRUSTED="${S4_UNTRUSTED_USERS:-${S4_AGENT_USER:-s4agent},${S4_PREP_USER:-naco}}"

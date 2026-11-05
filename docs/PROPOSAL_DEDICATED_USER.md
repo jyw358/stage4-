@@ -13,7 +13,7 @@
 > | gen_task 不与 agent 同 UID | 保留独立准备身份 `S4_PREP_USER`（默认 naco）；`chown_prep` fail-closed |
 > | marker 绑定不可替换（软链接窗口/父目录可替换/未绑定 submit.sh） | 控制面 `<out>/control/<task>/` root:root 0700，O_NOFOLLOW+原子写，绑定 run_id+agent_id+submit.sh sha256+agent_uid；wrapper 逐项校验 |
 > | 账本信任描述失实；promoter 保留不可信预写值 | 信任模型重述为“root 封存的不可信提交声明”；promoter 强制覆盖身份值、坏行硬失败、同 ID 异哈希单列 conflicts |
-> | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 149 项单测 + 双 smoke 全过；上机负向测试 2026-11-04 于 192.168.49.13 跑 **9 个场景 / 25 条断言**全过（部署手册第 9 节），并据现场证据把降权从 sudo 改为 setpriv |
+> | 50 题 pilot NO-GO，修复+smoke 通过后重评 | 151 项单测 + 双 smoke 全过；上机负向测试 2026-11-04 于 192.168.49.13 跑 **9 个场景 / 25 条断言**全过（部署手册第 9 节），并据现场证据把降权从 sudo 改为 setpriv |
 >
 > **R3.2 复审（第四轮）**：裁决 CONDITIONAL PASS（代码修复），50 题 pilot 仍
 > NO-GO（真实 agcli / 评分闭环 / 进程残留未验收）。已修复三个 P1：启动失败
@@ -39,6 +39,14 @@
 > `evidence_setup_error` + rc=8；`S4_ALLOW_UNPROTECTED=1` 仅限开发）。
 > WSL2 root/ext4 wrapper 级负测 5 场景 / 19 断言全过。详见
 > STAGE4_CHANGES.md 第 0.8.3 节与部署手册 §9.3。
+>
+> **R3.4 复审（第六轮）**：裁决 CONDITIONAL PASS，两项 P1 静态确认修复
+> （并撤销"chattr 失败仍烧预算"的旧判断），另提两项加固，均已实施并在真机
+> ext4 验证 23 断言全过：正式入口启动即拒 `S4_ALLOW_UNPROTECTED=1`
+> （`root_code/stage4.sh` exit 4、`stage4.py` SystemExit）；ledger 初始化
+> 改为每个文件操作独立检查（`set -u` 无 `-e`，原实现会静默跳过失败，
+> 留下半初始化证据目录），失败即 `evidence_setup_error` + rc=8 并清理。
+> 详见 STAGE4_CHANGES.md 第 0.8.4 节与部署手册 §9.4。
 >
 > **R3 复审（第二轮）**：裁决 REQUEST CHANGES，唯一 P0 是“准备目录仍可跨题
 > 读取”（R3-B1）。已修复：题目录 prep 后整树归本题 uid + 0700、父级 0711、

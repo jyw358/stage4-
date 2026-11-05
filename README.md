@@ -34,7 +34,7 @@ cybergym-agent/
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（149 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（151 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
@@ -54,8 +54,8 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 149 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
-#       R3/R3.1/R3.2/R3.3 复审回归）
+# 预期：Ran 151 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
+#       R3/R3.1/R3.2/R3.3/R3.4 复审回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -177,6 +177,13 @@ R3.1 增量复审修复：
     跑完再被验收拒"改为**模型调用前 fail-closed**（`S4_ALLOW_UNPROTECTED=1`
     仅限开发降级）；并前移 `AGENT_ID` 赋值修复 `set -u` 下 fail-closed 路径
     丢行的潜伏 bug。详见 STAGE4_CHANGES.md §0.8.3 与部署手册 §9.3。
+31. R3.4 复审两项加固（2026-11-05，真机 ext4 实测 23 断言全过）：正式入口
+    **启动即拒** `S4_ALLOW_UNPROTECTED=1`（`root_code/stage4.sh` exit 4、
+    `stage4.py` SystemExit），杜绝"先烧模型预算、后由验收拒绝"；ledger
+    初始化（wrapper 只有 `set -u` 无 `-e`）改为**每个文件操作独立检查**，
+    `mkdir/chown/chmod`/probe/建文件失败一律 `evidence_setup_error` + rc=8
+    并清理半成品，清理失败显式 WARN。详见 STAGE4_CHANGES.md §0.8.4 与
+    部署手册 §9.4。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

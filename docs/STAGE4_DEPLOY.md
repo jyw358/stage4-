@@ -372,7 +372,7 @@ cat /data/cybergym/stage4/pilot50/batch_summary.json
 | `S4_SCORE_EXTRA` | 空 | 传给 score_all.py 的额外参数 |
 | `S4_SCORE_ALL` | `/root/score_all.sh` | 评分入口 |
 | `S4_BACKFILL` | `/root/backfill_fix_side.sh` | fix 侧回填 |
-| `S4_ALLOW_UNPROTECTED` | 空（关闭） | 仅开发：`chattr` 无法建立 protected ledger 时允许降级跑（verify 仍 fail-closed，行不得进正式成绩）；正式 pilot 不得设置 |
+| `S4_ALLOW_UNPROTECTED` | 空（关闭） | 仅开发：`chattr` 无法建立 protected ledger 时允许降级跑（verify 仍 fail-closed，行不得进正式成绩）。R3.4 起**正式入口直接拒绝**该变量（`/root/stage4.sh` exit 4、`stage4.py` SystemExit），只能用 `run_agent_task.sh` 单点调试 |
 
 ## 7. 常见故障
 
@@ -509,6 +509,20 @@ skip 为 Windows-only 用例）。
 wrapper 级负测合计 5 场景 / 19 断言，全 PASS；原语实测（root, ext4）：
 `chown`/`chmod` 于 `+a` 文件 → EPERM，`chattr +a` 幂等 rc=0，追加允许、覆写拒绝。
 
+### 9.4 R3.4 复审两项加固（2026-11-05，真机 nacocom）
+
+复审确认 §9.3 两项 P1 静态 PASS，另提两项加固，均已实施并在真机验证：
+
+| 项 | 修复 | 验证 |
+|---|---|---|
+| 开发降级开关可被误用 | 正式入口启动即拒 `S4_ALLOW_UNPROTECTED=1`：`/root/stage4.sh`（root 校验后，exit 4）与 `scripts/stage4.py`（参数解析后，SystemExit）各一处守卫。开发降级只能直接调 `run_agent_task.sh` | `/root/stage4.sh` + 该变量 → `REFUSE ... rc=4`（未触及 driver）；`stage4.py` 直调 → `REFUSE ... rc=1`；不设该变量 → 通过守卫进入树审计（控制组） |
+| ledger 初始化缺逐步错误处理（`set -u` 无 `-e`） | 目录 `mkdir/chown/chmod`、probe 创建、受保护文件创建、`chown/chmod` 全部独立检查 → 失败即 `evidence_setup_error` + rc=8 并清理半成品；probe/未封存 ledger 清理失败 → 显式 WARN（不静默） | 注入 `chmod` 失败（场景 F）：rc=8、行 `evidence_setup_error`、agcli 零调用、消息 `cannot chmod`（4/4）；A–E 回归仍 19/19 |
+
+部署现状：新代码在 `/opt/cybergym-agent-r33`（原 `/opt/cybergym-agent` 保持
+原版不动）；root 侧入口 `/root/stage4.sh` + `/root/assert_code_tree.py` 已按
+仓库 `root_code/` 同名文件安装（0755 / 0644，root:root）。单测 151 OK
+（真机 skip 1）。
+
 ## 10. 尚未覆盖的（上机后仍需补验）
 
 以下只能静态实现 + 文档化，**部署后按顺序实测**（结果记入 pilot 复核记录）。
@@ -516,7 +530,8 @@ R3.2 一轮已消除四项（chattr +a 实测、protected ledger 属主/权限�
 setpriv + 私有 HOME 下的真实调用、umask 077 继承——见 §9、§9.2），R3.3 的
 单题真实 smoke 又闭环了"真实提交 → promoter 封存 → 评分 → 验收"（§9.2 结尾），
 R3.3 复审再闭环**已有 ledger 重入**与 **chattr 失败前移 fail-closed**（§9.3），
-余下：
+R3.4 复审闭环**正式入口拒绝开发降级开关**与 **ledger 初始化逐步错误处理**
+（§9.4），余下：
 
 - 跨任务负向测试扩展：uid A **写入** uid B 工作区、读 `/root`、读其他任务
   `CLAUDE_CONFIG_DIR` 全部 Permission denied（§9 只覆盖读，建议补写测试）；

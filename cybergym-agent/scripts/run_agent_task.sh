@@ -157,11 +157,6 @@ fi
 PROTDIR="$OUT/protected_ledger"
 PROT="$PROTDIR/$NAME.jsonl"
 HAVE_PROT=0
-mkdir -p "$PROTDIR"
-# R3.2-M3: the protected ledger holds other tasks' poc ids / timestamps /
-# hashes.  It is root-only evidence, not shared input: 0700 dir + 0600 file
-# so cross-task readability never depends on <out> ancestor permissions.
-chmod 700 "$PROTDIR"; chown root:root "$PROTDIR"
 
 refuse_unprotected() {  # $1 = why protection could not be established
   echo "REFUSE: $1; formal stage-4 requires the protected ledger (set S4_ALLOW_UNPROTECTED=1 for a degraded DEV run that verify will not accept)" >&2
@@ -171,6 +166,23 @@ refuse_unprotected() {  # $1 = why protection could not be established
       --agent-id "$AGENT_ID"
   exit 8
 }
+
+# R3.4: every filesystem step below is checked individually.  The wrapper runs
+# with `set -u` only (no -e), so a silently failed mkdir/chown/chmod would
+# leave a HALF-SETUP evidence dir and the run would look merely "unprotected"
+# instead of broken.
+if ! mkdir -p "$PROTDIR"; then
+  refuse_unprotected "cannot create protected ledger dir $PROTDIR"
+fi
+# R3.2-M3: the protected ledger holds other tasks' poc ids / timestamps /
+# hashes.  It is root-only evidence, not shared input: 0700 dir + 0600 file
+# so cross-task readability never depends on <out> ancestor permissions.
+if ! chown root:root "$PROTDIR"; then
+  refuse_unprotected "cannot chown $PROTDIR to root:root"
+fi
+if ! chmod 700 "$PROTDIR"; then
+  refuse_unprotected "cannot chmod $PROTDIR to 0700"
+fi
 
 if [ -e "$PROT" ] || [ -L "$PROT" ]; then
   # R3.3-M1 (re-entry): on a retry / resumed run the ledger already exists
@@ -191,11 +203,27 @@ if [ -e "$PROT" ] || [ -L "$PROT" ]; then
   fi
 else
   _probe="$PROTDIR/.probe.$$"
-  : > "$_probe"
+  if ! : > "$_probe" 2>/dev/null; then
+    refuse_unprotected "cannot create probe file $_probe under $PROTDIR"
+  fi
   if chattr +a "$_probe" 2>/dev/null; then
-    chattr -a "$_probe" 2>/dev/null; rm -f "$_probe"
-    (umask 077; : > "$PROT")
-    chown root:root "$PROT"; chmod 600 "$PROT"    # the agent has NO write path
+    # probe cleanup is best-effort but must be VISIBLE: a probe left with +a
+    # in the evidence dir is a leftover the operator has to remove by hand.
+    chattr -a "$_probe" 2>/dev/null ||
+      echo "WARN: chattr -a on probe $_probe failed; leftover may still be append-only" >&2
+    rm -f "$_probe" 2>/dev/null ||
+      echo "WARN: cannot remove probe $_probe; remove it by hand" >&2
+    if ! (umask 077; : > "$PROT"); then
+      refuse_unprotected "cannot create protected ledger $PROT"
+    fi
+    if ! chown root:root "$PROT"; then
+      rm -f "$PROT" 2>/dev/null || true
+      refuse_unprotected "cannot chown $PROT to root:root (the agent must have NO write path to it)"
+    fi
+    if ! chmod 600 "$PROT"; then
+      rm -f "$PROT" 2>/dev/null || true
+      refuse_unprotected "cannot chmod $PROT to 0600 (the agent must have NO write path to it)"
+    fi
     # R3.2-M2: a successful probe on a scratch file does NOT prove the real
     # target took the attribute (different existing attrs / path / FS state).
     # Verify the real file with lsattr before claiming append-only.
@@ -205,7 +233,8 @@ else
       echo "protected ledger: $PROT (root-written 0600, append-only verified)"
     else
       chattr -a "$PROT" 2>/dev/null || true
-      rm -f "$PROT"
+      rm -f "$PROT" 2>/dev/null ||
+        echo "WARN: cannot remove unsealed $PROT; remove it by hand before the next run" >&2
       if [ "${S4_ALLOW_UNPROTECTED:-0}" = "1" ]; then
         echo "WARN: chattr +a did NOT take effect on $PROT; protected ledger DISABLED by S4_ALLOW_UNPROTECTED=1 (dev only; verify fails closed)" >&2
       else
@@ -213,7 +242,8 @@ else
       fi
     fi
   else
-    rm -f "$_probe"
+    rm -f "$_probe" 2>/dev/null ||
+      echo "WARN: cannot remove probe $_probe; remove it by hand" >&2
     if [ "${S4_ALLOW_UNPROTECTED:-0}" = "1" ]; then
       echo "WARN: chattr +a unsupported on $PROTDIR; protected ledger DISABLED by S4_ALLOW_UNPROTECTED=1 (dev only; verify will fail-closed)" >&2
     else
