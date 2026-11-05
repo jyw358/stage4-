@@ -90,6 +90,44 @@ class TestKillTaskTree(unittest.TestCase):
         self.assertIsNotNone(proc.poll())  # reaped, not left running
 
 
+class TestTokenSweep(unittest.TestCase):
+    """R3.4: a descendant that calls setsid() leaves the task session, so the
+    session sweep cannot see it.  Every agent process carries the per-attempt
+    token in its environment, which is what makes a root-side /proc scan able
+    to find (and kill) those escaped descendants."""
+
+    def setUp(self):
+        self.dir = Path(scratch_dir())
+        self.addCleanup(cleanup, self.dir)
+        self.proc = self.dir / "proc"
+        self.proc.mkdir()
+
+    def pid(self, pid, environ):
+        d = self.proc / str(pid)
+        d.mkdir()
+        (d / "environ").write_bytes(b"\0".join(
+            k.encode() if v is None else f"{k}={v}".encode()
+            for k, v in environ) + b"\0")
+
+    def test_finds_only_processes_carrying_the_token(self):
+        token = "s4t-run-a-1"
+        self.pid(101, [("S4_TASK_TOKEN", token), ("HOME", "/w/.home")])
+        self.pid(102, [("S4_TASK_TOKEN", "s4t-run-a-2")])   # other attempt
+        self.pid(103, [("S4_TASK_TOKENX", token)])          # different var
+        self.pid(104, [("HOME", "/w/.home")])               # scrubbed env
+        self.assertEqual(stage4.token_members(token, str(self.proc)), [101])
+
+    def test_missing_proc_dir_is_empty_not_an_error(self):
+        self.assertEqual(stage4.token_members("x", str(self.dir / "nope")), [])
+
+    def test_residual_rows_are_never_auto_retried(self):
+        # R3.4 "explicit retry restriction": a task whose escaped processes
+        # survived SIGKILL is only retried after a human cleans the host, so
+        # retry-failed must not pick it up.
+        self.assertNotIn("process_residual_error",
+                         stage4.EXECUTION_FAILURE_STATUSES)
+
+
 class TestPromoteLedger(unittest.TestCase):
     """B11: the root-side promoter dedups by poc_id and refuses to invent a
     protected ledger."""

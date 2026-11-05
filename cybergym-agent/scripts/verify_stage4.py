@@ -58,7 +58,8 @@ SCORE_OK = "ok"
 ALLOWED_FINAL = {"submitted", "no_submission", "submit_error"}
 # infrastructure failures: a formal pilot must have ZERO of these (B10)
 INFRA_FAILURE = {"gen_fail", "worker_error", "api_error", "evidence_error",
-                 "agent_launch_error", "evidence_setup_error"}
+                 "agent_launch_error", "evidence_setup_error",
+                 "process_residual_error"}
 
 INTEL_PATTERNS = ("reference-intel*", "reference_intel*", "ref-intel*",
                   "ref_intel*")

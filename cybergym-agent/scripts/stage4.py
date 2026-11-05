@@ -637,11 +637,58 @@ def sweep_session(session_id: int) -> int:
     return len(session_members(session_id))
 
 
-def kill_task_tree(proc: subprocess.Popen) -> int:
+def token_members(token: str, proc_root: str = "/proc") -> list:
+    """PIDs whose environment still carries ``S4_TASK_TOKEN=<token>``.
+
+    R3.4 (review: setsid escape): a descendant that calls setsid() leaves the
+    task's session, so neither the process-group kill nor the session sweep
+    reaches it.  The driver exports a per-attempt token into every agent
+    process's environment, so a root-side scan of /proc/<pid>/environ finds
+    those descendants whichever session/process group they moved to.  A
+    process that re-execs with a scrubbed environment still escapes; closing
+    that needs cgroups (documented residual)."""
+    out = []
+    needle = ("S4_TASK_TOKEN=" + token).encode()
+    try:
+        names = os.listdir(proc_root)
+    except OSError:
+        return out
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc_root, name, "environ"), "rb") as fh:
+                blob = fh.read()
+        except OSError:
+            continue
+        if needle in blob.split(b"\0"):
+            out.append(int(name))
+    return sorted(out)
+
+
+def sweep_token(token: str, rounds: int = 3, proc_root: str = "/proc") -> int:
+    """SIGKILL everything still carrying the task token; returns the residual
+    count (0 = confirmed empty)."""
+    left = token_members(token, proc_root)
+    for _ in range(rounds):
+        if not left:
+            return 0
+        for pid in left:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        time.sleep(0.2)
+        left = token_members(token, proc_root)
+    return len(left)
+
+
+def kill_task_tree(proc: subprocess.Popen, token: str = "") -> int:
     """B12/R3-M4: terminate the WHOLE process group of a task (the wrapper
     starts a session, so sudo/agcli/timeout descendants are all inside it),
     escalate to SIGKILL after a grace period, then sweep anything left in the
-    SESSION.  Returns the residual member count (0 = verified empty)."""
+    SESSION and anything that escaped it but still carries the task token
+    (R3.4: setsid'd descendants).  Returns the residual member count."""
     if os.name != "posix":
         proc.kill()
         try:
@@ -669,7 +716,10 @@ def kill_task_tree(proc: subprocess.Popen) -> int:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:  # pragma: no cover - last resort
             pass
-    return sweep_session(sid)
+    residual = sweep_session(sid)
+    if token:
+        residual += sweep_token(token)
+    return residual
 
 
 def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
@@ -697,6 +747,11 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
         env = dict(os.environ, S4_RUN_ID=run_id, S4_WSROOT=str(args.ws_root),
                    S4_PASS1_TURNS=str(args.pass1_turns),
                    S4_PASS2_TURNS=str(args.pass2_turns))
+        # R3.4: per-attempt token, exported into every agent process, so a
+        # descendant that setsid()'d out of the task session can still be
+        # found (and killed) by scanning /proc/<pid>/environ.
+        token = f"s4t-{run_id}-{name}-{uuid.uuid4().hex[:12]}"
+        env["S4_TASK_TOKEN"] = token
         if os.name == "posix" and euid() == 0:
             agent_uid = allocate_agent_uid(Path(args.out), name, run_id)
             control_write(Path(args.out), name, "agent_uid", str(agent_uid))
@@ -717,9 +772,24 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
             except subprocess.TimeoutExpired:
                 rc = 124
                 log(f"[timeout] {tid} after {args.task_timeout}s; killing the process group")
-                residual = kill_task_tree(proc)
+                residual = kill_task_tree(proc, token)
                 log(f"[timeout] {tid} process group terminated, "
-                    f"session residual={residual}")
+                    f"session+token residual={residual}")
+                if residual:
+                    # R3.4: something survived SIGKILL after leaving the
+                    # session -- retrying now would overlap two attempts on
+                    # the same task.  `process_residual_error` is deliberately
+                    # NOT in EXECUTION_FAILURE_STATUSES, so --retry-failed will
+                    # not touch it until an operator has cleaned the host.
+                    left = token_members(token)
+                    results_store.merge_row(args.out, tid, {
+                        "task_id": tid, "run_id": run_id,
+                        "status": "process_residual_error",
+                        "error": (f"{residual} process(es) survived the kill "
+                                  f"(setsid escape; pids={left}); clean them "
+                                  "before retrying this task"),
+                        "finished_at": utcnow(), "official_success": None,
+                    })
         else:  # Windows local tests
             try:
                 proc = subprocess.run(cmd, stdout=logfh, stderr=subprocess.STDOUT,

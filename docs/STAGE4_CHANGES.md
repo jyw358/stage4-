@@ -221,6 +221,25 @@ R3.4 复审确认 §0.8.3 两项 P1 静态 PASS（并明确撤销"chattr 失败�
 | §0.8.3 五场景（A–E）回归 | 19/19 全过（部署目录 `/opt/cybergym-agent-r33`） |
 | 全量单测 | 本地 151 OK（skip 3）；远端 151 OK（skip 1） |
 
+### 0.8.5 R3.4 运行时验收三项（2026-11-05，真机 nacocom）
+
+按复审建议补齐此前"未验证"的运行项，夹具在 `/tmp/s4acc`，两个独立 uid
+（30011/30012），`setpriv --reuid` 切换身份，**20/20 断言全过**：跨 UID 写入
+他题 workspace / prepared task dir（创建、追加、删除、`chmod`、读 input）
+全部 denied；他题 `CLAUDE_CONFIG_DIR` 状态文件读取与**覆写** denied，
+`/root/.cybergym_env`、`/root/grader.sock` 不可达；两个 uid 名下无残留进程。
+
+**setsid 逃逸闭环**（原为 R3-M4 未闭环项）：
+
+| 实现 | 行为 |
+|---|---|
+| 旧：只按会话号扫 `/proc` | 逃逸进程存活，但 `residual=0` —— **静默漏杀**（对照组实测 `survivors=[3320259]`） |
+| 新：per-attempt token + `/proc/*/environ` | 对照组同场景下 `before=[3320288,3320289,3320290] → after=[] residual=0`；`token_members()`/`sweep_token()`（3 轮 SIGKILL）；wrapper `env -i` 白名单新增 `S4_TASK_TOKEN` |
+| 残留门禁 | 残留不为 0 → 行 `process_residual_error`，**不在** `EXECUTION_FAILURE_STATUSES`（`--retry-failed` 不重试），并加入 `verify_stage4.INFRA_FAILURE` |
+
+对抗性残余（后代 `exec` 时清空环境变量）仍需每题独立 cgroup，已在部署手册
+§10 标注。单测 154 OK（本地 skip 3 / 远端 skip 1）。
+
 ## 1. 证据模型
 
 每题有三份互相独立的记录，评分时**必须一致**：

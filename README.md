@@ -34,7 +34,7 @@ cybergym-agent/
     stage2.sh            stage-3 遗留驱动：删 intel、硬门禁先于 worker 入口
     cleanpilot.sh        stage-3 遗留干净跑法：同上（S2_LEGACY_OK 门禁）
     agent_mission.txt    未改，mission 文本
-  tests/                 stage-4 新增/改写的测试（151 项，可离线跑）
+  tests/                 stage-4 新增/改写的测试（154 项，可离线跑）
   agent/contract.py      未改，Verdict 依赖
 root_code/
   stage4.sh              可信启动器（T1: 清 pycache → 树审计 → python3 -B exec）
@@ -54,8 +54,8 @@ smoke_score.py           本地冒烟：本地 HTTP /query-poc + final-only + le
 ```bash
 cd cybergym-agent
 python3 -m unittest discover -s tests
-# 预期：Ran 151 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
-#       R3/R3.1/R3.2/R3.3/R3.4 复审回归）
+# 预期：Ran 154 tests ... OK（含第二轮 B7-B12 回归、第三轮隔离回归、
+#       R3/R3.1/R3.2/R3.3/R3.4 复审与运行时验收回归）
 
 cd ..
 python3 smoke_stage4.py
@@ -184,6 +184,13 @@ R3.1 增量复审修复：
     `mkdir/chown/chmod`/probe/建文件失败一律 `evidence_setup_error` + rc=8
     并清理半成品，清理失败显式 WARN。详见 STAGE4_CHANGES.md §0.8.4 与
     部署手册 §9.4。
+32. R3.4 运行时验收三项（2026-11-05，真机 ext4，20/20）：跨 UID **写入**/
+    删除/`chmod` 他题 workspace 与 prepared dir 全部 denied；他题
+    `CLAUDE_CONFIG_DIR` 状态文件读取与覆写 denied；**setsid 逃逸闭环** ——
+    原实现按会话号扫 `/proc`，逃逸后代存活却报 `residual=0`（对照组实测
+    静默漏杀），改为 per-attempt token 扫 `/proc/*/environ` 精确兜杀；残留
+    不为 0 时写 `process_residual_error` 且 `--retry-failed` 不重试（人工
+    清理后才能重跑）。详见 STAGE4_CHANGES.md §0.8.5 与部署手册 §9.5。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

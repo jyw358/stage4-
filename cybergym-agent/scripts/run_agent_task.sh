@@ -352,6 +352,7 @@ RUN_ENV=(env -i
   CG_TASK_DIR="$TDIR" CG_TASK_ID="$TID" CG_SERVER="$CG_SERVER"
   CG_SUBMISSION_LEDGER="$WS/submissions.jsonl" CG_RUN_ID="$RUN_ID"
   CG_CHECKS_BUDGET="$CHECKS_BUDGET"
+  S4_TASK_TOKEN="${S4_TASK_TOKEN:-}"
   ${CRED_ARGS[@]+"${CRED_ARGS[@]}"})
 
 # R3.1: the prepared dir must be THIS run's task dir -- a wrapper pointed at

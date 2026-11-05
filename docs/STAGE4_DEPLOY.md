@@ -525,8 +525,43 @@ wrapper 级负测合计 5 场景 / 19 断言，全 PASS；原语实测（root, e
 
 部署现状：新代码在 `/opt/cybergym-agent-r33`（原 `/opt/cybergym-agent` 保持
 原版不动）；root 侧入口 `/root/stage4.sh` + `/root/assert_code_tree.py` 已按
-仓库 `root_code/` 同名文件安装（0755 / 0644，root:root）。单测 151 OK
+仓库 `root_code/` 同名文件安装（0755 / 0644，root:root）。单测 154 OK
 （真机 skip 1）。
+
+### 9.5 运行时验收三项：跨 UID 写入 / agcli 状态互访 / setsid 逃逸
+
+2026-11-05 真机 `nacocom`（ext4），`/tmp/s4acc` 隔离夹具，**20/20 断言全过**。
+两个独立 uid（30011 / 30012）分别持有自己的 workspace 与 prepared task dir
+（均 0700，父目录 0711），以 `setpriv --reuid` 切换身份实测：
+
+| 组 | 检查 | 结果 |
+|---|---|---|
+| G 跨 UID（30011 → 30012） | 读他题 workspace 文件 / `ls` 他题 ws / **创建** / 追加 / 删除 / `chmod` 他题目录 / 读他题 prepared input / 写他题 task dir —— 全部 denied；自己的 ws 可写（正向对照） | 9/9 |
+| H agcli 状态 | 读他题 `.claude-config/state.json`、`ls` 该目录、**覆写**状态文件（会话劫持）均 denied；`/root/.cybergym_env` 不可读、`/root/grader.sock` 不可达；自己的状态可读（正向对照） | 6/6 |
+| I setsid 逃逸 | 见下 | 3/3 |
+| 收尾 | 两个任务 uid 名下无存活进程 | 2/2 |
+
+**I 的关键证据（对照组）**：当 driver 不传 token 时，`setsid` 出去的后代在
+`kill_task_tree` 之后**仍然存活**，而按会话号扫描仍返回 `residual=0` ——
+即旧实现是**静默漏杀**，不是"记录并告警"。修复后（per-attempt token 注入
+会话环境，root 扫 `/proc/*/environ` 精确匹配）：
+
+```
+control (no token): escaped pid survives   [residual=0 survivors=[3320259]]
+token sweep sees escaped descendant         [before=[3320288,3320289,3320290] after=[] residual=0]
+no task process survives                    [residual=0 after=[]]
+```
+
+配套代码：`stage4.token_members()` / `sweep_token()`（`/proc/*/environ` 全扫，
+最多 3 轮 SIGKILL）、`kill_task_tree(proc, token)` 在会话清扫之后再扫 token；
+wrapper 的 `env -i` 白名单新增 `S4_TASK_TOKEN`。**残留不为 0 时**驱动写
+`process_residual_error`（故意**不在** `EXECUTION_FAILURE_STATUSES`，`--retry-failed`
+不会碰它，必须人工清理主机后才能重跑——即"明确限制重试条件"），并已加入
+`verify_stage4.INFRA_FAILURE`。
+
+对抗性残余：后代若在 `exec` 时清空环境变量仍可逃出，需每题独立 cgroup 才
+能彻底收口（§10）。
+
 
 R3.4 上机另修两处环境问题（非代码）：`useradd s4agent` 在该机被分到
 **uid 30002**（uid_registry 已把 30002 发给 `r_smoke/arvo_10628`，命名账号
@@ -542,18 +577,17 @@ setpriv + 私有 HOME 下的真实调用、umask 077 继承——见 §9、§9.2
 单题真实 smoke 又闭环了"真实提交 → promoter 封存 → 评分 → 验收"（§9.2 结尾），
 R3.3 复审再闭环**已有 ledger 重入**与 **chattr 失败前移 fail-closed**（§9.3），
 R3.4 复审闭环**正式入口拒绝开发降级开关**与 **ledger 初始化逐步错误处理**
-（§9.4），余下：
+（§9.4），并在真机跑完**跨 UID 写入 / agcli 状态互访 / setsid 逃逸**三项
+运行时验收（§9.5，20/20）；余下：
 
-- 跨任务负向测试扩展：uid A **写入** uid B 工作区、读 `/root`、读其他任务
-  `CLAUDE_CONFIG_DIR` 全部 Permission denied（§9 只覆盖读，建议补写测试）；
 - assert_code_tree 的边界：ACL（`setfacl`）与 bind mount 不在 stat 可见范围，
   在真实挂载布局上跑一次 `namei -l` + 负向 touch 测试（第 2 节）；
 - docker rootless 隔离的现场验证（沿用 stage-3 `scoring/smoke_isolation.sh`，
   本轮未改，也未在评审机执行）；
-- setsid 逃逸（R3-M4 残留）：`kill_task_tree` 会按会话号扫描 `/proc` 补杀，
-  但自行 `setsid()` 另开新会话的后代仍会逃出。若要求"重试前所有 agent 进程必不存在"，
-  需把每题包进独立 cgroup（`systemd-run --scope --slice=stage4-<task>`），
-  本轮未实现；当前只保证进程组 + 原会话被清空并记录残留数；
+- setsid 逃逸的**对抗性残余**：§9.5 已用 per-attempt token 扫 `/proc/*/environ`
+  兜杀（对照组证明无 token 时会静默漏杀）；后代若 `exec` 时清空环境变量仍能
+  逃出，彻底收口仍需每题独立 cgroup（`systemd-run --scope --slice=stage4-<task>`），
+  本轮未实现；
 - 服务器 `created_at` 已确认是**无时区 UTC、6 位微秒**（stage-4 在 HTTP 边界补
   `Z`，见 §9.2 S-10）；仍需在跑 5 题后观察同秒并列分布（并列会使
   `select_final` 判 `ambiguous`）。根治办法是服务端序列化带 `Z`，本仓库不改
