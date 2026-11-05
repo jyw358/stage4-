@@ -39,12 +39,30 @@ BENIGN_STATUSES = {evidence.STATUS_OK, evidence.STATUS_FIX_PENDING,
 
 
 def api_key() -> str:
-    key = os.environ.get("CYBERGYM_API_KEY")
-    if key:
-        return key
-    text = open("/home/naco/work/cybergym/.env", encoding="utf-8").read()
-    return [l.split("=", 1)[1].strip() for l in text.splitlines()
-            if l.startswith("CYBERGYM_API_KEY=")][0]
+    """Resolve the server key without ever returning an empty value.
+
+    The stage-3 host file (/home/naco/work/cybergym/.env) can carry an empty
+    CYBERGYM_API_KEY; an empty key makes the private route answer 404, which
+    would be misread as "no record" instead of an infrastructure failure.
+    """
+    for key in (os.environ.get("CYBERGYM_API_KEY"),
+                _key_from_file("/root/.cybergym_env"),
+                _key_from_file("/home/naco/work/cybergym/.env")):
+        if key and key.strip():
+            return key.strip()
+    raise RuntimeError("CYBERGYM_API_KEY is empty/missing "
+                       "(env, /root/.cybergym_env, /home/naco/work/cybergym/.env)")
+
+
+def _key_from_file(path: str) -> str | None:
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("CYBERGYM_API_KEY="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
 
 
 def query_records(runner, tid: str) -> list:
@@ -90,7 +108,16 @@ def main() -> int:
     if args.limit:
         rows = rows[:args.limit]
 
-    key = api_key()
+    try:
+        key = api_key()
+    except RuntimeError as e:
+        print(f"[scored] ABORT: {e}", file=sys.stderr)
+        (out / "scoring_report.json").write_text(
+            json.dumps({"generated_at": evidence.utcnow(),
+                        "run_id": args.run_id or None, "tasks": len(rows),
+                        "aborted": str(e), "infra_errors": 1},
+                       ensure_ascii=False, indent=2), encoding="utf-8")
+        return 2
     counts = {}
     n_success = 0
     n_decided = 0
