@@ -12,7 +12,13 @@
 - `1c92d8a` — 针对你 B1/B2/B3 的修复 + 13 项离线回归测试
 - `ebab608` — 新增：GLM 模型 key 池（stage-3 五 key 轮换移植；**此前完全未审**）
 
-**只审 PR 分支 head `ebab608`**（https://github.com/jyw358/stage4-/pull/1/files）。
+**只审 PR #1 分支 head**（以 <https://github.com/jyw358/stage4-/pull/1/files>
+为准；内容指纹见仓库根 `MANIFEST.sha256`，47 条，含 `REVIEW_PROMPT_PR1.md`
+自身——即本提示词也在被审 commit 内，属预期）。截至本提示词定稿，代码改动
+分布于 4 个 commit：`be9e69e`（首版 api_key 修复）→ `1c92d8a`（B1/B2/B3）
+→ `ebab608`（GLM key 池）→ `c8b9859`（复审材料 + `stage4.sh` 拒绝
+`S4_DEV_LEGACY_KEYFILE`；本 commit 不含评分/池逻辑变更）。
+
 仓库 `docs/EVIDENCE_PR1_REREVIEW.md` 是项目方现场证据存档（服务端 404 契约
 源码摘录、探针输出、端到端正/负向记录、key 池指纹与测试）——全部按
 **项目方报告 / 需现场验证**采信，不得当作代码证据。先读代码；文档只作背景。
@@ -120,7 +126,7 @@ senary > quaternary > quinary > primary > secondary，tertiary owner-retired
 - 不要把 EVIDENCE_PR1_REREVIEW.md 的现场输出当代码证据；标"项目方报告"。
 - 不要索要密钥明文、poc.db、会话日志、宿主机访问。
 - 不要建议"加强测试/完善文档"这类空话；每条落到 path:line 与最小修法。
-- 不要混用旧快照：只审 `ebab608`。
+- 不要混用旧快照：只审 PR #1 分支 head（对照 `MANIFEST.sha256` 47 条指纹）。
 
 ## 6. 建议读序
 
