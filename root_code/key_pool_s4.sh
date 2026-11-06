@@ -214,27 +214,47 @@ now="$(date +%s)"
 # never outlive the configuration it described.
 declare -A FPS=()
 cache_usable=0
-# NB: a PRESENT cache (regular or symlink, incl. dangling) must pass
-# trust_file -- an untrusted cache REFUSES the run; only a genuinely absent
-# or empty cache counts as "no cache" (r3-P0/N1/N4)
-if [ "$HEALTH_TTL" -gt 0 ] && { [ -s "$HEALTH_F" ] || [ -L "$HEALTH_F" ]; }; then
+# NB: a PRESENT cache (regular, empty, or symlink -- incl. dangling) must
+# pass trust_file -- an untrusted cache REFUSES the run; only a genuinely
+# absent cache counts as "no cache" (r3-P0/N1/N4; r4-P1a: -e unifies the
+# "present means trusted" semantics with the marker check)
+if [ "$HEALTH_TTL" -gt 0 ] && { [ -e "$HEALTH_F" ] || [ -L "$HEALTH_F" ]; }; then
     trust_file "$HEALTH_F" "health cache"
     c_ts="$(head -1 "$HEALTH_F" 2>/dev/null)"
     case "$c_ts" in ''|*[!0-9]*) c_ts=0 ;; esac
     if [ $(( now - c_ts )) -ge 0 ] && [ $(( now - c_ts )) -le "$HEALTH_TTL" ]; then
-        while read -r ck cc cf; do
-            [ -n "${ck:-}" ] && CODES[$ck]="$cc" && FPS[$ck]="$cf"
-        done < <(tail -n +2 "$HEALTH_F")
+        # r4-P1b: strict record-shape validation -- exactly the five known
+        # keys, no duplicates, code in {3-digit HTTP | no-file}, fingerprint
+        # 64-hex (empty only for no-file); any anomaly invalidates the cache
         ok=1
-        for k in "${ORDER[@]}"; do
-            [ -n "${CODES[$k]:-}" ] || { ok=0; break; }
-            f="$POOL_DIR/glm-$k.env"
-            if [ -f "$f" ]; then
-                [ "${FPS[$k]:-}" = "$(file_fp "$f")" ] || { ok=0; break; }
-            else
-                [ "${CODES[$k]}" = "no-file" ] || { ok=0; break; }
-            fi
-        done
+        declare -A SEEN=()
+        while read -r ck cc cf; do
+            [ -n "${ck:-}" ] || { ok=0; break; }
+            case " senary quaternary quinary primary secondary " in *" $ck "*) ;;
+                *) ok=0; break ;; esac
+            [ -z "${SEEN[$ck]:-}" ] || { ok=0; break; }
+            SEEN[$ck]=1
+            case "$cc" in
+                no-file) [ -z "$cf" ] || { ok=0; break; } ;;
+                [0-9][0-9][0-9])
+                    if [ "${#cf}" != 64 ] || ! [[ "$cf" =~ ^[0-9a-f]+$ ]]; then
+                        ok=0; break
+                    fi ;;
+                *) ok=0; break ;;
+            esac
+            CODES[$ck]="$cc"; FPS[$ck]="$cf"
+        done < <(tail -n +2 "$HEALTH_F")
+        if [ "$ok" = 1 ]; then
+            for k in "${ORDER[@]}"; do
+                [ -n "${CODES[$k]:-}" ] || { ok=0; break; }
+                f="$POOL_DIR/glm-$k.env"
+                if [ -f "$f" ]; then
+                    [ "${FPS[$k]:-}" = "$(file_fp "$f")" ] || { ok=0; break; }
+                else
+                    [ "${CODES[$k]}" = "no-file" ] || { ok=0; break; }
+                fi
+            done
+        fi
         [ "$ok" = 1 ] && cache_usable=1
     fi
 fi
