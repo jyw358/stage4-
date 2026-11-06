@@ -239,6 +239,11 @@ N4 在实现过程中抓出一个真缺陷：marker 为 symlink 时旧代码把�
   为 `ts + key code sha256` 三列；`last_selection=healthy:senary`；二次运行
   sticky；缓存/状态文件 600。
 - GLM 端点健康旁证（active key）：8-token 探针 1.2s/200，128-token 2.8s/200。
+- **健康链路 r3 终验**（pool-smoke4，run `s4-20261106T032858Z-808456`，grader
+  恢复后）：`[keypool] active=senary selection=healthy:senary` →
+  submitted / official_success=True / score ok / 三阶段 rc=0 /
+  verify violations=0 / $0.34——r3 全部修复（指纹缓存、marker 原子写、
+  last_selection 审计面）在真实链路上的端到端确认。
 
 ### 7.2.1 意外获得的实战 fail-closed 验证（infra 事件，2026-11-06）
 

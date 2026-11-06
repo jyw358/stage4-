@@ -251,7 +251,12 @@ R3.1 增量复审修复：
     外显式标注 NOT probe-verified；评分器捕获域三分（submit.sh 解析+
     runner 构造→integrity_error，服务器查询→query_error，证据绑定→
     integrity_error），补真实 runner 解析失败测试。测试套件 188 项全过
-    （本地+部署机）。
+    （本地+部署机）。健康链路终验 pool-smoke4（run s4-20261106T032858Z）：
+    submitted/ok/三阶段 0 失败/violations=0，`selection=healthy:senary`。
+    另获一次非受控 infra 实证：11-06 主机重启致 grader 全栈离线，故障期
+    smoke3 真实分类 `query_error` rc=2（无 no_records 误判），恢复后同一
+    任务重打分正确转 `no_records` rc=0——B1 修复的最有力现场证据。终审
+    协议（delta-only + 阻塞标准收紧 + 退出条款）见 REVIEW_PROMPT_PR1.md。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；
