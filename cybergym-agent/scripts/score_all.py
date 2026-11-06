@@ -13,11 +13,19 @@ For every row in <out>/results.json (or rows/*.json):
 Fail-closed: any task whose final submission cannot be proven becomes
 official_success=None with an explicit score_status, never True.
 
+404 semantics (B1): /query-poc answers 404 both from the auth gate
+(rejected key, body {"detail": "Not found"}) and from the handler
+(genuinely no records, body {"detail": "Record not found"}).  Only the
+exact business detail maps to no_records; every other 404 propagates as
+query_error (infra, exit 2).  Verified against the deployed server source
+(cybergym/server/__main__.py: auth 404 vs query_db 404).
+
 Exit codes: 0 = every row decided or legitimately undecidable (fix_pending /
 no_records); 1 = at least one integrity failure (no_ledger, ledger_mismatch,
 ledger_corrupt, order_unknown, ambiguous, timestamp_invalid, hash_mismatch,
-hash_unverified, agent_missing); 2 = infrastructure error (query_error,
-no_task_dir).  There is deliberately NO flag to score without a ledger.
+hash_unverified, agent_missing, integrity_error); 2 = infrastructure error
+(query_error, no_task_dir).  There is deliberately NO flag to score without
+a ledger.
 """
 from __future__ import annotations
 
@@ -31,27 +39,75 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from plugins import evidence, results_store  # noqa: E402
-from plugins.cybergym_runner import CyberGymRunner, parse_submit_sh  # noqa: E402
+from plugins.cybergym_runner import (CyberGymRunner, is_business_not_found,  # noqa: E402
+                                     parse_submit_sh)
 
 INFRA_STATUSES = {"query_error", "no_task_dir"}
 BENIGN_STATUSES = {evidence.STATUS_OK, evidence.STATUS_FIX_PENDING,
                    evidence.STATUS_NO_RECORDS}
 
 
+ROOT_KEY_FILE = "/root/.cybergym_env"
+# stage-3 era credential file, WRITABLE by the untrusted prep account (naco);
+# never read in a formal run (B3), only behind an explicit dev opt-in.
+LEGACY_KEY_FILE = "/home/naco/work/cybergym/.env"
+
+
 def api_key() -> str:
-    key = os.environ.get("CYBERGYM_API_KEY")
-    if key:
-        return key
-    text = open("/home/naco/work/cybergym/.env", encoding="utf-8").read()
-    return [l.split("=", 1)[1].strip() for l in text.splitlines()
-            if l.startswith("CYBERGYM_API_KEY=")][0]
+    """Resolve the server key for FORMAL stage-4 scoring (B2/B3).
+
+    Precedence: the root-owned credential file is authoritative.  An
+    environment override is honoured ONLY under an explicit authorized
+    opt-in (S4_KEY_ENV_OVERRIDE=1), so a stale exported key can never
+    shadow the rotated root secret.  The legacy naco-writable .env is read
+    only in dev mode (S4_DEV_LEGACY_KEYFILE=1); formal runs never trust a
+    credential the untrusted prep account can modify.
+
+    Never returns an empty value (an empty key makes the auth gate answer
+    404, which must surface as an infra error, not as "no records").
+    """
+    env_key = (os.environ.get("CYBERGYM_API_KEY") or "").strip().strip('"').strip("'")
+    if env_key and os.environ.get("S4_KEY_ENV_OVERRIDE") == "1":
+        return env_key                      # explicit authorized override
+    root_key = _key_from_file(ROOT_KEY_FILE)
+    if root_key:
+        return root_key                     # authoritative source
+    if env_key:
+        return env_key                      # tolerated only while root file absent
+    if os.environ.get("S4_DEV_LEGACY_KEYFILE") == "1":
+        legacy = _key_from_file(LEGACY_KEY_FILE)
+        if legacy:
+            return legacy
+    raise RuntimeError(
+        f"CYBERGYM_API_KEY unusable: nothing in {ROOT_KEY_FILE} and no usable "
+        "env fallback. An env override requires S4_KEY_ENV_OVERRIDE=1; the "
+        f"legacy {LEGACY_KEY_FILE} requires S4_DEV_LEGACY_KEYFILE=1 (dev only).")
+
+
+def _key_from_file(path: str) -> str | None:
+    # NB: parses only the simple KEY=value / KEY="value" forms; it is not a
+    # general .env parser (no exports, no interpolation) by design.
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("CYBERGYM_API_KEY="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
 
 
 def query_records(runner, tid: str) -> list:
     try:
         return runner.query_poc(original_task_id=tid) or []
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        # B1: a 404 means "no records" ONLY when the server's query handler
+        # said so.  The runner marks business 404s (s4_business_404) when it
+        # classifies them itself (its read consumes the body); the imported
+        # classifier only applies to errors we are the first to read
+        # (tests, direct callers).  Everything else is an infrastructure
+        # failure and must propagate (-> query_error, exit 2).
+        if getattr(e, "s4_business_404", False) or is_business_not_found(e):
             return []
         raise
 
@@ -90,7 +146,16 @@ def main() -> int:
     if args.limit:
         rows = rows[:args.limit]
 
-    key = api_key()
+    try:
+        key = api_key()
+    except RuntimeError as e:
+        print(f"[scored] ABORT: {e}", file=sys.stderr)
+        (out / "scoring_report.json").write_text(
+            json.dumps({"generated_at": evidence.utcnow(),
+                        "run_id": args.run_id or None, "tasks": len(rows),
+                        "aborted": str(e), "infra_errors": 1},
+                       ensure_ascii=False, indent=2), encoding="utf-8")
+        return 2
     counts = {}
     n_success = 0
     n_decided = 0
@@ -109,28 +174,52 @@ def main() -> int:
             result = {"status": "no_task_dir", "success": None, "final": None,
                       "reason": f"missing {tdir / 'submit.sh'}", "ledger_entries": 0}
         else:
+            # M2/r3-M3: three capture regions with distinct meanings.
+            #   region 1 (integrity): LOCAL structure -- submit.sh metadata
+            #           parse + runner construction; a malformed task dir is
+            #           an integrity problem, never a server problem;
+            #   region 2 (infra):     the server query itself;
+            #   region 3 (integrity): ledger discovery + evidence binding.
+            result = None
+            agent_id = row.get("agent_id") or ""
             try:
-                agent_id = row.get("agent_id") or parse_submit_sh(tdir).get("agent_id", "")
+                agent_id = agent_id or parse_submit_sh(tdir).get("agent_id", "")
                 runner = CyberGymRunner(args.server, tdir, api_key=key)
-                recs = query_records(runner, tid)
-                hist = sorted((out / "ledger_history").glob(f"{name}.*.jsonl"))
-                prot = out / "protected_ledger" / f"{name}.jsonl"
-                if prot.exists() and prot.stat().st_size > 0:
-                    ledger_source = "protected"
-                    ledger_paths = [prot]
+            except Exception as e:
+                result = {"status": "integrity_error", "success": None,
+                          "final": None,
+                          "reason": f"{type(e).__name__}: {e}",
+                          "ledger_entries": 0}
+            else:
+                try:
+                    recs = query_records(runner, tid)
+                except Exception as e:
+                    result = {"status": "query_error", "success": None,
+                              "final": None,
+                              "reason": f"{type(e).__name__}: {e}",
+                              "ledger_entries": 0}
                 else:
-                    ledger_source = "workspace"
-                    ledger_paths = ([ws / "submissions.jsonl"] + hist) if hist else None
-                result = evidence.bind_evidence(
-                    recs, agent_id, ledger_path=ws / "submissions.jsonl",
-                    require_ledger=True, ledger_paths=ledger_paths,
-                    run_id=row.get("run_id") or None)
-                result["ledger_source"] = ledger_source
-                patch["agent_id"] = agent_id
-                patch["ledger_source"] = ledger_source
-            except Exception as e:  # never silently swallow a scoring failure
-                result = {"status": "query_error", "success": None, "final": None,
-                          "reason": f"{type(e).__name__}: {e}", "ledger_entries": 0}
+                    try:
+                        hist = sorted((out / "ledger_history").glob(f"{name}.*.jsonl"))
+                        prot = out / "protected_ledger" / f"{name}.jsonl"
+                        if prot.exists() and prot.stat().st_size > 0:
+                            ledger_source = "protected"
+                            ledger_paths = [prot]
+                        else:
+                            ledger_source = "workspace"
+                            ledger_paths = ([ws / "submissions.jsonl"] + hist) if hist else None
+                        result = evidence.bind_evidence(
+                            recs, agent_id, ledger_path=ws / "submissions.jsonl",
+                            require_ledger=True, ledger_paths=ledger_paths,
+                            run_id=row.get("run_id") or None)
+                        result["ledger_source"] = ledger_source
+                        patch["agent_id"] = agent_id
+                        patch["ledger_source"] = ledger_source
+                    except Exception as e:
+                        result = {"status": "integrity_error", "success": None,
+                                  "final": None,
+                                  "reason": f"{type(e).__name__}: {e}",
+                                  "ledger_entries": 0}
 
         patch.update({
             "official_success": result.get("success"),

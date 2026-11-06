@@ -199,12 +199,64 @@ R3.1 增量复审修复：
     都看不到该 pid）。清理结果改三态：`0`=clean、`N`=`process_residual_error`、
     `None+complete=False`=`process_inspection_incomplete`（"未知"绝不报成
     "已清空"）；后两者不在 `EXECUTION_FAILURE_STATUSES` 且已进
-    `results_store.TERMINAL`，续跑与 `--retry-failed` 都不会自动重试。driver
+    `results_store.TERMINAL`，续跑与 `--retry-failed` 都不会自动重 retry。driver
     在 root 正式运行前检查 cgroup v2 可用性，不可用即 REFUSE（注意 root cgroup
     没有 `cgroup.kill`，必须建子探针判定）。同时修两项 NIT：遗留 `.probe.*`
     建新 ledger 前清理；workspace 权限设置失败改报 `workspace_setup_error`
     （rc=10，不再拖到 agcli 启动才暴露）。详见 STAGE4_CHANGES.md §0.8.6 与
     部署手册 §9.6。
+34. PR#1 凭据加固（2026-11-05，真机正/负向端到端）：评分器 `api_key()` 以
+    `/root/.cybergym_env` 为权威（env 覆盖仅 `S4_KEY_ENV_OVERRIDE=1` 显式授权；
+    naco 可写历史 `.env` 仅 `S4_DEV_LEGACY_KEYFILE=1` dev 可读，可信入口
+    `stage4.sh` 与 `S4_ALLOW_UNPROTECTED` 同型拒绝该旗标）；`query_records` 按
+    响应体区分两种 404——仅服务端业务层 `{"detail":"Record not found"}` 映射
+    `no_records`，认证层 `"Not found"`/空 body/非 JSON 一律 `query_error` exit 2
+    （首轮 pilot 全题误判 `no_records` 的根因即空 key 触发网关 404）。契约实测：
+    好 key+假任务=业务 404，坏/空 key=网关 404，body 严格可分。新增 13 项离线
+    回归测试；负向实证 `S4_KEY_ENV_OVERRIDE=1`+坏 key → `{'query_error':5}` rc=2。
+35. PR#1 GLM key 池（2026-11-05，stub 5 场景 + 真机单题端到端）：stage-3 的
+    5 个可用 GLM key 移植为 `/etc/cybergym-agent/keys/` root:root 0600 池，
+    `root_code/key_pool_s4.sh` 按 stage3 同款策略轮换（优先级
+    senary>quaternary>quinary>primary>secondary、tertiary 退役排除、probe 门控
+    非 200 不选、sticky、全限流保上一 active），每题启动时 root 侧 flock 串行
+    选择、`mktemp+mv` 原子写 active.env、决策入 `/var/log/s4-keypool.log`；
+    `run_agent_task.sh` 校验 dir/selector/active.env 属主后 `env -i` 重注入，
+    agent 永远拿值不拿文件；全部 key 限流且无 active → REFUSE 不烧预算。真机
+    单题 `[keypool] active=senary` → submitted + official_success=True。
+    评审证据存档：docs/EVIDENCE_PR1_REREVIEW.md；复审提示词：REVIEW_PROMPT_PR1.md。
+36. PR#1 复审 r2 修复（2026-11-05，stub 15 场景 + 真机 e2e 全过）：key 池
+    4 项 P0——凭据文件改**严格数据解析**（白名单 4 键 + 值域
+    `[A-Za-z0-9._:/+=-]`，拒绝额外键/命令替换/不可解析行，绝不 source）；
+    选择器逐步写检查 + 写后 `cmp` 复验（写失败 rc=1，实测 chattr +i 下
+    切换响亮失败）；wrapper 三态模式（池存在即权威、与 S4_AGENT_ENV_FILE
+    无关；皆无凭据 `model_credential_error` REFUSE）；信任检查升级为
+    普通/非 symlink/root/无 group-other 位 + 祖先链（实测 0666 与 symlink
+    拒绝）。P1——runner 双 id 回退仅限业务 404（认证 404 首次即抛，测试
+    覆盖 auth→business 反例）；score_all 拆分 query_error 与
+    integrity_error 捕获域；探针健康缓存 TTL（默认 120s，0=强制探针，
+    实测二次启动 0 探针）；sticky 需 active 与源逐字节一致否则原子修复
+    （实测）；全失败仅全 429 保 active（实测混 500 即拒）。测试修复过程
+    抓出并修掉真实缺陷：probe 子 shell die 被吞、解析失败降级为"不健康
+    继续轮换"。新增解析/双 id 序列/integrity 拆分测试，套件 187 项全过；
+    stage-3 基线 vendor 入 `docs/reference/stage3_key_pool.sh`
+    （sha256=309d1cfa…，与主机部署版一致，公开仓库缺 root_code/）。
+37. PR#1 第三轮复审修复（2026-11-06，stub 22 场景全过）：健康缓存逐键绑定
+    `glm-*.env` sha256 指纹，TTL 内轮换 key 即失效重探（实测 0→5 探针）；
+    缓存与 `glm_active` 标记"存在即必须过完整信任检查"（0666/symlink 拒
+    绝，含悬空 symlink；修掉 marker symlink 被静默当作不存在再覆盖的缺
+    陷）；标记更新改 `atomic_write_text` 原子写+回读校验；全 429 保 active
+    仅当 marker→源→active 三者一致否则拒绝（无健康 key 绝不擅自修复）；
+    `S4_KEY_POOL_TTL/ TIMEOUT` 非法值任何探针前拒绝（实测零探针消耗）；
+    新增 `last_selection`（healthy:/throttled_keep:）逐题审计，全 429 例
+    外显式标注 NOT probe-verified；评分器捕获域三分（submit.sh 解析+
+    runner 构造→integrity_error，服务器查询→query_error，证据绑定→
+    integrity_error），补真实 runner 解析失败测试。测试套件 188 项全过
+    （本地+部署机）。健康链路终验 pool-smoke4（run s4-20261106T032858Z）：
+    submitted/ok/三阶段 0 失败/violations=0，`selection=healthy:senary`。
+    另获一次非受控 infra 实证：11-06 主机重启致 grader 全栈离线，故障期
+    smoke3 真实分类 `query_error` rc=2（无 no_records 误判），恢复后同一
+    任务重打分正确转 `no_records` rc=0——B1 修复的最有力现场证据。终审
+    协议（delta-only + 阻塞标准收紧 + 退出条款）见 REVIEW_PROMPT_PR1.md。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

@@ -29,6 +29,16 @@ if [ "${S4_ALLOW_UNPROTECTED:-0}" = "1" ]; then
   exit 4
 fi
 
+# B3 (PR#1 re-review hardening): the legacy naco-writable credential file is
+# readable by the scorer ONLY in dev mode; a formal run must never score with
+# a credential the untrusted prep account can modify, so the dev flag is
+# refused here exactly like S4_ALLOW_UNPROTECTED (dev: call score_all.py
+# directly with S4_DEV_LEGACY_KEYFILE=1).
+if [ "${S4_DEV_LEGACY_KEYFILE:-0}" = "1" ]; then
+  echo "REFUSE: S4_DEV_LEGACY_KEYFILE=1 is a DEV-only escape hatch (legacy naco-writable key file); the formal stage-4 entry point will not run with it." >&2
+  exit 4
+fi
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AG="${S4_AGENT_HOME:-/opt/cybergym-agent}"
 UNTRUSTED="${S4_UNTRUSTED_USERS:-${S4_AGENT_USER:-s4agent},${S4_PREP_USER:-naco}}"

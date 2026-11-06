@@ -27,6 +27,33 @@ TIMEOUT_CODE = 300  # server_utils.Timeout
 
 _NAIVE_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$")
 
+# The private /query-poc route answers 404 in two distinct situations:
+#   - auth gate rejects the key  -> body {"detail": "Not found"}   (infra)
+#   - no records for agent+task -> body {"detail": "Record not found"} (business)
+# Contract verified against the deployed server source (cybergym/server/
+# __main__.py).  Only the exact business detail means "no records"; anything
+# else is an infrastructure failure and must propagate.
+BUSINESS_404_DETAIL = "Record not found"
+
+
+def _http_error_body(e) -> str:
+    try:
+        return (e.read() or b"").decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def is_business_not_found(e) -> bool:
+    """True only for a 404 whose body proves the SERVER's query handler said
+    'no records' (exact detail match).  Empty/ambiguous bodies are False."""
+    if getattr(e, "code", None) != 404:
+        return False
+    try:
+        detail = json.loads(_http_error_body(e)).get("detail")
+    except (ValueError, AttributeError):
+        return False
+    return detail == BUSINESS_404_DETAIL
+
 
 def normalise_server_records(records) -> list:
     """Stamp the server's NAIVE UTC ``created_at`` as UTC (interface defect).
@@ -166,7 +193,14 @@ class CyberGymRunner:
     def query_poc(self, original_task_id: Optional[str] = None) -> list:
         """POST /query-poc: authoritative records. NB: submit metadata carries
         the hashed task id (e.g. 7fa395d7dac0) but poc.db keys on the original
-        (e.g. arvo:10400) -- pass original_task_id, else we try both forms."""
+        (e.g. arvo:10400) -- pass original_task_id, else we try both forms.
+
+        Re-review M1: the fallback to the second id form is allowed ONLY for
+        a business "no records" 404.  An auth-gate/transport 404 (or any
+        non-404 error) propagates from the FIRST request -- a later business
+        404 can never mask an earlier authentication failure.  Business 404s
+        are marked on the exception object (s4_business_404) so the scorer
+        can classify without re-reading the consumed body."""
         ids = [original_task_id, self.meta["task_id"]] if original_task_id \
             else [self.meta["task_id"]]
         last_err = None
@@ -182,9 +216,13 @@ class CyberGymRunner:
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     return normalise_server_records(json.loads(resp.read().decode()))
             except urllib.error.HTTPError as e:
-                last_err = e
                 if e.code != 404:
                     raise
+                if is_business_not_found(e):
+                    e.s4_business_404 = True
+                    last_err = e
+                    continue          # this id form has no records -> try next
+                raise                 # auth-gate/ambiguous 404: propagate NOW
         raise last_err
 
     @staticmethod
