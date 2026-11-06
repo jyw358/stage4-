@@ -271,6 +271,51 @@ ls -l /data/cybergym/stage4/queue.json
 
 ## 4. 50 题 pilot（先跑这个）
 
+### 4.0 正式三阶段跑法（G1-G3，r5 评审发车门槛）
+
+**阶段一：冻结样本（G1/B4，已生成则跳过）**
+
+```bash
+python3 /opt/cybergym-agent/scripts/freeze_queue.py \
+  --pool /data/cybergym/stage3/queue_all.json \
+  --out /var/lib/cybergym/runs/formal50.queue.json \
+  --manifest /var/lib/cybergym/runs/formal50.manifest.json \
+  --exclude arvo:10628,arvo:1065,arvo:10710,arvo:11007,arvo:11908 \
+  --n 50 --seed 20261106
+```
+
+分层（ARVO/OSS-Fuzz 按数据集比例）、固定种子、排除已验证题；casualties
+**不排除**（样本须代表总体）。manifest 记录全部选择，冻结后不可改。
+
+**阶段二：首轮 + 归因（G2）**
+
+```bash
+S4_AGENT_HOME=/opt/cybergym-agent-r33 \
+S4_AGENT_ENV_FILE=/etc/cybergym-agent/agent.env \
+/root/stage4.sh --queue /var/lib/cybergym/runs/formal50.queue.json \
+    --out /var/lib/cybergym/runs/formal50 --workers 3 --limit 50
+# 跑后归因（root 侧可信源；agent 可写数据仅提示性）
+python3 /opt/cybergym-agent/scripts/failure_taxonomy.py \
+    --out /var/lib/cybergym/runs/formal50
+```
+
+**阶段三：严格一次有效重试（G3）——只有"评分完成的 False"可重试**
+
+```bash
+# 归因报告中的 E1-valid-retry candidates（fix_not_clean/vul_no_crash/
+# no_server_record）才进入重试；unscored/* 一律走恢复或人工，绝不重跑
+S4_AGENT_HOME=... S4_AGENT_ENV_FILE=... /root/stage4.sh \
+    --queue <由 taxonomy 重建的 retry 队列> \
+    --out /var/lib/cybergym/runs/formal50 --retry-failed
+python3 /opt/cybergym-agent/scripts/failure_taxonomy.py --out .../formal50
+```
+
+同题至多一次有效重试（attempt 归档可证）；重试前确认上一 attempt 无
+process residual。**报告口径（三个分开的指标，不预承诺总数）**：首轮
+成功率 / 一次有效 retry 后成功率 / 按题源分层成功率（manifest.strata）。
+
+### 4.1 基础跑法
+
 ```bash
 cd /data/cybergym/stage4
 /root/stage4.sh --queue /data/cybergym/stage4/queue.json \
