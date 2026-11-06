@@ -174,43 +174,52 @@ def main() -> int:
             result = {"status": "no_task_dir", "success": None, "final": None,
                       "reason": f"missing {tdir / 'submit.sh'}", "ledger_entries": 0}
         else:
-            # M2 (re-review r2): two DISTINCT capture regions.  Server query
-            # failures (network/auth/protocol) -> query_error (infra, exit 2);
-            # local-evidence failures (submit.sh parse, ledger discovery,
-            # evidence binding invariants) -> integrity_error (exit 1).  An
-            # unclassified evidence exception must never masquerade as an
-            # infrastructure problem.
+            # M2/r3-M3: three capture regions with distinct meanings.
+            #   region 1 (integrity): LOCAL structure -- submit.sh metadata
+            #           parse + runner construction; a malformed task dir is
+            #           an integrity problem, never a server problem;
+            #   region 2 (infra):     the server query itself;
+            #   region 3 (integrity): ledger discovery + evidence binding.
             result = None
             agent_id = row.get("agent_id") or ""
             try:
                 agent_id = agent_id or parse_submit_sh(tdir).get("agent_id", "")
                 runner = CyberGymRunner(args.server, tdir, api_key=key)
-                recs = query_records(runner, tid)
             except Exception as e:
-                result = {"status": "query_error", "success": None, "final": None,
-                          "reason": f"{type(e).__name__}: {e}", "ledger_entries": 0}
+                result = {"status": "integrity_error", "success": None,
+                          "final": None,
+                          "reason": f"{type(e).__name__}: {e}",
+                          "ledger_entries": 0}
             else:
                 try:
-                    hist = sorted((out / "ledger_history").glob(f"{name}.*.jsonl"))
-                    prot = out / "protected_ledger" / f"{name}.jsonl"
-                    if prot.exists() and prot.stat().st_size > 0:
-                        ledger_source = "protected"
-                        ledger_paths = [prot]
-                    else:
-                        ledger_source = "workspace"
-                        ledger_paths = ([ws / "submissions.jsonl"] + hist) if hist else None
-                    result = evidence.bind_evidence(
-                        recs, agent_id, ledger_path=ws / "submissions.jsonl",
-                        require_ledger=True, ledger_paths=ledger_paths,
-                        run_id=row.get("run_id") or None)
-                    result["ledger_source"] = ledger_source
-                    patch["agent_id"] = agent_id
-                    patch["ledger_source"] = ledger_source
+                    recs = query_records(runner, tid)
                 except Exception as e:
-                    result = {"status": "integrity_error", "success": None,
+                    result = {"status": "query_error", "success": None,
                               "final": None,
                               "reason": f"{type(e).__name__}: {e}",
                               "ledger_entries": 0}
+                else:
+                    try:
+                        hist = sorted((out / "ledger_history").glob(f"{name}.*.jsonl"))
+                        prot = out / "protected_ledger" / f"{name}.jsonl"
+                        if prot.exists() and prot.stat().st_size > 0:
+                            ledger_source = "protected"
+                            ledger_paths = [prot]
+                        else:
+                            ledger_source = "workspace"
+                            ledger_paths = ([ws / "submissions.jsonl"] + hist) if hist else None
+                        result = evidence.bind_evidence(
+                            recs, agent_id, ledger_path=ws / "submissions.jsonl",
+                            require_ledger=True, ledger_paths=ledger_paths,
+                            run_id=row.get("run_id") or None)
+                        result["ledger_source"] = ledger_source
+                        patch["agent_id"] = agent_id
+                        patch["ledger_source"] = ledger_source
+                    except Exception as e:
+                        result = {"status": "integrity_error", "success": None,
+                                  "final": None,
+                                  "reason": f"{type(e).__name__}: {e}",
+                                  "ledger_entries": 0}
 
         patch.update({
             "official_success": result.get("success"),

@@ -473,7 +473,7 @@ if [ "$S4_POOL_ON" = 1 ]; then
     fi
     s4_trust_file "$S4_KEY_POOL_DIR/active.env" "active key" || exit 4
     s4_load_cred_env "$S4_KEY_POOL_DIR/active.env" || exit 4
-    echo "[keypool] active=$(cat "$S4_KEY_POOL_DIR/glm_active" 2>/dev/null || echo '?') run=$RUN_ID task=$TID"
+    echo "[keypool] active=$(cat "$S4_KEY_POOL_DIR/glm_active" 2>/dev/null || echo '?') selection=$(cat "$S4_KEY_POOL_DIR/last_selection" 2>/dev/null || echo 'unknown') run=$RUN_ID task=$TID"
 fi
 
 # mode 3: no usable credentials at all -- refuse BEFORE any model budget

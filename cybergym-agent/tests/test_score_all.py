@@ -319,6 +319,34 @@ class TestIntegrityVsQuerySplit(unittest.TestCase):
         self.assertEqual(row.get("score_status"), "integrity_error")
         self.assertEqual(rc, 1)
 
+    def test_submit_sh_parse_failure_is_integrity_error(self):
+        """r3-M3: a malformed LOCAL submit.sh must be integrity_error, not
+        query_error (real CyberGymRunner, corrupt metadata -> ValueError)."""
+        from plugins import results_store
+
+        out = Path(tempfile.mkdtemp())
+        base = Path(tempfile.mkdtemp())
+        tdir = base / "stub_1"
+        tdir.mkdir()
+        (tdir / "submit.sh").write_text("#!/bin/bash\ncurl no-metadata-here\n",
+                                         encoding="utf-8")
+        ws = Path(tempfile.mkdtemp())
+        self.addCleanup(ws.rmdir)
+        results_store.write_row(out, "stub:1", {
+            "task_id": "stub:1", "run_id": "R1", "status": "submitted",
+            "workspace": str(ws)})
+
+        argv = ["score_all.py", "--out", str(out), "--task-base", str(base),
+                "--ws-root", str(ws), "--run-id", "R1"]
+        env = {"S4_KEY_ENV_OVERRIDE": "1", "CYBERGYM_API_KEY": "k"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch("sys.argv", argv):
+            rc = score_all.main()
+        row = results_store.read_row(out, "stub:1")
+        self.assertEqual(row.get("score_status"), "integrity_error")
+        self.assertIn("metadata", row.get("score_reason", ""))  # parse_submit_sh ValueError
+        self.assertEqual(rc, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

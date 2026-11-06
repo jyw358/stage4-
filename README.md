@@ -240,6 +240,18 @@ R3.1 增量复审修复：
     继续轮换"。新增解析/双 id 序列/integrity 拆分测试，套件 187 项全过；
     stage-3 基线 vendor 入 `docs/reference/stage3_key_pool.sh`
     （sha256=309d1cfa…，与主机部署版一致，公开仓库缺 root_code/）。
+37. PR#1 第三轮复审修复（2026-11-06，stub 22 场景全过）：健康缓存逐键绑定
+    `glm-*.env` sha256 指纹，TTL 内轮换 key 即失效重探（实测 0→5 探针）；
+    缓存与 `glm_active` 标记"存在即必须过完整信任检查"（0666/symlink 拒
+    绝，含悬空 symlink；修掉 marker symlink 被静默当作不存在再覆盖的缺
+    陷）；标记更新改 `atomic_write_text` 原子写+回读校验；全 429 保 active
+    仅当 marker→源→active 三者一致否则拒绝（无健康 key 绝不擅自修复）；
+    `S4_KEY_POOL_TTL/ TIMEOUT` 非法值任何探针前拒绝（实测零探针消耗）；
+    新增 `last_selection`（healthy:/throttled_keep:）逐题审计，全 429 例
+    外显式标注 NOT probe-verified；评分器捕获域三分（submit.sh 解析+
+    runner 构造→integrity_error，服务器查询→query_error，证据绑定→
+    integrity_error），补真实 runner 解析失败测试。测试套件 188 项全过
+    （本地+部署机）。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

@@ -204,3 +204,52 @@ stage-3 公开仓库确实没有 `root_code/`（复审所见属实）。部署�
 选择器为**每题启动时**选择（锁内读 TTL 缓存），与 stage-3 的 cron 每 5 分钟
 节奏不同——策略一致（优先级/门控/sticky），运行触发点不同，文档已如实
 区分。
+
+---
+
+## 7. 第三轮复审修复的现场验证（2026-11-06）
+
+> 针对 r3 裁决：P0-1（health.cache 信任）、M1（全 429 一致性）、M2（marker
+> 信任/原子写）、M3（捕获域边界）、M4（例外不计健康）、M5（TTL/timeout
+> 校验）。注意：r3 评审所审为 `9f153d9`；缓存/marker 的**读侧信任检查**
+> 已在该评审进行时存在于 `2c5d134`（评审因 GitHub raw CDN 缓存未见），
+> 其余项在本轮全部实现。以下为**项目方现场报告**。
+
+### 7.1 确定性套件（stub curl，22/22 PASS）
+
+r2 的 15 场景全数回归通过，另新增：
+
+```
+PASS N1-untrusted-cache-refused (rc=1)          # health.cache 0666 -> 拒绝
+PASS N2-rotation-reprobes (probes 0->5)         # TTL 内轮换 glm-senary.env -> 指纹失效强制重探
+PASS N3-429-inconsistent-refuses (rc=1)         # 全 429 + marker=senary/active=primary -> 拒绝
+PASS N4-marker-symlink (rc=1)                   # glm_active symlink -> 拒绝
+PASS N5a-ttl-nonnumeric / N5b-ttl-too-large / N5c-timeout-zero (rc=1)
+PASS N5d-no-probe-spent (curl 计数 0)           # 非法配置在任何探针前拒绝
+PASS B-last-selection-marked                    # throttled_keep:quinary 落盘
+```
+
+N4 在实现过程中抓出一个真缺陷：marker 为 symlink 时旧代码把它静默当作
+"不存在"（`[ ! -L ]` 短路）随后覆盖——正是评审 M2 预言的"异常 marker 状态
+误读"。修复为"存在（含 symlink/悬空）即必须过 `trust_file`"，N4 转 PASS。
+
+### 7.2 真机
+
+- 选择器 v3 真实运行：旧格式缓存（无指纹列）自动失效重探；`health.cache`
+  为 `ts + key code sha256` 三列；`last_selection=healthy:senary`；二次运行
+  sticky；缓存/状态文件 600。
+- GLM 端点健康旁证（active key）：8-token 探针 1.2s/200，128-token 2.8s/200
+  ——r3 smoke 中观察到的 CLI 长尾等待与端点无关（该任务由既有 2400s
+  timeout + cgroup 清理兜底，属已验证路径）。
+- 测试套件：本地与部署机 188 OK（7 项既有 skip）。
+
+### 7.3 r3 各项与实现的对应
+
+| r3 项 | 实现 | 验证 |
+|---|---|---|
+| P0-1 缓存信任+指纹 | 读侧 `trust_file`（存在即查）；每键绑定源文件 sha256 | N1/N2 |
+| M1 全 429 一致性 | marker 合法名 + 源存在 + `cmp` 三连，失败即拒 | N3 |
+| M2 marker 信任+原子写 | 读侧 `trust_file`；`atomic_write_text` + 回读 | N4 |
+| M3 捕获域 | 解析/构造→integrity，查询→query，绑定→integrity | python 测试（真实 runner 解析失败） |
+| M4 例外不计健康 | `last_selection`/日志显式 `throttled_keep`、NOT probe-verified | B-last-selection |
+| M5 参数校验 | TTL∈[0,3600]、timeout∈[1,120]，非法预探针拒绝 | N5a-d |

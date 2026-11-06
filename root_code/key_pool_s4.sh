@@ -37,6 +37,7 @@ POOL_DIR="${S4_KEY_POOL_DIR:-/etc/cybergym-agent/keys}"
 ACTIVE_ENV="$POOL_DIR/active.env"
 ACTIVE_MARK="$POOL_DIR/glm_active"
 HEALTH_F="$POOL_DIR/health.cache"
+LAST_SEL_F="$POOL_DIR/last_selection"
 LOCK_F="/run/lock/s4-keypool.lock"
 LOG_F="/var/log/s4-keypool.log"
 PROBE_TIMEOUT="${S4_KEY_POOL_TIMEOUT:-20}"
@@ -48,6 +49,13 @@ WHITELIST=" GLM_API_KEY GLM_BASE_URL GLM_MODEL AGCLI_CTX "
 die() { echo "keypool: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
+
+# r3-M5: operator-supplied knobs are validated BEFORE any probe -- an absurd
+# TTL/timeout must refuse loudly, not stall task launches
+case "$HEALTH_TTL" in ''|*[!0-9]*) die "S4_KEY_POOL_TTL must be a non-negative integer (got '$HEALTH_TTL')" ;; esac
+[ "$HEALTH_TTL" -le 3600 ] || die "S4_KEY_POOL_TTL too large (max 3600, got $HEALTH_TTL)"
+case "$PROBE_TIMEOUT" in ''|*[!0-9]*|0) die "S4_KEY_POOL_TIMEOUT must be a positive integer (got '$PROBE_TIMEOUT')" ;; esac
+[ "$PROBE_TIMEOUT" -le 120 ] || die "S4_KEY_POOL_TIMEOUT too large (max 120, got $PROBE_TIMEOUT)"
 
 # ---- trust checks (P0-4) -------------------------------------------------
 
@@ -151,6 +159,17 @@ atomic_write() {  # atomic_write <dest> <src-file>  (checked mktemp+chmod+mv, P0
     mv -f "$tmp" "$dest"             || { rm -f "$tmp"; die "mv $tmp -> $dest failed"; }
 }
 
+atomic_write_text() {  # atomic_write_text <dest> <text>  + read-back verify
+    local dest="$1" text="$2" tmp
+    tmp="$(mktemp "$POOL_DIR/.tmp.XXXXXX")" || die "mktemp failed in $POOL_DIR"
+    printf '%s\n' "$text" > "$tmp"   || { rm -f "$tmp"; die "write $tmp failed"; }
+    chmod 600 "$tmp"                 || { rm -f "$tmp"; die "chmod $tmp failed"; }
+    mv -f "$tmp" "$dest"             || { rm -f "$tmp"; die "mv $tmp -> $dest failed"; }
+    [ "$(cat "$dest" 2>/dev/null)" = "$text" ] || die "post-write verification failed for $dest"
+}
+
+file_fp() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+
 probe_one() {  # probe_one <env-file> -> prints HTTP code
     local envf="$1" code
     GLM_API_KEY=""; GLM_BASE_URL=""; GLM_MODEL=""
@@ -188,21 +207,33 @@ now="$(date +%s)"
 
 # M5: reuse fresh cached probe results instead of re-probing every launch
 # (S4_KEY_POOL_TTL=0 disables caching entirely -- tests and ops can force a
-# probe with it).  The cache and marker are READ through the same trust
-# checks as every other pool file (r3 hardening): -s/-L guards short-circuit
-# for a missing file; a PRESENT but untrusted file dies.
+# probe with it).  The cache is READ through the same trust checks as every
+# other pool file, AND (r3-P0) every cached code is bound to the sha256 of
+# its key file at probe time -- rotating/replacing any glm-*.env within the
+# TTL invalidates that entry and forces a fresh probe, so a stale "200" can
+# never outlive the configuration it described.
+declare -A FPS=()
 cache_usable=0
-if [ "$HEALTH_TTL" -gt 0 ] && [ -s "$HEALTH_F" ] && [ ! -L "$HEALTH_F" ]; then
+# NB: a PRESENT cache (regular or symlink, incl. dangling) must pass
+# trust_file -- an untrusted cache REFUSES the run; only a genuinely absent
+# or empty cache counts as "no cache" (r3-P0/N1/N4)
+if [ "$HEALTH_TTL" -gt 0 ] && { [ -s "$HEALTH_F" ] || [ -L "$HEALTH_F" ]; }; then
     trust_file "$HEALTH_F" "health cache"
     c_ts="$(head -1 "$HEALTH_F" 2>/dev/null)"
     case "$c_ts" in ''|*[!0-9]*) c_ts=0 ;; esac
     if [ $(( now - c_ts )) -ge 0 ] && [ $(( now - c_ts )) -le "$HEALTH_TTL" ]; then
-        while read -r ck cc; do
-            [ -n "${ck:-}" ] && CODES[$ck]="$cc"
+        while read -r ck cc cf; do
+            [ -n "${ck:-}" ] && CODES[$ck]="$cc" && FPS[$ck]="$cf"
         done < <(tail -n +2 "$HEALTH_F")
         ok=1
         for k in "${ORDER[@]}"; do
-            [ -n "${CODES[$k]:-}" ] || ok=0
+            [ -n "${CODES[$k]:-}" ] || { ok=0; break; }
+            f="$POOL_DIR/glm-$k.env"
+            if [ -f "$f" ]; then
+                [ "${FPS[$k]:-}" = "$(file_fp "$f")" ] || { ok=0; break; }
+            else
+                [ "${CODES[$k]}" = "no-file" ] || { ok=0; break; }
+            fi
         done
         [ "$ok" = 1 ] && cache_usable=1
     fi
@@ -210,14 +241,15 @@ fi
 
 if [ "$cache_usable" != 1 ]; then
     for k in "${ORDER[@]}"; do
-        [ -f "$POOL_DIR/glm-$k.env" ] || { CODES[$k]="no-file"; continue; }
+        [ -f "$POOL_DIR/glm-$k.env" ] || { CODES[$k]="no-file"; FPS[$k]=""; continue; }
         # NB: probe_one runs in a command substitution (subshell); its die()
         # only exits the subshell, so a parse failure MUST be caught here or
         # it would silently degrade to "unhealthy key" and keep rotating
         CODES[$k]="$(probe_one "$POOL_DIR/glm-$k.env")" \
             || die "strict parse failed for glm-$k.env"
+        FPS[$k]="$(file_fp "$POOL_DIR/glm-$k.env")"
     done
-    atomic_write "$HEALTH_F" <(printf '%s\n' "$now"; for k in "${ORDER[@]}"; do printf '%s %s\n' "$k" "${CODES[$k]}"; done)
+    atomic_write "$HEALTH_F" <(printf '%s\n' "$now"; for k in "${ORDER[@]}"; do printf '%s %s %s\n' "$k" "${CODES[$k]}" "${FPS[$k]}"; done)
     chmod 600 "$HEALTH_F" || die "chmod health.cache failed"
 fi
 
@@ -229,8 +261,11 @@ for k in "${ORDER[@]}"; do
 done
 
 CUR="unknown"
-if [ -s "$ACTIVE_MARK" ] && [ ! -L "$ACTIVE_MARK" ]; then
-    trust_file "$ACTIVE_MARK" "active marker"    # r3: marker read is trusted too
+# r3-M2/N4: a PRESENT marker (incl. symlink, dangling or not) must pass
+# trust_file; an anomalous marker REFUSES instead of being silently ignored
+# (and later overwritten) as if it did not exist
+if [ -e "$ACTIVE_MARK" ] || [ -L "$ACTIVE_MARK" ]; then
+    trust_file "$ACTIVE_MARK" "active marker"
     CUR="$(cat "$ACTIVE_MARK" 2>/dev/null || echo unknown)"
 fi
 case "$CUR" in senary|quaternary|quinary|primary|secondary) ;; *) CUR="unknown" ;; esac
@@ -239,6 +274,7 @@ if [ -n "$NEW" ]; then
     [ -f "$POOL_DIR/glm-$NEW.env" ] || die "chosen key $NEW has no source file"
     if [ "$NEW" = "$CUR" ] && [ -s "$ACTIVE_ENV" ] && \
        cmp -s "$ACTIVE_ENV" "$POOL_DIR/glm-$CUR.env" 2>/dev/null; then
+        atomic_write_text "$LAST_SEL_F" "healthy:$NEW"   # r3-M4: never counted as healthy silently
         exit 0                       # sticky AND verified consistent (M6)
     fi
     # switch, marker/active repair, or missing active -- all converge on a
@@ -247,10 +283,10 @@ if [ -n "$NEW" ]; then
     [ "$NEW" = "$CUR" ] && why="repair inconsistent active.env for $CUR"
     [ -s "$ACTIVE_ENV" ] || why="rebuild missing active.env for $NEW"
     atomic_write "$ACTIVE_ENV" "$POOL_DIR/glm-$NEW.env"
-    echo "$NEW" > "$ACTIVE_MARK" || die "cannot write marker $ACTIVE_MARK"
-    chmod 600 "$ACTIVE_MARK" || die "chmod marker failed"
+    atomic_write_text "$ACTIVE_MARK" "$NEW"     # r3-M2: atomic + read-back verified
     trust_file "$ACTIVE_ENV" "active key"
     cmp -s "$ACTIVE_ENV" "$POOL_DIR/glm-$NEW.env" || die "post-write verification failed for $ACTIVE_ENV"
+    atomic_write_text "$LAST_SEL_F" "healthy:$NEW"
     log_line "$why ($SUMMARY)"
     exit 0
 fi
@@ -262,7 +298,18 @@ for k in "${ORDER[@]}"; do
 done
 if [ "$all_429" = 1 ] && [ -s "$ACTIVE_ENV" ]; then
     trust_file "$ACTIVE_ENV" "active key"
-    log_line "all keys rate-limited (429), authorized keep of $CUR ($SUMMARY)"
+    # r3-M1: with NO healthy key we may not repair anything -- the kept state
+    # must already be internally consistent (marker -> source -> content) or
+    # the run refuses rather than launch on an unprovable exception key
+    case "$CUR" in
+        senary|quaternary|quinary|primary|secondary) ;;
+        *) die "all-429 keep: marker unreadable/invalid (CUR='$CUR'), refusing" ;;
+    esac
+    [ -f "$POOL_DIR/glm-$CUR.env" ] || die "all-429 keep: marker $CUR has no source file"
+    cmp -s "$ACTIVE_ENV" "$POOL_DIR/glm-$CUR.env" || \
+        die "all-429 keep: active.env does not match marker $CUR, refusing"
+    atomic_write_text "$LAST_SEL_F" "throttled_keep:$CUR"
+    log_line "all keys rate-limited (429), authorized keep of $CUR -- NOT probe-verified ($SUMMARY)"
     exit 0
 fi
 

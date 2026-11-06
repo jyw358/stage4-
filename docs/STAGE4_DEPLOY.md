@@ -89,10 +89,20 @@ active 与源文件逐字节一致才不重写）。与 stage-3 的差别：
 - **预算策略**：全部 key 失败时，仅当**全部为 429**（限流）才保留上一
   active；任何非 429（认证/传输/5xx）且无健康 key → REFUSE 不烧预算。
 - **探针缓存**：健康状态缓存 `health.cache`（`S4_KEY_POOL_TTL` 秒，默认
-  120；0 = 禁用缓存强制探针），任务启动在锁内读缓存选择，避免每题 5 连
-  探针的启动排队与配额开销。
-- 决策与审计：`/var/log/s4-keypool.log` + 任务日志
-  `[keypool] active=<name>`。
+  120；0 = 禁用缓存强制探针；上限 3600，`S4_KEY_POOL_TIMEOUT` 1-120s，
+  非法值启动即拒）。缓存逐键绑定 `glm-*.env` 的 sha256 指纹——TTL 内
+  轮换任何 key 文件即自动失效重探，陈旧 200 不可能比它描述的配置活得久；
+  缓存存在（含 symlink）但不可信 → 拒绝运行，只有缺失/空才视为无缓存。
+- **状态一致性**：`glm_active` 标记读取前过完整信任检查（symlink/异常
+  属主即拒），更新走 `atomic_write_text`（原子 + 回读校验）；全 429 保
+  active 仅当 marker→源文件→active 内容三者一致，否则拒绝启动（无健康
+  key 时绝不"顺手修复"）。
+- **选择审计**：每次选择写 `last_selection`（`healthy:<name>` /
+  `throttled_keep:<name>`，root 0600），任务日志
+  `[keypool] active=<name> selection=<status>`——全 429 例外永远不被计为
+  健康选择。
+- 决策与审计：`/var/log/s4-keypool.log`（全 429 例外显式标注 NOT
+  probe-verified）。
 
 ```bash
 install -d -o root -g root -m 700 /etc/cybergym-agent/keys
