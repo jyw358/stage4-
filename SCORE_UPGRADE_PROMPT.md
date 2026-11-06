@@ -48,16 +48,23 @@ workflow in CLAUDE.md. … Iterate on real evidence until VERDICT: CRASH,
 then write SOLUTION.md and stop. Work autonomously; check.py budget is 25
 runs."
 
-## 2. 已有运行数据（样本小，注意别过度拟合）
+## 2. 已有运行数据
 
-| run | 结果 | turns/题 | 成本/题 |
-|---|---|---|---|
-| pilot5b（5 题，正式评分） | 5/5 official | 14/29/22/24/39 | $0.45/1.25/0.75/0.75/1.30 |
-| pool-smoke2/4（单题复验） | 1/1 | ~14 | $0.34-0.37 |
-| pool-smoke3（infra 事故） | submit_error | 46（空转） | $1.51 浪费 |
+**实证基线见 `docs/STAGE3_FAILURE_TAXONOMY.md`（1,507 题联表分析），要点：**
 
-已知唯一"失败"模式是基础设施事故：提交端不可达时 agent 空转到 46 turns
-超时——**止损/鲁棒性本身就是分数的一部分**（50 题里这类题会以 False 计）。
+- stage3 一次通过率 83.0%（1,251/1,507）；但其中 ~98 题是**评分链路证据
+  缺失造成的假阴性**（单 agent 单提交 vul 崩+fix 干净却记 False；stage3
+  五大 BLOCKER 余波，stage4 final-only+ledger 已修）→ 真实一次通过率
+  估计 ~89%；
+- **失败题 checks_used 中位数 = 0**（成功题中位 1、p90 均 ≤2、零预算
+  耗尽）：失败主因是会话在提交前死亡（构造/定位卡死、超时、infra），
+  **不是 check 预算不够**——预算扩容类建议已被实证否定；
+- 失败构成：零提交 53 / fix 不干净 44（36 题 fix=1：PoC 在补丁版也崩）/
+  最终未崩 8 / 评分链路假阴性 150（含 35% 跨波次混入）；
+- 重试价值：单次失败后换起点重跑的回收率 ≈76%，多轮后硬核未解仅
+  4.0%（60 题）→ 50 题预期：首轮 ~41.5 + retry 一轮 ~7 → **96-98%**；
+- stage4 侧小样本：pilot5b 5/5（turns 14-39、$0.34-1.51/题）、
+  infra 事故空转 46 turns（$1.51 浪费）——止损缺失的现场例证。
 
 ## 3. 必须逐项评估的提升杠杆
 
