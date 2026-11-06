@@ -238,9 +238,34 @@ N4 在实现过程中抓出一个真缺陷：marker 为 symlink 时旧代码把�
 - 选择器 v3 真实运行：旧格式缓存（无指纹列）自动失效重探；`health.cache`
   为 `ts + key code sha256` 三列；`last_selection=healthy:senary`；二次运行
   sticky；缓存/状态文件 600。
-- GLM 端点健康旁证（active key）：8-token 探针 1.2s/200，128-token 2.8s/200
-  ——r3 smoke 中观察到的 CLI 长尾等待与端点无关（该任务由既有 2400s
-  timeout + cgroup 清理兜底，属已验证路径）。
+- GLM 端点健康旁证（active key）：8-token 探针 1.2s/200，128-token 2.8s/200。
+
+### 7.2.1 意外获得的实战 fail-closed 验证（infra 事件，2026-11-06）
+
+时间线（均为项目方现场记录）：
+
+1. 11-05 23:18 前后主机重启（01:50 时 `up 2:32`）；grader 栈
+   （`launch_grader.sh` 的 uds grader + `grader_proxy.py` 网关）为手工
+   nohup 启动，**无自启**，重启后 172.17.0.1:8666 无人监听。
+2. 00:25 启动 r3 单题 smoke（run `s4-20261106T002550Z-55cc4c`）：keypool
+   选择/注入正常（`[keypool] active=senary selection=healthy:senary`，
+   GLM 出网正常）；但 agent 的 check.py 提交全部 Connection refused →
+   46 turns / $1.51 后 `submit_error`（CLI 前 ~35 分钟无输出为会话长尾，
+   与端点无关）。
+3. 评分阶段：`URLError: Connection refused` → **`query_error`，rc=2，
+   infra_err=1**——真实基础设施故障被正确归类，driver 报
+   `phase_failures=['score']`，无任何误判为"无记录"。
+4. 01:5x 手工恢复 grader 栈（`launch_grader.sh` + proxy），三组合探针
+   语义复验：good+real=200（poc.db 数据完好）、good+fake=业务 404、
+   bad=网关 404。
+5. 恢复后重打分：pilot5b **5/5 ok rc=0**；同一 smoke3 任务
+   **`no_records` rc=0**（"server has no record"）——故障期与恢复后对
+   同一数据的分类均正确：真 infra → query_error/exit 2，真无记录 →
+   no_records/exit 0。这是对 B1 修复最有力的一次非受控实证。
+
+运维跟进（记录，未实施）：grader 栈建议 systemd 单元化（重启自启 +
+`Restart=on-failure`），避免手工 nohup 在主机重启后裸奔。
+
 - 测试套件：本地与部署机 188 OK（7 项既有 skip）。
 
 ### 7.3 r3 各项与实现的对应
