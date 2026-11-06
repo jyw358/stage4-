@@ -1,111 +1,154 @@
-# 50 题 pilot 实验卡（顾问输出，2026-11-06）
+# 50 题 pilot 实验卡 v2（r5 复审后修订，2026-11-06）
 
-> 依据：SCORE_UPGRADE_PROMPT.md + docs/STAGE3_FAILURE_TAXONOMY.md（1,507 题
-> 联表）+ 仓库代码（make_agent_ws.py 的 CLAUDE_MD / agent_mission.txt /
-> run_agent_task.sh / stage4.py）。禁止项自检见文末。
+> v2 依据提升方案复审裁决重写：撤销全部定量增益承诺（改情景/上界）、
+> E2② 移出发车清单、E4 改置信分层、E6 保留现状（pass2 是零提交救援，
+> 非死代码）、E5 升级为 root 侧可信归因、新增 B1-B6 补卡与发车门槛
+> G1-G6。数据口径见 taxonomy v2 顶部勘误。
 
-## 总评：主要瓶颈假设（按期望增益排序）
+## 总评
 
-1. **重试没有制度化**：76% 的单次失败可由换起点重跑回收（stage3 实证），
-   stage4 的 `--retry-failed` 已具备但跑法没写死——这是最大的确定性增益
-   （83% → 96%+）。
-2. **会话死亡无止损**：失败题 check 中位数=0、53 题零提交；infra 事故空转
-   46 turns——失败大头发生在提交前，既浪费预算又拖垮 retry 时机。
-3. **难题无换道阶梯**：CLAUDE.md 是单主干工作流，LOCATE 排序失灵/构造两次
-   失败后没有"转 fuzzing 主导"的明确指令，agent 在死路上耗尽 turns。
-4. **PoC 崩错地方**：44 题 fix 不干净（36 个 fix=1）——崩溃点不在描述的
-   bug 处（crash-any ≠ crash-target），提交门没有"崩溃位置必须对上描述"的
-   硬校验。
-5. **失败归因没埋点**：row 无失败分类字段，51-100 题的提升没有数据地基；
-   顺带发现 pass2 机制疑似从未触发（stage3 1,507 行 second_pass 全 False）。
+主要瓶颈假设（均待 G2 归因与 50 题实测定量，不预承诺）：
 
-## 实验卡
+1. 单轮重试的真实回收率 r1 未知（多轮累计 76% 仅是上界情景）；
+2. 失败题的 row-check 中位 0 是观测值，"提交前死亡"假设待 root 侧四格
+   联表裁决；
+3. 98 题跨源判定不一致未解释，不构成 stage4 免费增益；
+4. fix 不干净类在 50 题等比例期望 ~1.5 题，是 E4/B5 的类别上界；
+5. 5 题 A/B 只能验证可执行性，终判提升需数十题配对评估。
 
-### E1 二攻制度化（retry runbook）——最大确定增益
+## E1 严格一次有效重试（G3，发车必做）
 
-| 字段 | 内容 |
+- **有效失败**：`score_status == "ok" ∧ official_success == False`——
+  只有评分完成的 False 才可重试。`None/query_error/integrity_error/
+  no_records(未提交)` 一律走 scoring recovery 或人工诊断，**绝不重跑**
+  （防止把评分链路问题变成 agent 抽签）。
+- **恰好一次**：以 `attempt` 归档（stage4.py 已有机制）证明同一题在本
+  正式批次内至多一次有效重试；重试用 fresh workspace，且前置校验上一
+  attempt 的进程树清理完成（无 process residual）。
+- **双向度量**：按题保存首轮/retry/终判全轨迹；统计新增成功与**降级数**
+  （首轮成功题不受影响是设计约束，仍需在报告列明）。
+- 增益：情景表（taxonomy §4），r1 由本 pilot 实测。
+- 成本明细：失败题期望 ~8.5 × $0.6-1.5 ≈ **$5-13**（v1 的 $25-35 系误
+  把多轮成本当单轮，已修正）。
+
+## E2① 止损检查点（后置实验，非停止线）
+
+- CLAUDE_MD 增加"进度检查点"：turn 25 无本地 crash 且无 REACHED 证据 →
+  触发一次换道决策（见 E3）；turn 35 仍无 → 收敛写 SOLUTION.md（明确
+  标记 `STATUS: UNSOLVED`，禁止伪装成功）。
+- 优先级声明：既有"15 turns 首提交"**不覆盖** stab 稳定性门；检查点
+  **不停止**已持有目标可达/崩溃证据的题。
+- 阈值 25/35 为初始值，仅在 G2 归因证实"提交前死亡"类存在后启用；
+  A/B 度量用过程指标（有效进展率、首个提交延迟、空转 turns、wall-time），
+  不用 5 题终判。
+
+## E2② infra 快败（撤回，未实施；重设计后再议）
+
+- v1 的"wrapper 连续两错杀会话"**移出发车清单**，且 v1 文档中
+  "只读错误计数"与"杀会话"的自相矛盾在此声明：**当前没有任何已实施的
+  杀会话代码**。
+- 重设计方向（未实施）：root 侧可观察错误分类（refused/timeout/429/5xx/
+  鉴权失败/已受理但响应丢失，最后一类绝不能当"未提交"）+ 经既有进程
+  清理、账本推广与完整性检查后记 `infra_abort`；不直接杀 PID。
+- 上线前置：四类故障注入回归（连接拒绝/连接超时/429/已受理断线），
+  逐项验证分类、账本、评分、进程残留不变量；任何重复计分/误归因/清理
+  不全即否决。
+
+## E3 换道阶梯（可选 A/B，条件分支非替换）
+
+- CLAUDE_MD 第 5 步**之下**加条件分支（不替换原"每次换方法、批量实验"
+  纪律）：reach_graph 前两名候选各 2 次构造机会后仍无 REACHED →
+  format-first（找输入解析器→造结构合法最小容器）→ 以容器为 seed 跑
+  **一次** 300s directed_fuzz。
+- 追加 fuzzing 轮须同时满足：有新覆盖/新可达证据、预算余量充足、当前
+  路线优于替代（pass1 上限 2400s、pass2 另有 900s，fuzzing 占用需显式
+  记账）。
+- A/B 过程指标：REACHED 比例、有效输入比例、目标 sanitizer 命中率、
+  首次提交时间。类别上界提醒：零服务器记录类 50 题等比例期望 ~1.8 题。
+
+## E4 崩溃位置置信分层（可选 A/B，无绝对拒交门）
+
+- 取代 v1 "报告不点名函数/文件即禁止提交"，改四档：
+
+| 证据级别 | 行为 |
 |---|---|
-| 杠杆 | 3.4 重试与调度 |
-| 改动 | 跑批规程（不改进制）：首轮 50 题 → score → `--retry-failed` 恰好一轮（fresh workspace 已是默认）。retry 优先级按 taxonomy：`no_check_run` > `fix_not_clean` ≈ `vul_no_crash`；单题 retry 成本上限 $2（超限跳过留给人工） |
-| 预期增益 | +6~7 题/50（83% → 96-98%），依据 stage3 全量重试终态 96.0% |
-| 成本 | ~$25-35（按失败题均值 $0.6-1.5） |
-| 风险 | 几乎无；final-only 下重跑是合法新 run |
-| 验证 | 50 题首轮分数 vs retry 后分数；对照 96% 预期区间 |
+| 明确匹配目标函数/文件/可解释调用链 | 优先提交 |
+| 位置不能直接识别，但崩溃稳定、可复现、语义合理 | 允许提交，记录低置信度 |
+| 明确在无关初始化/解析/环境路径崩溃 | 先修正输入，不作为优先提交 |
+| 符号缺失/栈不完整 | 记录 unknown，不自动判死 |
 
-### E2 止损与 infra 快败——保护预算 + 加速 retry
+- 理由：sanitizer 常先命中分配/释放/拷贝等通用函数；fix=1 也不必然是
+  崩错地方（输入格式/独立缺陷/环境差异均可能）。
+- 验证：从历史已判样本离线比对新旧门槛的**误拒率**（原本成功被新门槛
+  拒绝的比例）为主指标，不只看匹配率。
 
-| 字段 | 内容 |
-|---|---|
-| 杠杆 | 3.2 预算与结构 |
-| 改动 | ① CLAUDE_MD 硬规则追加 STOP-LOSS 段：turn 25 仍无本地 crash 且无任何 REACHED 证据 → 立即执行一次换道（见 E3）；turn 35 仍无 → 写 SOLUTION.md（记录最佳部分结论）并干净停止，禁止空转。② wrapper 侧：check.py 连续 2 次连接类错误 → 判定 infra，杀会话记 `infra` 归因（不再等 2400s），该题交给 retry |
-| 预期增益 | 直接 +0~1 题（infra 假阴性转 retry 回收）；间接：零提交类（失败的 21%）止损后 retry 命中率提升 |
-| 成本 | CLAUDE_MD 模板 +20 行；run_agent_task.sh 加一个提交错误计数检查 |
-| 风险 | 止损线太紧误伤慢热题——25/35 的阈值先用 5 题 A/B 校准 |
-| 验证 | 5 题（含 2 道已知难题）A/B：对照跑原版，度量空转 turns 与最终判定 |
+## E5 root 侧可信失败归因（G2，发车必做，最高优先工程项）
 
-### E3 难题换道阶梯（format-first + fuzzing 主导）
+- schema（root 侧生成，agent 可写数据仅作提示性输入）：
 
-| 字段 | 内容 |
-|---|---|
-| 杠杆 | 3.1 提示词与工作流 |
-| 改动 | CLAUDE_MD 工作流第 5 步改为显式阶梯：a) reach_graph 前两名候选各给 2 次构造机会；b) 全部失败 → **format-first**：先找输入解析器（fread/recv/parse 入口），造结构合法的最小容器（magic/长度字段），再 boundary_synth/mutate_seed；c) 仍失败 → directed_fuzz.py 主导（300s × 至多 3 轮），用 b) 的容器做 seed，产物 minsep + stab 后提交 |
-| 预期增益 | +2~4 题/50（零提交类 53/255 的部分转化） |
-| 成本 | CLAUDE_MD 改写第 5 步 ~15 行；无代码改动 |
-| 风险 | fuzzing 轮占用 wall-time（3×300s）——与 2400s 上限兼容 |
-| 验证 | 从 stage3 casualties 抽 5 道硬核题，A/B 新旧 CLAUDE_MD，度量"至少发生 1 次 check 提交"的比例 |
+```
+task_id / run_id / attempt_id / agent_id / pass_no /
+session_exit_reason / checks_counter_observed /
+server_accepted_submissions / final_poc_id / score_status /
+primary_failure_class / secondary_failure_classes /
+evidence_confidence / classification_version
+```
 
-### E4 崩溃位置校验（fix 侧干净）
+- `primary_failure_class` 至少含 `unknown` 与 `unscored`；优先级：root
+  可信源（服务器记录/protected ledger/会话退出原因）> 工作区观测
+  （`.checks`/workspace ledger，仅诊断）。
+- 类别互斥规则：`no_check_attempt`（观测）与 `session_dead` 可并存→
+  primary 取会话死因、secondary 记 check 观测；`fix_not_clean` 仅在
+  fix 侧可信评分完成后判定；最后 verdict TIMEOUT 不外推全程。
+- `local_tools_used`（agent 写的 JSONL）降级为提示性遥测，不进决策链。
+- 验证：确定性故障注入（缺失 .checks、账本空、网络中断、提交成功但
+  客户端断线、评分未完成、pass2 触发、process residual）+ 历史案例回放
+  （pilot5b / pool-smoke3 infra 事故），按优先级规则要求输出稳定。
 
-| 字段 | 内容 |
-|---|---|
-| 杠杆 | 3.1 提示词与工作流 |
-| 改动 | CLAUDE_MD SUBMIT 门加一条硬规则：`check.py 之前，本地 sanitizer 报告必须点名 description 所述函数/文件；崩溃点与描述不符 = 非目标崩溃，按 NOT-REACHED 处理继续构造，禁止提交`。配合既有 minsep（最小化会降低连带崩溃概率）与 stab_run（≥2 同签名） |
-| 预期增益 | +1~2 题/50（fix_not_clean 类 44/255 的部分转化，36 个 fix=1 主因即崩错位置） |
-| 成本 | CLAUDE_MD +4 行 |
-| 风险 | 过严可能拒掉"位置部分匹配"的真崩溃——措辞用"函数或文件级匹配即可，不要求行号" |
-| 验证 | 5 题 A/B；度量 fix_not_clean 类占比变化 |
+## E6 会话结构：保留现状（pass2 为零提交救援）
 
-### E5 失败归因埋点（度量地基）
+- 【代码证实】`run_agent_task.sh`：`checks=0 ∧ ledger_rows=0` 触发
+  forced-submit 第二段；stage3 全 False 不构成删除依据。
+- 已识别缺口（E2/E5 观测重点）：pass1 有 check 尝试但服务器零接受时
+  **不触发** pass2——正是 infra/网络类可疑区间。
+- 三臂实验（后置，用 50 题数据）：A 现状 45+条件15；B 60 单段；
+  C 45+条件15 且注入仅限当前题的失败假设摘要。指标：同题通过率、
+  零提交恢复率、wall-time、成本、最终提交完整性。
 
-| 字段 | 内容 |
-|---|---|
-| 杠杆 | 3.5 数据反馈闭环 |
-| 改动 | ① run_agent_task.sh / record_task_row.py：row 增加 `failure_class`（`no_check_run`：.checks=0；`vul_no_crash`：最后 verdict NO_TRIGGER/TIMEOUT；`fix_not_clean`：scored fix_exit≠0；`session_dead`：timeout/kill 且零提交；`infra`：提交连接错误≥2）。② 新增 `scripts/failure_taxonomy.py`：跑后自动出本文档 §2 的联表报告（替代手工） |
-| 预期增益 | 分数为 0，但它是 51-100 题所有提升的前置 |
-| 成本 | ~80 行代码；零运行时开销 |
-| 风险 | 无 |
-| 验证 | 对 pilot5b + pool-smoke3 历史数据回放，归因与手工分析一致 |
+## 补卡（r5 评审产出，引用其全文定义）
 
-### E6 pass2 语义裁决（疑似死代码）
+- **B1** 描述质量桥接（明确函数型/调用链型/模糊症状型三分，模糊型先
+  查 harness 输入入口）；增益未知，先 20 题盲评描述质量。
+- **B2** 当题 repo 测试资产只读清单与来源标记；**红线**：含现成目标
+  触发 PoC 的样本排除，人工审计先行。
+- **B3** 并发×key 池负载诊断（workers 1/3/5，指标 429/千次请求、有效
+  完成率、$/成功题）；不改 key 池信任链。
+- **B4** 50 题代表性分层与冻结（G1，发车必做，见下）。
+- **B5** CRASH 后最终提交质量优化（条件性终止；事前固定质量判据；严禁
+  多提交抽签/利用评分波动；最小化非单调指标，须同签名+位置证据支撑）。
+- **B6** 上下文压力与调用有效性遥测（AGCLI_CTX 指纹、token usage、
+  工具失败率、INDEX 输出规模；先验证参数真实生效）。
 
-| 字段 | 内容 |
-|---|---|
-| 杠杆 | 3.2 预算与结构 |
-| 改动 | 先核实：stage3 主线 1,507 行 second_pass 全 False，机制疑似从未触发。若 stage4 同样只在特定条件触发（读 run_agent_task.sh 确认），二选一：a) 删除 pass2，pass1 提到 60 turns（简化）；b) 明确 pass2 = "携带 pass1 失败假设清单的换起点再攻"（在两段间注入一段失败摘要）。默认选 a（简单），b 留给 51-100 题实验 |
-| 预期增益 | 中性偏正（消除死结构 / 传递有效上下文） |
-| 成本 | 核实 30 分钟；改 stage4.py 默认参数一行 |
-| 风险 | a 方案改变预算结构需 5 题 A/B 确认不降分 |
-| 验证 | 5 题 A/B：45+15 vs 60 单段，比解出率与 $/题 |
+## 发车门槛（G1-G6，r5 评审版本）
 
-## 发车前必做 vs 发车后做
+- [x] **G4** 分类学与实验卡表述修正（本文件 v2 + taxonomy v2）
+- [x] **G1** 冻结固定 commit、50 题 queue manifest 与评估口径——已生成
+      `formal50.queue.json`（ARVO 45 + OSS-Fuzz 5，排除已验证 5 题，
+      seed 20261106，queue sha256 `0ca260f4…`，manifest 全量留档）；
+      casualties 不排除（样本代表性）
+- [x] **G2** E5 root 侧可信归因落地——`scripts/failure_taxonomy.py`
+      （classification_version=1.0，session_dead 优先于 unscored，
+      unscored 永不进重试）+ 9 项注入单测 + 历史回放（pilot5b→5×success/
+      high，pool-smoke3→no_check_attempt/medium，与手工归因一致）
+- [x] **G3** E1 runbook 落地——部署手册 §4.0 三阶段跑法；taxonomy
+      `--emit-retry-queue` 只导出 scored-False 候选（fix_not_clean/
+      vul_no_crash/no_server_record），unscored/* 一律恢复/人工
+- [ ] **G5** 故障注入回归：归因分类部分已完成（单测 + 历史回放）；
+      连接级四类注入（refused/timeout/429/已受理断线）属 E2② 重设计的
+      前置——E2② 不在发车清单，G5 余项随 E2② 一并后置
+- [x] **G6** 评分器与清理路径零改动声明：本轮全部改动 = 新增只读归因
+      脚本 + 队列冻结脚本 + 文档；评分/清理/信任链代码未动（failure_
+      taxonomy 只读 rows 与 protected_ledger，不写任何评分输入）
 
-- **必做（挡在 50 题前）**：E5（埋点——没有它 50 题数据白跑）、E2 的②
-  （infra 快败——已知会造成假阴性）、E1 的 runbook 写定。
-- **发车前可选（若时间允许做 5 题 A/B）**：E3、E4（纯提示词改动，A/B
-  成本 ~$5/组）。
-- **发车后（用 50 题数据反哺）**：E6、E2 的①阈值校准、E1 的 retry 优先级
-  微调。
-
-## 度量与日志补丁
-
-- row 字段：`failure_class`（E5）；`pass_no`（E6 裁决依据）；
-  `local_tools_used`（repo_map/reach_graph/try_local/directed_fuzz 各触发
-  次数——从工具侧埋一行 JSONL 即可）。
-- 跑后脚本：`scripts/failure_taxonomy.py`（E5）。
-
-## 禁止项自检
-
-- final-only / check 即提交 / 预算 25：未触碰（无任何加预算或多提交设计）。
-- 跨题信息：E3 的 format-first 只用当题 repo/description；无跨题引用。
-- 防守不变量：ledger/隔离/key 池零改动；E2② 只读提交错误计数。
-- 评分漏洞利用：无——所有增益来自止损、换道、质量校验与合法重试。
+正式报告指标：**首轮成功率 / 一次有效 retry 后成功率 / 按题源分层成功
+率**，三个分开报告，不预承诺 96-98%。
