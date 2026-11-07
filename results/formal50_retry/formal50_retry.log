@@ -1,4 +1,4 @@
-[retry-orch] start 2026-11-07T13:45:39Z
+﻿[retry-orch] start 2026-11-07T13:45:39Z
 assert_code_tree: /opt/cybergym-agent-r33 is root-clean (s4agent,naco refused write access)
 === fix-side backfill 20261107T140922Z (dry-run=0) ===
 --- 待补跑记录（fix_exit IS NULL 且 vul 侧崩溃）---

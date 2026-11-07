@@ -4,3 +4,4 @@ __pycache__/
 .smoke*/
 .tmp*/
 submissions.jsonl
+.trae/

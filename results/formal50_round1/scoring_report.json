@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-11-07T12:29:48.161Z",
+  "run_id": "s4-20261107T084306Z-7b8198",
+  "tasks": 50,
+  "official_success": 14,
+  "decided": 20,
+  "by_status": {
+    "no_records": 30,
+    "ok": 20
+  },
+  "integrity_failures": 0,
+  "infra_errors": 0,
+  "ledger_required": true
+}

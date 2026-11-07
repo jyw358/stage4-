@@ -1,0 +1,55 @@
+{
+ "policy": "cumulative = round1 total + retry-attempt rows (live rows REPLACE round1 rows for retried tasks, they do not sum)",
+ "round1_total_usd": 131.6288,
+ "postrretry_live_rows_total_usd": 120.2538,
+ "retry_spend_usd": 12.4879,
+ "cumulative_total_usd": 144.1167,
+ "retried_tasks": {
+  "arvo:13725": {
+   "round1_cost": 2.7223,
+   "retry_cost": 2.1322,
+   "round1_official": false,
+   "retry_official": false,
+   "attempt": 1
+  },
+  "arvo:20083": {
+   "round1_cost": 11.3124,
+   "retry_cost": 2.1394,
+   "round1_official": false,
+   "retry_official": false,
+   "attempt": 1
+  },
+  "arvo:42227": {
+   "round1_cost": 1.1665,
+   "retry_cost": 1.3429,
+   "round1_official": false,
+   "retry_official": false,
+   "attempt": 1
+  },
+  "oss-fuzz:376726596": {
+   "round1_cost": 2.8255,
+   "retry_cost": 2.5491,
+   "round1_official": false,
+   "retry_official": false,
+   "attempt": 1
+  },
+  "oss-fuzz:42534949": {
+   "round1_cost": 0.995,
+   "retry_cost": 1.3336,
+   "round1_official": false,
+   "retry_official": true,
+   "attempt": 1
+  },
+  "oss-fuzz:42537769": {
+   "round1_cost": 4.8411,
+   "retry_cost": 2.9907,
+   "round1_official": false,
+   "retry_official": false,
+   "attempt": 1
+  }
+ },
+ "sources": {
+  "round1": "commit f2f1efd results/formal50 (immutable)",
+  "postrretry": "results/formal50_retry/results.json"
+ }
+}

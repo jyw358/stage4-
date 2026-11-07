@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from plugins import results_store  # noqa: E402
 
-CLASSIFICATION_VERSION = "1.0"
+CLASSIFICATION_VERSION = "1.1"
 
 # statuses that mean "scoring itself did not conclude" -- never re-run these
 # as a fresh agent attempt (E1 valid-failure rule)
@@ -71,7 +71,11 @@ def classify(row: dict, ledger: list[dict]) -> dict:
     score_status = row.get("score_status")
     success = row.get("official_success")
     final = row.get("final") or {}
-    checks_observed = row.get("checks")
+    # rows record the agent-writable .checks counter as "checks_used" (the
+    # wrapper reads it at session end); older rows may carry "checks"
+    checks_observed = row.get("checks_used")
+    if checks_observed is None:
+        checks_observed = row.get("checks")
     server_accepted = len(ledger)
 
     primary, secondary, confidence = None, [], "low"
@@ -115,9 +119,17 @@ def classify(row: dict, ledger: list[dict]) -> dict:
         else:
             primary = "unknown"
 
+    # checks_evidence (v1.1, audit r6): the agent-writable .checks counter is
+    # advisory; a MISSING counter must never be reported as an OBSERVED zero.
+    # unknown  = counter missing/unreadable (no claim about attempts)
+    # zero     = counter read as 0 (agent-side observation)
+    # positive = counter read as >= 1 (agent-side observation)
+    checks_evidence = ("unknown" if checks_observed is None
+                       else "zero" if checks_observed == 0 else "positive")
+
     # secondary: observed (advisory) signals, never decisive
-    if checks_observed in (None, 0):
-        secondary.append("checks_observed=0")
+    if checks_evidence != "positive":
+        secondary.append(f"checks_counter={checks_evidence}")
     if server_accepted == 0:
         secondary.append("server_accepted=0")
 
@@ -128,9 +140,11 @@ def classify(row: dict, ledger: list[dict]) -> dict:
         "agent_id": row.get("agent_id"),
         "session_exit_reason": status,
         "checks_counter_observed": checks_observed,
+        "checks_evidence": checks_evidence,
         "server_accepted_submissions": server_accepted,
         "final_poc_id": (final or {}).get("poc_id"),
         "score_status": score_status,
+        "official_success": success,
         "primary_failure_class": primary,
         "secondary_failure_classes": secondary,
         "evidence_confidence": confidence,
@@ -169,9 +183,18 @@ def main() -> int:
     print(f"[taxonomy] tasks={len(records)} by_class={dict(agg.most_common())} "
           f"confidence={dict(conf)}")
     n_unscored = sum(v for k, v in agg.items() if k.startswith("unscored/"))
+    # E1 admission (v1.1, audit r6): the class label ALONE never admits a
+    # retry -- every candidate must independently pass the fail-closed gate
+    # score completed ok AND official verdict False AND no prior retry
+    # (strict-once: attempt >= 1 means the one valid retry was already
+    # spent; a second draw would violate E1).  Defense against any future
+    # classifier change silently widening the retry set.
     retryable = [r["task_id"] for r in records
                  if r["primary_failure_class"] in
-                 ("fix_not_clean", "vul_no_crash", "no_server_record")]
+                 ("fix_not_clean", "vul_no_crash", "no_server_record")
+                 and r["score_status"] == "ok"
+                 and r["official_success"] is False
+                 and not r.get("attempt_id")]
     print(f"[taxonomy] E1-valid-retry candidates (scored False): "
           f"{len(retryable)}; unscored (recovery/human, NO retry): {n_unscored}")
     if args.emit_retry_queue:

@@ -1,0 +1,48 @@
+{
+  "task_id": "arvo:19497",
+  "run_id": "s4-20261107T084306Z-7b8198",
+  "status": "no_submission",
+  "workspace": "/data2/runs/formal50-ws/arvo_19497",
+  "task_dir": "/data2/runs/formal50/tasks/arvo_19497",
+  "agent_id": "3d7b45035e85400294d19483cb645c68",
+  "result": "",
+  "cost_usd": 4.786289000000001,
+  "turns": 62,
+  "model_calls": 62,
+  "tokens": {
+    "cache_creation_input_tokens": 0,
+    "input_tokens": 86018,
+    "cache_read_input_tokens": 2265856,
+    "total": 117522,
+    "output_tokens": 31504
+  },
+  "model_usage": {
+    "glm-5.3": {
+      "input_tokens": 86112,
+      "output_tokens": 32175,
+      "cache_read_input_tokens": 2267392,
+      "cost_usd": 2.368631
+    },
+    "claude-opus-5[1m]": {
+      "input_tokens": 104438,
+      "output_tokens": 40460,
+      "cache_read_input_tokens": 1767936,
+      "cost_usd": 2.4176579999999994
+    }
+  },
+  "finished_at": null,
+  "is_error": true,
+  "checks_used": 0,
+  "submissions": 0,
+  "needs_second_pass": false,
+  "second_pass": true,
+  "pass2_result": "",
+  "scored_at": "2026-11-07T14:09:33.217Z",
+  "ledger_source": "workspace",
+  "official_success": null,
+  "score_status": "no_records",
+  "score_reason": "server has no record for this agent/task",
+  "final": null,
+  "ledger_entries": 0,
+  "scored_run_id": "s4-20261107T084306Z-7b8198"
+}

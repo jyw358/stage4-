@@ -64,7 +64,8 @@ class TestClassify(unittest.TestCase):
                                     score_status="query_error", checks=None),
                       [])
         self.assertTrue(rec["primary_failure_class"].startswith("unscored/"))
-        self.assertIn("checks_observed=0", rec["secondary_failure_classes"])
+        self.assertIn("checks_counter=unknown", rec["secondary_failure_classes"])
+        self.assertEqual(rec["checks_evidence"], "unknown")
 
     def test_session_dead_timeout_wins_over_no_check(self):
         rec = run_one(self.base_row(status="timeout", score_status=None,
@@ -87,12 +88,60 @@ class TestClassify(unittest.TestCase):
 
     def test_missing_checks_counter_is_advisory_only(self):
         # .checks lost/corrupt -> checks=None; class must still be derivable
-        # from root-side sources alone
+        # from root-side sources alone.  v1.1: a MISSING counter is reported
+        # as unknown, NEVER as an observed zero (audit r6).
         rec = run_one(self.base_row(official_success=False,
                                     final={"fix_exit": 1, "vul_exit": 1},
                                     checks=None), [{"poc_id": "p"}])
         self.assertEqual(rec["primary_failure_class"], "fix_not_clean")
-        self.assertIn("checks_observed=0", rec["secondary_failure_classes"])
+        self.assertEqual(rec["checks_evidence"], "unknown")
+        self.assertIn("checks_counter=unknown", rec["secondary_failure_classes"])
+        self.assertNotIn("checks_counter=zero", rec["secondary_failure_classes"])
+
+    def test_zero_and_positive_checks_evidence_distinction(self):
+        # observed 0 and observed >=1 must be distinguishable from each other
+        # and from a missing counter
+        zero = run_one(self.base_row(official_success=None,
+                                     score_status="no_records", checks=0), [])
+        pos = run_one(self.base_row(official_success=None,
+                                    score_status="no_records", checks=2), [])
+        self.assertEqual(zero["checks_evidence"], "zero")
+        self.assertIn("checks_counter=zero", zero["secondary_failure_classes"])
+        self.assertEqual(zero["primary_failure_class"], "no_check_attempt")
+        self.assertEqual(pos["checks_evidence"], "positive")
+        self.assertNotIn("checks_counter=unknown", pos["secondary_failure_classes"])
+        self.assertNotIn("checks_counter=zero", pos["secondary_failure_classes"])
+
+    def test_retry_queue_gate_requires_scored_false(self):
+        # v1.1 independent admission gate: a retryable CLASS LABEL alone is
+        # not enough -- score_status must be ok AND official_success False.
+        # Rows without a completed score verdict never enter the queue.
+        # strict-once: a row whose one valid retry already ran (attempt=1)
+        # must NOT be re-admitted for a second draw.
+        import contextlib, io
+        from unittest import mock
+        out = make_out(
+            {"arvo:1": self.base_row(official_success=False,
+                                     final={"fix_exit": 1, "vul_exit": 1},
+                                     checks=None),
+             "arvo:2": self.base_row(task_id="arvo:2", official_success=None,
+                                     score_status="no_records", checks=0),
+             "arvo:3": self.base_row(task_id="arvo:3", attempt=1,
+                                     official_success=False,
+                                     final={"fix_exit": 1, "vul_exit": 1},
+                                     checks=None)},
+            ledgers={"arvo_1": [{"poc_id": "p1"}], "arvo_3": [{"poc_id": "p3"}]})
+        qpath = out / "retry_q.json"
+        buf = io.StringIO()
+        with mock.patch("sys.argv", ["failure_taxonomy.py", "--out", str(out),
+                                     "--emit-retry-queue", str(qpath)]), \
+             contextlib.redirect_stdout(buf):
+            rc = ft.main()
+        self.assertEqual(rc, 0)
+        q = json.load(open(qpath, encoding="utf-8"))
+        self.assertIn("arvo:1", q)          # scored False -> admitted
+        self.assertNotIn("arvo:2", q)       # no verdict -> never admitted
+        self.assertNotIn("arvo:3", q)       # retry already spent -> excluded
 
     def test_end_to_end_report(self):
         import contextlib, io
@@ -109,7 +158,7 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(rc, 0)
         rep = json.load(open(out / "failure_taxonomy.json", encoding="utf-8"))
         self.assertEqual(rep["tasks"], 2)
-        self.assertEqual(rep["classification_version"], "1.0")
+        self.assertEqual(rep["classification_version"], "1.1")
         self.assertIn("unscored/query_error", rep["by_primary_class"])
 
 
