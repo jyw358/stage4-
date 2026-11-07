@@ -1,20 +1,241 @@
 {
-  "generated_at": "2026-11-07T12:29:55Z",
+  "generated_at": "2026-11-07T14:09:44Z",
   "run_id": "s4-20261107T084306Z-7b8198",
-  "expected": 50,
+  "expected": 6,
   "rows": 50,
   "coverage": {
     "allowed_final": 50,
     "submitted": 20,
-    "scored_ok": 14,
+    "scored_ok": 15,
     "infra_failed": 0
   },
   "submitted": 20,
-  "official_success": 14,
-  "score_rate": 0.28,
-  "total_cost_usd": 131.6288,
+  "official_success": 15,
+  "score_rate": 0.3,
+  "total_cost_usd": 120.2538,
   "rows_with_cost": 50,
   "rows_without_cost": 0,
   "violations": [],
-  "warnings": []
+  "warnings": [
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:11033",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:13345",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:1348",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:17715",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:19497",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:19757",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:19999",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:20131",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:20655",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:23653",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:25292",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:26371",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:26952",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:28253",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:29125",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:3497",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:34973",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:3956",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:40769",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:4452",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:45523",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:51603",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:53631",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:55985",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:56895",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:56990",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:57608",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:5914",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:59931",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:60037",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:60971",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:61677",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:61721",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:61902",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:62274",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:6423",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:65765",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:66005",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:66196",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:66446",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:66679",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "arvo:8696",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "oss-fuzz:42537670",
+      "detail": "row not in queue"
+    },
+    {
+      "kind": "coverage_extra",
+      "task_id": "oss-fuzz:42538131",
+      "detail": "row not in queue"
+    }
+  ]
 }

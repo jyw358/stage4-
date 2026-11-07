@@ -1,0 +1,2 @@
+[taxonomy] tasks=50 by_class={'no_check_attempt': 30, 'success': 15, 'vul_no_crash': 4, 'fix_not_clean': 1} confidence={'medium': 30, 'high': 20}
+[taxonomy] E1-valid-retry candidates (scored False): 5; unscored (recovery/human, NO retry): 0

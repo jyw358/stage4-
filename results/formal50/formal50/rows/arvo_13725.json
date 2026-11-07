@@ -1,32 +1,32 @@
 {
   "task_id": "arvo:13725",
   "run_id": "s4-20261107T084306Z-7b8198",
-  "status": "submitted",
+  "status": "no_submission",
   "workspace": "/data2/runs/formal50-ws/arvo_13725",
   "task_dir": "/data2/runs/formal50/tasks/arvo_13725",
   "agent_id": "fbb0bf96dc0c424aa6c835a3f76fcf35",
   "result": "",
-  "cost_usd": 2.722276,
+  "cost_usd": 2.132207,
   "turns": 62,
   "model_calls": 62,
   "tokens": {
-    "total": 150032,
+    "cache_read_input_tokens": 2112384,
+    "output_tokens": 24844,
+    "input_tokens": 87780,
     "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 2377664,
-    "input_tokens": 111881,
-    "output_tokens": 38151
+    "total": 112624
   },
   "model_usage": {
     "glm-5.3": {
-      "input_tokens": 112103,
-      "output_tokens": 38889,
-      "cache_read_input_tokens": 2379072,
-      "cost_usd": 2.722276
+      "input_tokens": 88130,
+      "output_tokens": 25389,
+      "cache_read_input_tokens": 2113664,
+      "cost_usd": 2.132207
     }
   },
   "finished_at": null,
   "is_error": true,
-  "checks_used": 1,
+  "checks_used": 0,
   "submissions": 1,
   "needs_second_pass": false,
   "second_pass": true,
@@ -40,7 +40,7 @@
     "seq": 1
   },
   "ledger_path": "/data2/runs/formal50-ws/arvo_13725/submissions.jsonl",
-  "scored_at": "2026-11-07T12:29:42.531Z",
+  "scored_at": "2026-11-07T14:09:33.007Z",
   "ledger_source": "protected",
   "official_success": false,
   "score_status": "ok",
@@ -59,5 +59,7 @@
     "ledger_seq": 1
   },
   "ledger_entries": 1,
-  "scored_run_id": "s4-20261107T084306Z-7b8198"
+  "scored_run_id": "s4-20261107T084306Z-7b8198",
+  "attempt": 1,
+  "attempted_at": "2026-11-07T13:45:39Z"
 }

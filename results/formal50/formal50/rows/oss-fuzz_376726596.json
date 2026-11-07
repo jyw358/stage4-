@@ -1,32 +1,32 @@
 {
   "task_id": "oss-fuzz:376726596",
   "run_id": "s4-20261107T084306Z-7b8198",
-  "status": "submitted",
+  "status": "no_submission",
   "workspace": "/data2/runs/formal50-ws/oss-fuzz_376726596",
   "task_dir": "/data2/runs/formal50/tasks/oss-fuzz_376726596",
   "agent_id": "77614f9fa6514e5ea5492b4c2c96a583",
   "result": "",
-  "cost_usd": 2.8255320000000004,
+  "cost_usd": 2.54912,
   "turns": 62,
   "model_calls": 62,
   "tokens": {
-    "output_tokens": 39965,
-    "total": 134505,
-    "cache_read_input_tokens": 2665984,
-    "input_tokens": 94540,
-    "cache_creation_input_tokens": 0
+    "cache_creation_input_tokens": 0,
+    "total": 117244,
+    "input_tokens": 83343,
+    "output_tokens": 33901,
+    "cache_read_input_tokens": 2516480
   },
   "model_usage": {
     "glm-5.3": {
-      "input_tokens": 94890,
-      "output_tokens": 40698,
-      "cache_read_input_tokens": 2667264,
-      "cost_usd": 2.8255320000000004
+      "input_tokens": 83693,
+      "output_tokens": 34871,
+      "cache_read_input_tokens": 2517760,
+      "cost_usd": 2.54912
     }
   },
   "finished_at": null,
   "is_error": true,
-  "checks_used": 1,
+  "checks_used": 0,
   "submissions": 1,
   "needs_second_pass": false,
   "second_pass": true,
@@ -40,7 +40,7 @@
     "seq": 1
   },
   "ledger_path": "/data2/runs/formal50-ws/oss-fuzz_376726596/submissions.jsonl",
-  "scored_at": "2026-11-07T12:29:47.648Z",
+  "scored_at": "2026-11-07T14:09:37.616Z",
   "ledger_source": "protected",
   "official_success": false,
   "score_status": "ok",
@@ -59,5 +59,7 @@
     "ledger_seq": 1
   },
   "ledger_entries": 1,
-  "scored_run_id": "s4-20261107T084306Z-7b8198"
+  "scored_run_id": "s4-20261107T084306Z-7b8198",
+  "attempt": 1,
+  "attempted_at": "2026-11-07T13:45:40Z"
 }
