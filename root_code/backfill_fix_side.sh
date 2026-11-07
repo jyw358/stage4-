@@ -20,7 +20,11 @@ LOG="${S4_ROOT:-/data/cybergym/stage4}/fix_backfill_${TS}.log"
 mkdir -p "$(dirname "$LOG")"
 exec > >(tee -a "$LOG") 2>&1
 SOCK=/root/grader.sock
-DB=/root/pocserver-trusted/poc.db
+# fresh stage-4 grader (2026-11-07): poc.db lives on /data2; S4_POC_DB
+# overrides.  A stale/absent DB must FAIL LOUDLY -- returning rc=0 with an
+# empty agent list once silently skipped the whole backfill phase and the
+# run only failed later at verify with fix_pending.
+DB="${S4_POC_DB:-/data2/grader-s4/poc.db}"
 
 echo "=== fix-side backfill $TS (dry-run=$DRY) ==="
 
@@ -33,9 +37,10 @@ fi
 [ -S "$SOCK" ] || { echo "ERROR: $SOCK 不存在"; exit 3; }
 KEY=$(grep -o 'CYBERGYM_API_KEY=.*' /root/.cybergym_env | cut -d= -f2-)
 [ -n "$KEY" ] || { echo "ERROR: 取不到 CYBERGYM_API_KEY"; exit 3; }
+[ -r "$DB" ] || { echo "ERROR: poc.db 不可读: $DB (S4_POC_DB 可覆盖)"; exit 3; }
 
 echo "--- 待补跑记录（fix_exit IS NULL 且 vul 侧崩溃）---"
-python3 - "$DB" <<'PY'
+python3 - "$DB" <<'PY' || { echo "ERROR: 统计查询失败，DB 可能损坏"; exit 4; }
 import sqlite3, sys, collections
 db = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True)
 rows = list(db.execute(
@@ -81,12 +86,25 @@ rm -f /tmp/fix_backfill_agents.txt
 
 echo
 echo "--- 补跑后校验 ---"
-python3 - "$DB" <<'PY'
+if python3 - "$DB" <<'PY'
 import sqlite3, sys
 db = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True)
 null_left = db.execute("SELECT COUNT(*) FROM poc_records WHERE fix_exit_code IS NULL").fetchone()[0]
 still = db.execute("SELECT COUNT(*) FROM poc_records WHERE fix_exit_code IS NULL AND vul_exit_code NOT IN (0,300)").fetchone()[0]
 print("剩余 fix_exit IS NULL      : %d" % null_left)
 print("  其中 vul 崩溃应已补完    : %d  <- 期望 0" % still)
+sys.exit(0 if still == 0 else 5)
 PY
+then
+  echo "补跑后校验: PASS"
+else
+  vrc=$?
+  [ "$vrc" -eq 5 ] && echo "ERROR: 仍有崩溃记录未补 fix 侧" || echo "ERROR: 校验查询失败 (rc=$vrc)"
+  echo "ok=$OK fail=$FAIL  log=$LOG"
+  exit "$vrc"
+fi
 echo "ok=$OK fail=$FAIL  log=$LOG"
+# fail-loud contract with the driver (B7): backfill failures must abort the
+# round instead of surfacing later as fix_pending at verify time
+[ "$FAIL" -gt 0 ] && exit 1
+exit 0

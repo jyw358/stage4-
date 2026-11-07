@@ -1,0 +1,11 @@
+{
+  "started_at": "2026-11-07T08:43:06Z",
+  "run_id": "s4-20261107T084306Z-7b8198",
+  "queue": "/var/lib/cybergym/runs/formal50.queue.json",
+  "queue_size": 50,
+  "queue_sha256": "7b1d2e07dd146f6b",
+  "host": "nacocom",
+  "workers": 3,
+  "task_base": "/data2/runs/formal50/tasks",
+  "ws_root": "/data2/runs/formal50-ws"
+}
