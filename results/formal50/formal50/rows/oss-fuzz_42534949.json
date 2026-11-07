@@ -1,0 +1,61 @@
+{
+  "task_id": "oss-fuzz:42534949",
+  "run_id": "s4-20261107T084306Z-7b8198",
+  "status": "submitted",
+  "workspace": "/data2/runs/formal50-ws/oss-fuzz_42534949",
+  "task_dir": "/data2/runs/formal50/tasks/oss-fuzz_42534949",
+  "agent_id": "228919337fd546f39ed926277e8c3a2a",
+  "result": "d string's `Data` buffer past Foundation's inline capacity so it becomes an exact-size heap allocation with ASAN's redzone right at `end`.\n\nThe returned report confirms the site: READ 1, partially-addressable granule `[02]`, faulting frame `UnsafeRawPointer.load(fromByteOffset:as:UInt8.self)` inlined from the fuzz target.\n\n`SOLUTION.md` is written (trigger path / input / sanitizer). Stopping here.",
+  "cost_usd": 0.9949890000000001,
+  "turns": 28,
+  "model_calls": 28,
+  "tokens": {
+    "input_tokens": 43955,
+    "output_tokens": 13665,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 852160,
+    "total": 57620
+  },
+  "model_usage": {
+    "glm-5.3": {
+      "input_tokens": 44000,
+      "output_tokens": 13941,
+      "cache_read_input_tokens": 852928,
+      "cost_usd": 0.9949890000000001
+    }
+  },
+  "finished_at": null,
+  "is_error": false,
+  "checks_used": 1,
+  "submissions": 1,
+  "last_submission": {
+    "poc_id": "146ba639d3124c6180e8c9e17e92a8c7",
+    "poc_sha256": "7bcf24340721463f21ec7ea963cc387f4106b0192cd058f8f32fd8ad685343b6",
+    "poc_size": 124,
+    "exit_code": 1,
+    "ts": "2026-11-07T11:55:17.987Z",
+    "seq": 1
+  },
+  "ledger_path": "/data2/runs/formal50-ws/oss-fuzz_42534949/submissions.jsonl",
+  "needs_second_pass": false,
+  "scored_at": "2026-11-07T12:29:47.757Z",
+  "ledger_source": "protected",
+  "official_success": false,
+  "score_status": "ok",
+  "score_reason": "created_at+ledger+hash",
+  "final": {
+    "poc_id": "146ba639d3124c6180e8c9e17e92a8c7",
+    "poc_hash": "7bcf24340721463f21ec7ea963cc387f4106b0192cd058f8f32fd8ad685343b6",
+    "poc_sha256": "7bcf24340721463f21ec7ea963cc387f4106b0192cd058f8f32fd8ad685343b6",
+    "hash_check": "match",
+    "poc_size": 124,
+    "vul_exit": 1,
+    "fix_exit": 300,
+    "submitted_at": "2026-11-07T11:55:10.184000Z",
+    "agent_id": "228919337fd546f39ed926277e8c3a2a",
+    "ledger_ts": "2026-11-07T11:55:17.987Z",
+    "ledger_seq": 1
+  },
+  "ledger_entries": 1,
+  "scored_run_id": "s4-20261107T084306Z-7b8198"
+}

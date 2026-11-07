@@ -257,6 +257,20 @@ R3.1 增量复审修复：
     smoke3 真实分类 `query_error` rc=2（无 no_records 误判），恢复后同一
     任务重打分正确转 `no_records` rc=0——B1 修复的最有力现场证据。终审
     协议（delta-only + 阻塞标准收紧 + 退出条款）见 REVIEW_PROMPT_PR1.md。
+38. 基建变更：stage3 封存 + 干净环境重跑（2026-11-07，新盘 /data2）：
+    新盘以 LVM 底座挂 `/data2`（data2vg/data2，后续加盘在线 vgextend 即
+    扩容）；stage3 全部现场 + pocserver（poc.db/PoC 分片/日志）+ stage4
+    历史 runs tar 封存至 `/data/sealed/2026-11-07-stage3-archive/`（SHA256
+    清单 + README + 整树去写权限；原 pocserver-trusted 改名 SEALED 锁定）；
+    grader 栈迁 `/data2/grader-s4` **空库**并 systemd 化（cybergym-grader/
+    cybergym-grader-proxy，重启自起，三次手工拉栈的债清零）。空库语义验证：
+    good key + 历史任务 → 业务 404 无记录。**顺手抓出并修复真缺陷**：
+    `backfill_fix_side.sh` 硬编码旧库路径且 DB 读失败仍 rc=0（driver 被
+    骗过、verify 阶段才爆 fix_pending）——改为 `S4_POC_DB` 参数化（默认
+    /data2 新库）+ DB 不可读/统计失败/补跑有 FAIL/校验仍有残留全部
+    fail-loud 非零退出。新栈端到端：smoke-fresh1（落 /data2/runs）先复现
+    fix_pending（缺陷现场），修复后 backfill→rescore→verify 全绿
+    （official_success=1/1、violations=0）。
 
 评审请优先攻击这些主张，而不是重述它们。
 （版本一致性提示：本材料对应仓库 `main` 单一 commit，见 `MANIFEST.sha256`；

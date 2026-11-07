@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-11-07T12:29:55Z",
+  "run_id": "s4-20261107T084306Z-7b8198",
+  "expected": 50,
+  "rows": 50,
+  "coverage": {
+    "allowed_final": 50,
+    "submitted": 20,
+    "scored_ok": 14,
+    "infra_failed": 0
+  },
+  "submitted": 20,
+  "official_success": 14,
+  "score_rate": 0.28,
+  "total_cost_usd": 131.6288,
+  "rows_with_cost": 50,
+  "rows_without_cost": 0,
+  "violations": [],
+  "warnings": []
+}

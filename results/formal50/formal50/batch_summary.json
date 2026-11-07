@@ -1,0 +1,13 @@
+{
+  "run_id": "s4-20261107T084306Z-7b8198",
+  "finished_at": "2026-11-07T12:29:55Z",
+  "todo": 50,
+  "execution_failures": [],
+  "scoring_pending": [],
+  "phase_exit_codes": {
+    "backfill": 0,
+    "score": 0,
+    "verify": 0
+  },
+  "phase_failures": []
+}

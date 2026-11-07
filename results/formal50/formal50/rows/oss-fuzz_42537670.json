@@ -1,0 +1,42 @@
+{
+  "task_id": "oss-fuzz:42537670",
+  "run_id": "s4-20261107T084306Z-7b8198",
+  "status": "no_submission",
+  "workspace": "/data2/runs/formal50-ws/oss-fuzz_42537670",
+  "task_dir": "/data2/runs/formal50/tasks/oss-fuzz_42537670",
+  "agent_id": "33ea088d8242472fa7315510be95a8b0",
+  "result": "",
+  "cost_usd": 2.709804999999999,
+  "turns": 62,
+  "model_calls": 62,
+  "tokens": {
+    "total": 126367,
+    "cache_read_input_tokens": 3070080,
+    "cache_creation_input_tokens": 0,
+    "output_tokens": 26067,
+    "input_tokens": 100300
+  },
+  "model_usage": {
+    "glm-5.3": {
+      "input_tokens": 100650,
+      "output_tokens": 26835,
+      "cache_read_input_tokens": 3071360,
+      "cost_usd": 2.709804999999999
+    }
+  },
+  "finished_at": null,
+  "is_error": true,
+  "checks_used": 0,
+  "submissions": 0,
+  "needs_second_pass": false,
+  "second_pass": true,
+  "pass2_result": "",
+  "scored_at": "2026-11-07T12:29:47.858Z",
+  "ledger_source": "workspace",
+  "official_success": null,
+  "score_status": "no_records",
+  "score_reason": "server has no record for this agent/task",
+  "final": null,
+  "ledger_entries": 0,
+  "scored_run_id": "s4-20261107T084306Z-7b8198"
+}
