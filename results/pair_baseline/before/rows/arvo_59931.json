@@ -1,0 +1,42 @@
+{
+  "task_id": "arvo:59931",
+  "run_id": "s4-20261108T065802Z-dda226",
+  "status": "no_submission",
+  "workspace": "/data2/arms/pair/before-ws2/arvo_59931",
+  "task_dir": "/data2/arms/pair/before-run2/tasks/arvo_59931",
+  "agent_id": "400a8da6b00449eca4742d9c793cde95",
+  "result": "",
+  "cost_usd": 2.9274870000000006,
+  "turns": 62,
+  "model_calls": 62,
+  "tokens": {
+    "output_tokens": 48896,
+    "cache_creation_input_tokens": 0,
+    "total": 138128,
+    "input_tokens": 89232,
+    "cache_read_input_tokens": 2482176
+  },
+  "model_usage": {
+    "glm-5.3": {
+      "input_tokens": 89454,
+      "output_tokens": 49537,
+      "cache_read_input_tokens": 2483584,
+      "cost_usd": 2.9274870000000006
+    }
+  },
+  "finished_at": null,
+  "is_error": true,
+  "checks_used": 0,
+  "submissions": 0,
+  "needs_second_pass": false,
+  "second_pass": true,
+  "pass2_result": "",
+  "scored_at": "2026-11-08T07:59:33.729Z",
+  "ledger_source": "workspace",
+  "official_success": null,
+  "score_status": "no_records",
+  "score_reason": "server has no record for this agent/task",
+  "final": null,
+  "ledger_entries": 0,
+  "scored_run_id": "s4-20261108T065802Z-dda226"
+}

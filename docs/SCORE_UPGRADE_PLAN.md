@@ -77,6 +77,15 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
       集成（隔离评估允许）、新 50 题正式提分跑批（r9 暂不批准）
 ```
 
+**基线校正（2026-11-08，P0-3 结果）**：12 题配对显示"补齐工具"没有提高
+官方通过率（2/12 → 1/12），且 9/12 任务两臂都撞 62 turns 上限——瓶颈
+已从"工具缺失"转为"turns→提交"的转化率。因此批次 1/2 的重心按以下
+顺序调整（X2″/X5 前置为第一批主实验，Y1 工具保留但降为能力维持）：
+（1）X2′/X2″ 五态提交机与 X5 六步提交状态机的 turns→提交转化实验；
+（2）Y2 格式感知输入生成（压缩 time-to-first-input）；
+（3）X1 strategy.md 与 X4-L1 pass2 接力（在相同 62-turn 饱和下验证）。
+
+
 ### 2.1 第一批开工清单（r9 授权立即启动，按序执行）
 
 1. [x] 确认工具链缺失范围：两棵部署树（/opt/cybergym-agent-r33 @ bb163b4
@@ -93,7 +102,7 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
    HOME/TMPDIR），try_local/stab_run/minsep/directed_fuzz 真实 docker
    oracle 执行——报告 `results/y1_selfcheck_report.json`，verdict=PASS；
    （工具使用**转化**遥测待真实 agent 会话，随 P0-3 基线跑采集）
-5. [~] 建立可复核新基线（P0-3 双验证：5-10 题环境回归 + 12-20 题冻结
+5. [x] 建立可复核新基线（P0-3 双验证：5-10 题环境回归 + 12-20 题冻结
    配对，记录工具可用性/成功率/成本）；
    - 生产树滚动已执行（2026-11-08T06:41Z）：两棵 /opt 树 `scripts/`
      安装 14 件（13 工具 + 新 make_agent_ws.py），`sha256sum -c
@@ -102,9 +111,17 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
      `aa0dd5fa…` 原样保留）；
    - 5-10 题环境回归（生产树 -r33、8 题、uid 60101）：verdict=PASS，
      11/11 工具 8/8 started_ok——`results/y1_envreg_prod.json`；
-   - 12 题冻结配对（`/data2/arms/pair/queue12.json` sha256
-     `572c7163…`；before/after 两臂仅差 scripts 目录，base 复制自
-     /opt/cybergym-agent）已启动；历史 formal50 30% 结果未覆盖；
+   - 12 题冻结配对已完成（`/data2/arms/pair`，两臂仅差 scripts，base
+     复制自 /opt/cybergym-agent-r33；queue sha256 `572c7163…`）：
+     **before 2/12（16.7%，$30.57）vs after 1/12（8.3%，$25.78）**；
+     工具确实被调用（try_local 285→557、probe_path 97→209、
+     local_oracle 14→157、hf_mutator 22→92），但 9/12 任务两臂都停在
+     62 turns 上限，提交数 4→2——**工具可用性本身不构成提分杠杆**；
+     详见 `results/pair_baseline/summary.md`。历史 formal50 30% 未覆盖；
+   - 运行中发现（与本次改动无关的既有部署事实）：默认
+     /opt/cybergym-agent 的 run_agent_task.sh 是**无 keypool 的旧版**
+     （`b91fa5fb…`），生产跑批必须用 /opt/cybergym-agent-r33
+     （`be8f9b8a…`，含 keypool），否则模型凭据缺失 rc=78；
 6. [ ] 启动 LLVM coverage / Clang AST 原型（独立分支，不改正式评分与
    提交路径；结果 schema 版本化，Clang AST 调用图/崩溃判定与自研输出
    **不保证语义等价，不可比处标 unknown**）。
