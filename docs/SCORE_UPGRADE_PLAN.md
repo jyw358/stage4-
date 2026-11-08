@@ -78,10 +78,15 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
 ```
 
 **基线校正（2026-11-08，P0-3 结果）**：12 题配对显示"补齐工具"没有提高
-官方通过率（2/12 → 1/12），且 9/12 任务两臂都撞 62 turns 上限——瓶颈
-已从"工具缺失"转为"turns→提交"的转化率。因此批次 1/2 的重心按以下
-顺序调整（X2″/X5 前置为第一批主实验，Y1 工具保留但降为能力维持）：
-（1）X2′/X2″ 五态提交机与 X5 六步提交状态机的 turns→提交转化实验；
+官方通过率（2/12 → 1/12），且 9/12 任务两臂都撞 62 turns 上限。转录层
+复核（`toolcall_report.py`）进一步定位到**确定性根因 P0-6：生产隔离下
+本地 oracle 全部返回假 CLEAN**（agent 每题唯一 uid 无 docker socket 权限，
+`local_oracle.classify` 把 docker CLI rc=1 误判为"无触发"；after 臂
+`.oracle.log` 42/42 条 CLEAN rc=1，无一次真实容器执行）。据此第一批顺序：
+（0）**P0-6 oracle 修复**（ORACLE_ERROR 分类 + 裸跑降级路径，见
+`results/pair_baseline/toolcall_analysis.md` §6）；
+（1）X2′/X2″ 五态提交机与 X5 六步提交状态机（pass2 强制提交 10/10 失效，
+提示词无法对抗共享工作区再锚定，必须做进 wrapper）；
 （2）Y2 格式感知输入生成（压缩 time-to-first-input）；
 （3）X1 strategy.md 与 X4-L1 pass2 接力（在相同 62-turn 饱和下验证）。
 
@@ -102,6 +107,12 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
    HOME/TMPDIR），try_local/stab_run/minsep/directed_fuzz 真实 docker
    oracle 执行——报告 `results/y1_selfcheck_report.json`，verdict=PASS；
    （工具使用**转化**遥测待真实 agent 会话，随 P0-3 基线跑采集）
+   **勘误（2026-11-08 晚）**：Y1 对 docker 依赖工具（try_local/stab_run/
+   minsep/directed_fuzz/probe_path）的 PASS 为**假阳性**——固定 uid 60101
+   同样无 docker socket 权限，docker CLI 小写 "permission denied" 未被
+   Y1 失败模式匹配，`container rc=1` 实为 docker CLI 失败码；静态工具
+   （repo_map/reach_graph/mutate_seed/boundary_synth/hf_mutator 编译检查）
+   的 PASS 仍有效。`results/y1_envreg_prod.json` 同口径受影响；
 5. [x] 建立可复核新基线（P0-3 双验证：5-10 题环境回归 + 12-20 题冻结
    配对，记录工具可用性/成功率/成本）；
    - 生产树滚动已执行（2026-11-08T06:41Z）：两棵 /opt 树 `scripts/`
@@ -110,14 +121,25 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
      `/data2/backup/pre-pr-a-20261108T064133/`（旧 make_agent_ws
      `aa0dd5fa…` 原样保留）；
    - 5-10 题环境回归（生产树 -r33、8 题、uid 60101）：verdict=PASS，
-     11/11 工具 8/8 started_ok——`results/y1_envreg_prod.json`；
+     11/11 工具 8/8 started_ok——`results/y1_envreg_prod.json`
+     （受上述勘误影响，docker 依赖项结论作废）；
    - 12 题冻结配对已完成（`/data2/arms/pair`，两臂仅差 scripts，base
      复制自 /opt/cybergym-agent-r33；queue sha256 `572c7163…`）：
-     **before 2/12（16.7%，$30.57）vs after 1/12（8.3%，$25.78）**；
-     工具确实被调用（try_local 285→557、probe_path 97→209、
-     local_oracle 14→157、hf_mutator 22→92），但 9/12 任务两臂都停在
-     62 turns 上限，提交数 4→2——**工具可用性本身不构成提分杠杆**；
-     详见 `results/pair_baseline/summary.md`。历史 formal50 30% 未覆盖；
+     **before 2/12（16.7%，$30.57）vs after 1/12（8.3%，$25.78）**。
+     转录层复核（`cybergym-agent/scripts/toolcall_report.py`）定位根因：
+     after 臂工具被大量调用但 **42/42 次 oracle 调用返回假 CLEAN**
+     （docker 权限拒绝被 `classify()` 误判），agent 被锁死在变异循环，
+     strict check.py 4→2；before 臂靠裸跑预构建二进制 + 早提交反而多活；
+     pass2 强制提交 10/10 会话 0 次 check.py（两臂共病，X5 对象）——
+     详见 `results/pair_baseline/toolcall_analysis.md` 与勘误后的
+     `summary.md`。历史 formal50 30% 未覆盖；
+   - **新增 P0-6（本轮最高优先修复）**：oracle 语义修复——(a)
+     `classify` 对 docker 前缀错误/rc∈{126,127} 返回 `ORACLE_ERROR` 而非
+     CLEAN；(b) 工具脚本遇 ORACLE_ERROR 打印裸跑降级提示
+     （`LD_LIBRARY_PATH=<vul>/libs /out/<target> poc.bin`，before 臂已
+     验证可行）；(c) local_oracle 增加 no-docker 直跑模式；(d) Y1 失败
+     模式补小写 docker 报错 + CLEAN-rc=1 降级 suspect；(e) 遥测红旗纳入
+     toolcall_report（已实现 `SUSPECT` 标记）；
    - 运行中发现（与本次改动无关的既有部署事实）：默认
      /opt/cybergym-agent 的 run_agent_task.sh 是**无 keypool 的旧版**
      （`b91fa5fb…`），生产跑批必须用 /opt/cybergym-agent-r33

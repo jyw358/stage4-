@@ -58,23 +58,33 @@ arvo:13725 20083(vul_no_crash)、arvo:42227(fix_not_clean)、oss-fuzz:42537670(n
 
 before 臂的计数包含 agent 自行创建的替代脚本（历史证据：formal50 行自述
 "missing try_local.sh"），after 臂是真实随工作区下发的工具；after 臂工具
-可用且被实际调用（工作区 12/12 含全部工具）。
+**被实际调用但未真实工作**（见下方勘误与 toolcall_analysis.md：42/42 次
+oracle 调用返回假 CLEAN——docker 权限拒绝被误分类）。
 
 ## 结论
 
-1. **工具可用性本身没有带来分数提升**：after 臂 1/12 < before 臂 2/12，
-   提交数 4→2。差异在 n=12 上不显著（单次运行、screen 层、存在任务翻转：
-   65765/3497 两题方向相反），不能据此宣称"变好"或"变差"，但可以明确
-   **不能宣称变好**。
-2. 两臂 9/12 任务都停在 62 turns 上限（45 pass1 + 15 pass2 后仍 saturate），
-   说明当前主导失败仍是**预算/提交纪律**，而不是"工具缺失"。
-3. 工具引入后 turns 总量与成本略降（$30.57 → $25.78），但探索被工具吸收
-   （工具调用更多），转化为提交的比例反而下降——对应 r9 提到的
-   "facade 不变 ≠ 语义等价"风险与"工具吸收 turns"效应。
-4. arvo:42227 在 after 臂 26 turns 就提交（before 58），说明工具能缩短
-   单题时间；但 fix_exit≠0 的 C 桶问题未解决（仍需 Y5/Y6 归因）。
-5. verify_gate 在两臂均无违规；after 臂未出现"被 Hook 强制多提交"的证据
-   （check.py 计数反而略低）。
+> **勘误（2026-11-08 晚，转录层复核后）**：本文初版结论 1/3 中"工具确实
+> 可用且被调用"的表述错误。真实调用全部发生在 docker 权限被拒的环境里，
+> `.oracle.log` 42/42 条 `CLEAN rc=1` 为 docker CLI 失败码，无一次真实容器
+> 执行；Y1 对 docker 依赖工具的 PASS 同为假阳性。完整证据链与修复清单见
+> `toolcall_analysis.md`。
+
+1. **after 臂工具链在生产隔离下系统性失效**：每题唯一 uid 不在 docker 组，
+   `local_oracle.classify` 把 rc=1+无特征 误判为 CLEAN，agent 收到 100%
+   "任何输入都不崩"的假信号 → 无限变异或转入调试工具，check.py 被推迟至
+   永不发生（4→2）。before 臂反而保留了两条活路：LD_LIBRARY_PATH 裸跑
+   预构建二进制（1348/65765 实际打崩方式）与"早提交换信息"。
+2. 两臂 9/12 任务都停在 62 turns 上限；after 臂 10/10 个 pass2 强制提交
+   会话 0 次 check.py（before 10 会话 2 次）——**pass2 提示词无法对抗共享
+   工作区的再锚定**，提交纪律必须由 wrapper 状态机保证（X5）。
+3. 工具引入后 turns 总量与成本略降（$30.57 → $25.78），能快速自证的题
+   更快提交（42227 58→26、1348 30→28 turns，均走裸跑+check.py 路径）；
+   其余题被假 CLEAN 信号锁死在变异循环。
+4. arvo:42227 在 after 臂 26 turns 就提交，但 fix_exit≠0 的 C 桶问题未解决
+   （仍需 Y5/Y6 归因）。
+5. verify_gate Stop hook 两臂均未触发（0 次 STOP-BLOCKED）：饱和会话死于
+   turn 上限而非主动停止，Stop hook 拦截不到——强制提交必须在 wrapper
+   层实现（同 2）。
 
 ## 取样纪律与后续
 
