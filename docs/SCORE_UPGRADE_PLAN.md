@@ -79,19 +79,29 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
 
 ### 2.1 第一批开工清单（r9 授权立即启动，按序执行）
 
-1. [ ] 确认工具链缺失范围：清点 TOOL_FILES×10 + verify_gate.py，核对
-   当前部署树与历史可审计来源（主机 git 历史/备份），不明的来源不收；
-2. [ ] 实现 fail-closed 工作区预检（P0-1 三类依赖验证 + 生成后校验）；
-3. [ ] 补齐工具依赖与安全验证（P0-2：版本/哈希/权限/UID/cgroup/边界）；
-4. [ ] 运行 Y1 工具自检（索引/调用图/local run/fuzz smoke，生产等价
-   UID/cgroup；**含工具使用转化遥测**：调用与否/成败/信息有用性/agent
-   是否据此改变动作/是否转化为有效输入→本地崩溃→正式提交——"工具
-   已安装"≠"工具有贡献"）；
+1. [x] 确认工具链缺失范围：两棵部署树（/opt/cybergym-agent-r33 @ bb163b4
+   与默认 /opt/cybergym-agent）`scripts/` 均无全部工具；verify_gate.py
+   全主机不存在；恢复来源=stage3 1,507 生产工作区多数决 + naco 开发树
+   local_oracle.py（溯源见 `docs/TOOLCHAIN_PROVENANCE.md`）；
+2. [x] 实现 fail-closed 工作区预检（P0-1 三类依赖验证 + 生成后校验；
+   单测 9 项 + 主机注入测试：删 minsep.py → REFUSE 实证）；
+3. [x] 补齐工具依赖与安全验证（P0-2：逐件源码审计、SHA256SUMS.tools、
+   3 个 /home/naco 硬编码补丁、local_oracle 入 REQUIRED、verify_gate
+   新写+5 单测；共 208 测试绿）；
+4. [x] 运行 Y1 工具自检：10 题（9 ARVO 含 C 桶 42227 + 1 OSS-Fuzz）×
+   11 工具全 started_ok，生产等价 uid 60101（setpriv + 清 env + 私有
+   HOME/TMPDIR），try_local/stab_run/minsep/directed_fuzz 真实 docker
+   oracle 执行——报告 `results/y1_selfcheck_report.json`，verdict=PASS；
+   （工具使用**转化**遥测待真实 agent 会话，随 P0-3 基线跑采集）
 5. [ ] 建立可复核新基线（P0-3 双验证：5-10 题环境回归 + 12-20 题冻结
    配对，记录工具可用性/成功率/成本）；
 6. [ ] 启动 LLVM coverage / Clang AST 原型（独立分支，不改正式评分与
    提交路径；结果 schema 版本化，Clang AST 调用图/崩溃判定与自研输出
    **不保证语义等价，不可比处标 unknown**）。
+
+> 生产树滚动（把恢复后的工具链复制进 /opt 两棵树）**待 PR 合并后按
+> SHA256SUMS.tools 校验执行**；Y1 已在 /data2/runs/y1-diag staging 验证
+> 同一批文件可用。
 
 ## 3. 实验卡 v3
 

@@ -1,0 +1,860 @@
+{
+  "selfcheck_version": "1.0",
+  "generated_at": "2026-11-08T06:24:41Z",
+  "tool_src": "/data2/runs/y1-diag/agent/scripts",
+  "tool_src_sha256": {
+    "repo_map.py": "a41eb783971a10a770dd6d7aa0280bbe5225dc4ee3421fce9dc6950715d62fdb",
+    "reach_graph.py": "ba0c31673bafa2628e9d302d882338c1216a1bfa4a3b4b569fab4bc4701ec587",
+    "probe_path.sh": "9d3f7722bfc6b2ce6d7230b35bec67fb1f8834d8e905314a0b59756115314a13",
+    "try_local.sh": "6d3ea7368be85aa2f88e6735c9118e18ae8d9934182e835882bb61639dff0091",
+    "stab_run.sh": "6fc0bc81a76075f8ea352cf8d6b0b61f00643ec9b3088076e40ec3417e989d76",
+    "minsep.py": "39b1cb5e3d6d82f0006104960c00dd81eb64ca2e7da95f1dcba2df0db45da80a",
+    "local_oracle.py": "cd421ec6b3f46740ba45d48801a54e866e984780cba3619252af6d6d4dc03494",
+    "directed_fuzz.py": "29394b611ba25e786b23905bab56de3f0444397924a1e687a429746313b48a08",
+    "boundary_synth.py": "0a4139bbf59318221aeafdb8e09cc6c7fd40a9b43078d2818a286dc01e3a7e20",
+    "mutate_seed.py": "de8b85b7055504d0866f75fb0fd447a05836921c774c40c0acd7c1adc4d5687d",
+    "hf_mutator.py": "d8df6a5315f28b7f8461fc68f422b062d0bc946ded501d4672d41d8a0ec703b9"
+  },
+  "agent_uid": 60101,
+  "tasks": [
+    {
+      "task_id": "arvo_11033",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_11033",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.7,
+          "output_head": "indexed 239 files (239 kept): 2459 symbols, 1448 caller nodes, entries: ['harfbuzz/src/dump-emoji.cc', 'harfbuzz/src/dump-indic-data.cc', 'harfbuzz/src/dump-khmer-data.cc', 'harfbuzz/src/dump-myanmar-data.cc', 'harfbuzz/src/dump-use-data.cc', 'harfbuzz/src/hb-buffer.h']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (harfbuzz/test/fuzzing/hb-shape-fuzzer.cc)\nreachable functions within 14 hops: 648\ndescription tokens: 12\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     21.0  d3  in46  ov2  ARRAY_LENGTH  harfbuzz/src/hb-dsalgs.hh:263\n          chain: LLVMFuzzerTestOneInput -> trySubset -> hb_subset -> ARRAY_LENGTH\n     19.8  d2  in9   ov2  hb_subse"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.2,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_1348",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_1348",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 11.4,
+          "output_head": "indexed 3245 files (3245 kept): 21245 symbols, 15611 caller nodes, entries: ['ffmpeg/cmdutils.c', 'ffmpeg/cmdutils.h', 'ffmpeg/compat/nvenc/nvEncodeAPI.h', 'ffmpeg/doc/examples/avio_dir_cmd.c', 'ffmpeg/doc/examples/avio_reading.c', 'ffmpeg/doc/examples/decode_audio.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.4,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (ffmpeg/tools/target_dec_fuzzer.c)\nreachable functions within 14 hops: 3672\ndescription tokens: 14\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     23.0  d1  in38  ov2  avcodec_alloc_context3  ffmpeg/libavcodec/options.c:157\n          chain: LLVMFuzzerTestOneInput -> avcodec_alloc_context3\n     23.0  d1  in28  ov2  avcodec_free_contex"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.0,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_19497",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_19497",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 6.9,
+          "output_head": "indexed 1792 files (1792 kept): 8697 symbols, 6175 caller nodes, entries: ['icu/icu4c/as_is/os400/cxxfilt.cpp', 'icu/icu4c/as_is/os400/iculd.c', 'icu/icu4c/source/common/normalizer2impl.h', 'icu/icu4c/source/common/rbbi.cpp', 'icu/icu4c/source/common/rbbi_cache.cpp', 'icu/icu4c/source/common/rbbi_cache.h']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.3,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (icu/icu4c/source/test/fuzzer/break_iterator_fuzzer.cpp)\nreachable functions within 14 hops: 1407\ndescription tokens: 19\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     21.0  d3  in30  ov2  contains  icu/icu4c/source/test/perf/unisetperf/draft/trieset.cpp:100\n          chain: LLVMFuzzerTestOneInput -> get -> Contains -> contains\n    "
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_20083",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_20083",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 18.2,
+          "output_head": "indexed 4137 files (4000 kept): 43429 symbols, 33510 caller nodes, entries: ['samba/ctdb/common/cmdline.h', 'samba/ctdb/common/conf_tool.c', 'samba/ctdb/common/path_tool.c', 'samba/ctdb/common/pkt_read.c', 'samba/ctdb/event/event_daemon.c', 'samba/ctdb/event/event_protocol_test.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.8,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (samba/lib/fuzzing/afl-fuzz-main.c)\nreachable functions within 14 hops: 6781\ndescription tokens: 22\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     37.8  d3  in4   ov4  wb_open_internal_pipe  samba/source3/winbindd/winbindd_cm.c:1838\n          chain: LLVMFuzzerTestOneInput -> ldb_parse_control_from_string -> flags -> wb_open_internal"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.2,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_26371",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_26371",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.5,
+          "output_head": "indexed 162 files (162 kept): 1287 symbols, 907 caller nodes, entries: ['libcoap/examples/client.c', 'libcoap/examples/coap-rd.c', 'libcoap/examples/coap-server.c', 'libcoap/examples/etsi_iot_01.c', 'libcoap/examples/lwip/server.c', 'libcoap/examples/tiny.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (libcoap/tests/oss-fuzz/pdu_parse_target.c)\nreachable functions within 14 hops: 81\ndescription tokens: 14\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     12.0  d2  in33  ov1  coap_opt_length  libcoap/src/option.c:237\n          chain: LLVMFuzzerTestOneInput -> coap_get_query -> coap_opt_length\n      8.4  d2  in2   ov1  coap_pdu_parse_"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_3497",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_3497",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.2,
+          "output_head": "indexed 196 files (196 kept): 318 symbols, 139 caller nodes, entries: ['librawspeed/fuzz/libFuzzer_dummy_main.cpp', 'librawspeed/fuzz/librawspeed/decoders/TiffDecoders/main.cpp', 'librawspeed/fuzz/librawspeed/decompressors/HuffmanTable/main.cpp', 'librawspeed/fuzz/librawspeed/parsers/main.cpp', 'librawspeed/fuzz/rawspeed/main.cpp', 'librawspeed/src/librawspeed/decoders/RawDecoder.h']\nwrote .repo-m"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (librawspeed/fuzz/libFuzzer_dummy_main.cpp)\nreachable functions within 14 hops: 56\ndescription tokens: 12\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n      1.4  d1  in12  ov0  get  librawspeed/src/librawspeed/common/RawImage.h:240\n      0.4  d2  in12  ov0  end  librawspeed/src/librawspeed/io/Buffer.h:147\n     -0.2  d3  in14  ov0  size"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.0,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_42227",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_42227",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.6,
+          "output_head": "indexed 77 files (77 kept): 1894 symbols, 1563 caller nodes, entries: ['cmsIT8_load_fuzzer.c', 'cms_overwrite_transform_fuzzer.c', 'cms_transform_fuzzer.c', 'lcms/plugins/fast_float/src/fast_float_sup.c', 'lcms/plugins/fast_float/testbed/fast_float_testbed.c', 'lcms/src/cmsio0.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (cmsIT8_load_fuzzer.c)\nreachable functions within 14 hops: 382\ndescription tokens: 7\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     13.0  d1  in135 ov1  cmsCloseProfile  lcms/src/cmsio0.c:1440\n          chain: LLVMFuzzerTestOneInput -> cmsCloseProfile\n     13.0  d1  in21  ov1  cmsCreate_sRGBProfile  lcms/src/cmsvirt.c:670\n          "
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=honggfuzz focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_59931",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_59931",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.7,
+          "output_head": "indexed 161 files (161 kept): 2649 symbols, 2233 caller nodes, entries: ['mruby/include/mruby.h', 'mruby/include/mruby/proc.h', 'mruby/include/mruby/string.h', 'mruby/mrbgems/mruby-bin-debugger/tools/mrdb/mrdb.c', 'mruby/mrbgems/mruby-bin-mirb/tools/mirb/mirb.c', 'mruby/mrbgems/mruby-bin-mrbc/tools/mrbc/mrbc.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (mruby/oss-fuzz/mruby_fuzzer.c)\nreachable functions within 14 hops: 1176\ndescription tokens: 12\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     40.0  d4  in20  ov4  mrb_array_p  ?:?\n          chain: LLVMFuzzerTestOneInput -> mrb_close -> mrb_protect_atexit -> MRB_TRY -> mrb_array_p\n     36.0  d6  in10  ov4  array_copy  mruby/src/arra"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.2,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_66005",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_66005",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 10.6,
+          "output_head": "indexed 687 files (687 kept): 21736 symbols, 16183 caller nodes, entries: ['gpac/applications/generators/MPEG4/main.c', 'gpac/applications/generators/SVG/main.c', 'gpac/applications/generators/WebGLGen/main.c', 'gpac/applications/generators/X3D/main.c', 'gpac/applications/gpac/compositor_tools.c', 'gpac/applications/gpac/gpac.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.5,
+          "output_head": "entry: main  (gpac/applications/gpac/gpac.c)\nreachable functions within 14 hops: 10434\ndescription tokens: 8\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     39.4  d4  in17  ov4  js_check_stack_overflow  gpac/src/quickjs/quickjs.c:1598\n          chain: main -> lre_compile -> re_parse_disjunction -> lre_check_stack_overflow -> js_check_stack_overflow\n     37.8  d3  "
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.2,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "oss-fuzz_42534949",
+      "task_dir": "/data2/runs/formal50/tasks/oss-fuzz_42534949",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "indexed 3 files (3 kept): 4 symbols, 1 caller nodes, entries: ['swift-protobuf/Performance/Harness.cc', 'swift-protobuf/Performance/Harness.h', 'swift-protobuf/Performance/main.cc']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: main  (swift-protobuf/Performance/main.cc)\nreachable functions within 14 hops: 5\ndescription tokens: 17\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     -0.8  d1  in1   ov0  close  ?:?\n     -0.8  d1  in1   ov0  harness  ?:?\n     -0.8  d1  in1   ov0  ofstream  ?:?\n     -0.8  d1  in1   ov0  run  ?:?\n\ndescription-named functions among reachable: 0 []\n"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=CLEAN rc=1 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+        },
+        "stab_run.sh": {
+          "classification": "started_ok",
+          "rc": 1,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 MALLOC_PERTURB_=unset -> CLEAN    rc=1    sig=\nrun 2/2 MALLOC_PERTURB_=   85 -> CLEAN    rc=1    sig=\n--- UNSTABLE: 2/2 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+        },
+        "minsep.py": {
+          "classification": "started_ok",
+          "rc": 5,
+          "duration_s": 0.1,
+          "output_head": "NOT-CRASHING: vul verdict=CLEAN -- minsep needs a local crash first\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\ncontainer rc=1 wall=0s execs=? corpus=1\n--- container output tail ---\npermission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n\nno artifacts -- widen the seed, adjust --focus, or raise --seconds\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    }
+  ],
+  "matrix": {
+    "repo_map.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": true
+    },
+    "reach_graph.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": true
+    },
+    "probe_path.sh": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": true
+    },
+    "try_local.sh": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": true
+    },
+    "stab_run.sh": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": true
+    },
+    "minsep.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": true
+    },
+    "local_oracle.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": true
+    },
+    "directed_fuzz.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": false
+    },
+    "boundary_synth.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": false
+    },
+    "mutate_seed.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": false
+    },
+    "hf_mutator.py": {
+      "counts": {
+        "started_ok": 10
+      },
+      "required": false
+    }
+  },
+  "verdict": "PASS"
+}

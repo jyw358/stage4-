@@ -57,8 +57,15 @@ SMOKE = {
     "directed_fuzz.py": "printf 'xxxx' > _y1_seed.bin && timeout 90 python3 directed_fuzz.py _y1_seed.bin --seconds 30",
     "boundary_synth.py":"printf 'xxxx' > _y1_seed.bin && python3 boundary_synth.py _y1_seed.bin",
     "mutate_seed.py":   "printf 'xxxx' > _y1_seed.bin && python3 mutate_seed.py _y1_seed.bin 0:1:flip",
-    "hf_mutator.py":    "python3 hf_mutator.py --help 2>&1 | head -3; true",
+    # hf_mutator takes 4 positional args and runs IN-container; for the
+    # out-of-container smoke a syntax/compile check is the honest level-1 test
+    "hf_mutator.py":    "python3 -c 'compile(open(\"hf_mutator.py\").read(), \"hf_mutator.py\", \"exec\"); print(\"compiles_ok\")'",
 }
+
+# Env the task uid needs for the oracle tools to reach their real code paths
+# (they exit early on missing CG_TASK_ID otherwise -- that would fake a PASS).
+TASK_ENV_KEYS = ("CG_TASK_DIR", "CG_TASK_ID", "CG_SERVER", "CG_RUN_ID",
+                 "CG_CHECKS_BUDGET")
 
 # Patterns that mean "the ENVIRONMENT is broken", not "the task is hard".
 ENV_FAILURE_PATTERNS = (
@@ -93,8 +100,23 @@ def make_workspace(task_dir: Path, ws_root: Path, task_id: str,
     return {"rc": r.returncode, "stderr_tail": r.stderr[-500:]}
 
 
+def load_task_env(ws: Path) -> dict:
+    """CG_* vars from the generated run.env so oracle tools run for real."""
+    env = {}
+    run_env = ws / "run.env"
+    if run_env.is_file():
+        for line in run_env.read_text(errors="replace").splitlines():
+            line = line.strip()
+            if line.startswith("export "):
+                body = line[len("export "):]
+                key, _, val = body.partition("=")
+                if key in TASK_ENV_KEYS:
+                    env[key] = val
+    return env
+
+
 def run_tool_smoke(ws: Path, tool: str, agent_uid: int,
-                   timeout_s: int) -> dict:
+                   timeout_s: int, task_env: dict = None) -> dict:
     cmd = SMOKE[tool]
     tmpdir = ws / "_y1_tmp"
     tmpdir.mkdir(exist_ok=True)
@@ -103,7 +125,10 @@ def run_tool_smoke(ws: Path, tool: str, agent_uid: int,
             "--clear-groups", "env", "-i",
             f"HOME={ws}", f"TMPDIR={tmpdir}",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "LC_ALL=C", "bash", "-c", inner]
+            "LC_ALL=C"]
+    for k, v in (task_env or {}).items():
+        argv.append(f"{k}={v}")
+    argv += ["bash", "-c", inner]
     t0 = time.time()
     try:
         r = subprocess.run(argv, capture_output=True, text=True,
@@ -132,8 +157,8 @@ def run_tool_smoke(ws: Path, tool: str, agent_uid: int,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--task-dirs", required=True,
-                    help="glob of prepared task dirs, e.g. '/data2/.../tasks/*'")
+    ap.add_argument("--task-dirs", required=True, action="append",
+                    help="glob of prepared task dirs; repeatable")
     ap.add_argument("--ws-root", required=True)
     ap.add_argument("--agent-uid", type=int, required=True,
                     help="numeric agent uid for production-equivalent runs")
@@ -145,7 +170,10 @@ def main() -> int:
 
     require_root_linux()
 
-    task_dirs = sorted(p for p in glob.glob(args.task_dirs) if os.path.isdir(p))
+    task_dirs = []
+    for pattern in args.task_dirs:
+        task_dirs.extend(glob.glob(pattern))
+    task_dirs = sorted(set(p for p in task_dirs if os.path.isdir(p)))
     if not task_dirs:
         raise SystemExit(f"REFUSE: no task dirs match {args.task_dirs}")
     ws_root = Path(args.ws_root).resolve()
@@ -180,12 +208,13 @@ def main() -> int:
         subprocess.run(["chown", "-R", f"{args.agent_uid}:{args.agent_uid}",
                         str(ws)], check=False)
         tools_result = {}
+        task_env = load_task_env(ws)
         for tool in REQUIRED_TOOLS + OPTIONAL_TOOLS:
             if not (ws / tool).is_file():
                 tools_result[tool] = {"classification": "not_shipped"}
                 continue
             tools_result[tool] = run_tool_smoke(ws, tool, args.agent_uid,
-                                                args.tool_timeout)
+                                                args.tool_timeout, task_env)
         entry["tools"] = tools_result
         entry["result"] = "ok"
         report["tasks"].append(entry)
