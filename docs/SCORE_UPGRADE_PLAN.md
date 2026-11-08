@@ -1,14 +1,13 @@
-# formal50 提分统一计划 v3（2026-11-08，r8 二次复审修订）
+# formal50 提分统一计划 v4（2026-11-08，v3 + Y6 新主线）
 
-> v3 依据 r8 对抗性复审（CONDITIONAL APPROVE / X3′(b) & X5 HOLD / 95% NOT
-> YET DEMONSTRATED）修订。八项终版清单全部落实：
-> ① 95% 算术修正；② X2″ 状态机（删除"非崩溃服务器反馈"替代质量条件）；
-> ③ X3′ 补并发/原子性/pass 切换/清理测试与三档进展分类；④ X4 root 字段
-> 可信来源表 + handoff 格式限制；⑤ X5 六步提交状态机（正式自动提交 HOLD）；
-> ⑥ Y4 拆"turn 数效应/资源扩张效应"两类实验并定 pass2 行为；⑦ 队列
-> 分层比例更正（有意过采样声明）；⑧ 新增 Y5 难题分级升级 + 独立盲测
-> 验收规则 + 成本停止条件。
-> v2 的批次骨架与双能力框架保留。
+> **v4 增量**：并入 Y6 目标漏洞语义定位与崩溃归因（顾问新增建议，
+> **待下轮复审**）——针对"能崩但崩错点"类失败（formal50 C 桶 +
+> stage3 历史 44 道 fix_not_clean 其中 36 道 fix=1），这是 r8 点名的
+> "特异性崩溃"能力的直接载体；含 Y6-pre 历史样本离线研究（批次 0）。
+> v3 内容（r8 八项终版清单落实）不变：
+> ① 95% 算术修正；② X2″ 状态机；③ X3′ 五补充+三档进展；④ X4 字段
+> 可信来源表；⑤ X5 六步状态机（HOLD）；⑥ Y4 拆两类实验；⑦ 队列
+> 过采样声明；⑧ Y5 + 盲测验收 + 成本停止条件。
 
 ## 0. 基线、目标与红线
 
@@ -18,8 +17,10 @@
   4/5+29/30、5/5+28/30 三条路径均合法；v2"≥4 且 28-30"错误排除了 3/5
   路径）。失败池总回收率须达 **94.3%**——降低零提交率只是必要条件。
 - 双能力框架不变：(1) 执行可靠性（X1/X2″/X3′/X4/X5/Y1 防求解进展在
-  流程中损耗）；(2) 漏洞求解能力（**Y2/X6/Y3/Y5 为高分突破主线**，Y4
-  判定所需资源——r8 最终结论的分工表述）。
+  流程中损耗）；(2) 漏洞求解能力（**Y2/X6/Y3/Y5/Y6 为高分突破主线**，
+  其中 Y6 补上"崩对了没有"的归因环节，与 Y2/Y3 构成
+  描述→假设→证据→构造→验证→归因→提交闭环；Y4 判定所需资源——
+  r8 最终结论 + v4 顾问建议的分工表述）。
 - 红线不变（`FORMAL50_STATUS_AND_PLAN.md` §1 + `SCORE_UPGRADE_PROMPT.md`
   §4）；check 使用率/覆盖率/时长是中间变量不是解出率。
 - **实验样本三层纪律（r8）**：
@@ -50,10 +51,11 @@
 ## 2. 批次顺序（v2 骨架 + r8 发车分级）
 
 ```
-批次0 [APPROVE]  Y1 工具链自检、可信遥测（§4 schema）、冻结三层队列、评分链路回归
+批次0 [APPROVE]  Y1 工具链自检、可信遥测（§4 schema）、冻结三层队列、评分链路回归、
+                 Y6-pre 历史样本离线研究（§3.12 前置）
 批次1 [有条件批准] X1 + X2″ + X3′(a) ‖ Y4（补齐资源矩阵后批准）
 批次2 [有条件批准] X4-L1 + X5 原型（正式提交 HOLD）‖ Y2
-批次3 [有条件批准] X6 + Y3 双通道反馈闭环
+批次3 [有条件批准] X6 + Y3 双通道反馈闭环 ‖ Y6 归因 A/B（待复审）
 批次4 [有条件批准] X7 / X8 / X10 / Y5 按剩余失败类别启用
 批次5 [盲测层]     独立冻结样本最终验收（95% 唯一宣称口径）
 HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交
@@ -82,7 +84,7 @@ v2 §7 曾提议第 5 分支质量判据"过 stab 门 **或** 已有 ≥1 次非
 | 候选状态 | 动作 |
 |---|---|
 | `LOCAL_STABLE_TARGET_CRASH`（过 stab 门） | 可正式提交 |
-| `LOCAL_CRASH_UNCERTAIN_TARGET` | 优先核对崩溃签名与位置；提交须保存质量证据 |
+| `LOCAL_CRASH_UNCERTAIN_TARGET` | 优先核对崩溃签名与位置（按 Y6 §3.12 第 4 层归因执行）；提交须保存质量证据 |
 | `LOCAL_VALID_NO_CRASH` | 继续本地变异/换道；官方提交**仅限预注册的探索性动作**（真实新假设 + 计入预算与 final-only 历史，不跑后挑优） |
 | `LOCAL_UNKNOWN` | **不因截止逼近自动判合格** |
 | `NO_CANDIDATE` | 退出或有界构造，不虚构 PoC |
@@ -213,6 +215,82 @@ X7 自建补丁只作本地辅助证据不构成提交门槛；X8 遥测先行�
   评估正式解出率。
 - 风险：对少量开发题过拟合、跨题记忆化（禁止）、模型成本上升。
 
+### 3.12 Y6 目标漏洞语义定位与崩溃归因（v4 新增，P0/P1 交界，待复审）
+
+**问题定位**：与零提交是两类问题——agent 找到了**能崩的输入**，却没证明
+崩溃对应题目真正要求的漏洞（formal50 C 桶 2 题；stage3 历史 44 道
+fix_not_clean 中 36 道 fix=1，占 stage3 失败的重要构成）。此类失败**不能**
+靠加 turns/fuzzing/提交次数解决，甚至越 fuzz 越容易命中无关崩溃。
+
+**核心思想**：不要求一次猜中崩溃函数，而是**多假设 + 当题证据逐步排除**。
+只使用当题允许信息，不碰官方 patch/fix 侧/评分器内部。
+
+**五层归因**：
+
+1. **描述解析**：题目描述 → 可验证约束（漏洞类型/触发动作/输入格式/
+   疑似组件/预期异常行为），每字段标 `explicit / inferred / unknown`，
+   不确定信息不得强行解释成目标函数；
+2. **多假设定位**：repo_map + reach_graph + 源码证据产生 ≤3-5 个候选
+   漏洞位置，记录支持证据与反证条件；**不以"哪个函数更容易崩"定目标**；
+3. **因果链**：结合 Y2/Y3 建立
+   `输入→harness→parser→可疑条件→错误操作→sanitizer 崩溃` 证据链；
+4. **崩溃签名归因**：sanitizer 类型 + 关键调用栈 + 目标可达性 + 复现
+   稳定性 → 四档 `target_related / possible / unrelated / unknown`
+   （继承并细化 E4 置信分层）；
+5. **最小扰动验证**：当题输入小范围变化验证崩溃是否依赖假设的漏洞
+   条件；必要时接 X7 自建补丁局部验证，不触官方修复侧。
+
+**关键改进——禁止硬匹配崩溃文件名**：现 CLAUDE_MD 只有一句自然语言
+"crash site 与描述匹配"提示，无归因程序，产生两类错误——假阳性（无关
+解析函数崩溃即认 CRASH）与假阴性（真漏洞在上层对象生命周期，栈顶是
+通用 `free()/memcpy()`，严格文件名匹配反杀正确输入）。**判调用链与漏洞
+机制一致性，不比栈顶文件名**。
+
+**归因结构**（存当题工作区，不跨题导入）：
+
+```yaml
+task_bug_hypotheses:
+  - id: H1
+    location: "candidate function or call chain"
+    bug_mechanism: "suspected memory-safety condition"
+    description_support: "explicit | inferred | unknown"
+    static_evidence: []
+    dynamic_evidence: []
+    contradictions: []
+    confidence: "high | medium | low | unknown"
+candidate_crash:
+  sanitizer_type: "ASAN | UBSAN | other"
+  stack_signature: "local evidence reference"
+  target_reached: "yes | no | unknown"
+  reproducible_runs: "2/3"
+  mechanism_consistent: "yes | no | unknown"
+  attribution: "target_related | possible | unrelated | unknown"
+```
+
+`confidence/attribution` 只用于调度与继续调查决策，**不是新官方判据**；
+final-only 评分语义不变。与 X2″ 联动：`LOCAL_CRASH_UNCERTAIN_TARGET`
+的"核对崩溃签名与位置"即按第 4 层归因执行，attribution=
+target_related → 可提交；unrelated → 修正输入不提交。
+
+**Y6-pre（批次 0，离线）**：审计方离线细分 stage3 36 道 fix=1 历史样本
+为"确实崩错点 / 疑似非特异性崩溃 / 证据不足 / 其他"（不能预设全归因于
+选错崩溃点——共享缺陷/环境/输入格式亦可能）。研究结果**只**用于选择
+通用归因方法与评估指标；**不**把具体漏洞位置/触发输入/答案写回 agent
+提示词或知识库（跨题红线）。
+
+**实验卡**：
+
+| 字段 | 内容 |
+|---|---|
+| 改动 | `make_agent_ws.py` LOCATE 段加多假设表；本地 crash 分析段加机制与调用链核对（替换一句式文件名匹配提示） |
+| 依赖 | 现有 reach_graph/try_local；后接 Y2/Y3/X7 |
+| 成本 | 额外静态分析 + 少量本地验证 turns；活跃假设 ≤3-5 |
+| 风险 | 模糊描述产生错误但自洽的假设；过严门槛阻止真目标 PoC 提交 |
+| 主指标 | 已提交 CRASH 中最终官方成功比例 |
+| 辅助指标 | 目标函数可达率、崩溃归因准确率、假阳性拒绝率、首次有效提交时间 |
+| 验证 | 独立冻结任务同题 A/B：一句式 crash-site 要求 vs Y6 多假设归因；比较最终官方得分 + 人工复核错误归因 |
+| 红线 | 纯当题信息；不碰 fix 侧；不加 check 预算；不改评分器 |
+
 ## 4. 度量与日志 schema（r8 溯源强化）
 
 每事件附：`event_source`（root 实测 / agent 自报 / 工具推断）、
@@ -220,7 +298,10 @@ X7 自建补丁只作本地辅助证据不构成提交门槛；X8 遥测先行�
 `observation_confidence`、`task_id`、`attempt_id`。
 `submit_downgrades` 仅由可信最终评分比较得出。v2 字段保留，新增
 X2″ 状态机快照（`candidate_state_at_gates` 取值改五状态）、
-Y4 臂的完整资源矩阵字段、Y5 失败根因分组标签。
+Y4 臂的完整资源矩阵字段、Y5 失败根因分组标签、Y6 归因字段
+（`attribution` 四档 / `active_hypotheses` 计数 / 
+`description_support` 三态分布——agent 自报，observation_confidence
+标 advisory）。
 
 ## 5. 成本与停止条件（r8）
 
@@ -244,8 +325,10 @@ GLM-5.3 95%+ = 模型上限外部支持；"差距全部在脚手架与预算" = 
 | 批次 1（X1、X3′(a)、X2″ 修正版；Y4 补矩阵后） | 有条件批准实验 |
 | X3′(b)、X5 正式执行 | HOLD |
 | X4-L1、X6、Y2、Y3 原型 | 有条件批准 |
+| Y6 归因系统（v4 新增） | **待下轮复审**（Y6-pre 历史研究可先行，批次 0） |
 | 95% 达成能力认证 | 尚无实测证明（NOT YET DEMONSTRATED） |
 
 待下一轮确认：X2″ `LOCAL_CRASH_UNCERTAIN_TARGET` 提交时"保存质量证据"
 的具体格式；E1 资源矩阵的 wall-time 初值（Y1 数据出来后定）；Y5 五类
-根因分组的判据字段（对齐 §4 schema）。
+根因分组的判据字段（对齐 §4 schema）；**Y6 的四档归因与 X2″/E4 的
+衔接语义、Y6-pre 样本细分判据**。
