@@ -42,7 +42,8 @@ ex += ["run /poc/in0"]
 for i, loc in enumerate(locs[:6]):
     ex += [f"printf \"=== BP{i} {loc}: REACHED\\n\"", "bt 8", "continue"]
 
-inner = (f"env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS={asan} "
+inner = ("echo __ORACLE_RUNNER_V2__; "
+         f"env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS={asan} "
          f"timeout -s SIGKILL 60 gdb -q -batch "
          + " ".join(f"-ex '{e}'" for e in ex)
          + f" /out/{target}")
@@ -55,6 +56,13 @@ try:
 except subprocess.TimeoutExpired:
     print("RESULT: TIMEOUT (gdb session hung)"); sys.exit(5)
 out = (r.stdout or "") + (r.stderr or "")
+if "__ORACLE_RUNNER_V2__" not in out:
+    # P0-6: the gdb RUNNER never started (docker permission/daemon/image) --
+    # fail closed; this is NOT "input does not reach the path".
+    print("RESULT: ORACLE_ERROR (probe runner failed -- docker unavailable);")
+    print("local reachability probing is UNAVAILABLE, not negative. Do not")
+    print("draw reach conclusions from this run.")
+    sys.exit(5)
 if "gdb: command not found" in out or "gdb: not found" in out:
     print("NO_GDB: runner image lacks gdb -- fall back to try_local.sh")
     sys.exit(4)

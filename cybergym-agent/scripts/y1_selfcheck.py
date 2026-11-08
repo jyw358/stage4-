@@ -24,14 +24,17 @@ Usage (run as root on the deployment host):
       --agent-uid  4242 \
       --out        /data2/runs/y1-diag/y1_selfcheck_report.json
 
-Exit code: 0 iff every REQUIRED tool started_ok on every task (fail-closed
-signal for downstream experiments); optional-tool failures only warn.
+Exit code: 0 iff (a) every REQUIRED tool started_ok (or, for docker-backed
+tools, honestly reported oracle-unavailability) on every task AND (b) the
+P0-6 oracle e2e scenario battery passes (fail-closed signal); optional-tool
+failures only warn.
 """
 import argparse
 import glob
 import hashlib
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import time
@@ -135,8 +138,13 @@ def run_tool_smoke(ws: Path, tool: str, agent_uid: int,
                            timeout=timeout_s)
         dur = round(time.time() - t0, 1)
         out = (r.stdout or "") + (r.stderr or "")
-        env_broken = any(p in out for p in ENV_FAILURE_PATTERNS)
-        if env_broken:
+        if "VERIFICATION-UNAVAILABLE" in out or "RESULT: ORACLE_ERROR" in out:
+            # P0-6 (r10): the tool started AND honestly reported that the
+            # local oracle could not execute the target (e.g. docker socket
+            # denied for the agent uid). This is the CORRECT behaviour --
+            # a fake CLEAN would be the defect.
+            classification = "oracle_unavailable_reported"
+        elif any(p in out for p in ENV_FAILURE_PATTERNS):
             classification = "env_failure"
         elif "NO_LOCAL_BUILD" in out:
             # the tool itself started fine; the task has no prebuilt local
@@ -155,6 +163,142 @@ def run_tool_smoke(ws: Path, tool: str, agent_uid: int,
                 "output_head": f"launcher missing: {exc}"}
 
 
+# ---- P0-6.4 (r10 audit): end-to-end oracle truth tests --------------------
+# Y1 must verify the TARGET actually executed (or honestly failed), not that
+# the tool process merely started. Scenario table from the r10 review.
+
+def _setpriv_argv(ws: Path, agent_uid: int, task_env: dict, inner: str):
+    tmpdir = ws / "_y1_tmp"
+    tmpdir.mkdir(exist_ok=True)
+    argv = ["setpriv", f"--reuid={agent_uid}", f"--regid={agent_uid}",
+            "--clear-groups", "env", "-i",
+            f"HOME={ws}", f"TMPDIR={tmpdir}",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "LC_ALL=C"]
+    for k, v in (task_env or {}).items():
+        argv.append(f"{k}={v}")
+    return argv + ["bash", "-c", inner]
+
+
+def oracle_e2e_agent_uid(ws: Path, agent_uid: int, task_env: dict,
+                         timeout_s: int = 120) -> dict:
+    """Scenario 'docker socket denied' under the production identity: the
+    oracle MUST surface ORACLE_ERROR / VERIFICATION-UNAVAILABLE -- a CLEAN
+    or NO_TRIGGER signal here is exactly the P0-6 defect class."""
+    seed = ws / "_y1_seed2.bin"
+    seed.write_bytes(b"x")
+    inner = (f"cd '{ws}' && ./try_local.sh _y1_seed2.bin; "
+             f"echo TRYLOCAL_RC=$?")
+    t0 = time.time()
+    try:
+        r = subprocess.run(_setpriv_argv(ws, agent_uid, task_env, inner),
+                           capture_output=True, text=True, timeout=timeout_s)
+        out = (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired:
+        return {"scenario": "socket_denied_agent_uid", "expected":
+                "ORACLE_ERROR", "ok": False, "observed": "timeout"}
+    honest = ("VERIFICATION-UNAVAILABLE" in out or "ORACLE_ERROR" in out)
+    fake = ("NO_TRIGGER" in out) or ("RESULT: CRASH" in out)
+    return {"scenario": "socket_denied_agent_uid", "expected": "ORACLE_ERROR",
+            "ok": bool(honest and not fake),
+            "observed": out[:300],
+            "duration_s": round(time.time() - t0, 1)}
+
+
+def oracle_e2e_root(tool_src: Path, crash_poc: str) -> list:
+    """Root-side scenario battery (root can reach docker, so infra failure
+    modes can be told apart from permission denial)."""
+    sys.path.insert(0, str(tool_src))
+    import local_oracle as lo  # noqa: E402
+    results = []
+
+    vi = lo.side_info("arvo:1348", "vul")
+    if not vi:
+        vi = lo.side_info("arvo:11033", "vul")
+    if not vi:
+        return [{"scenario": "root_battery", "ok": False,
+                 "observed": "no prebuilt vul side on this host"}]
+
+    seed = pathlib.Path("/tmp/_y1_root_seed.bin")
+    seed.write_bytes(b"x")
+    files = [str(seed)]
+
+    def run_case(name, fn, expected):
+        t0 = time.time()
+        try:
+            v = fn()
+            results.append({"scenario": name, "expected": expected,
+                            "ok": v.get("verdict") == expected,
+                            "observed": v.get("verdict"),
+                            "kind": v.get("runner_error_kind"),
+                            "target_exit": v.get("target_exit_code"),
+                            "duration_s": round(time.time() - t0, 1)})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"scenario": name, "expected": expected,
+                            "ok": False, "observed": f"exception: {exc}"})
+
+    # daemon unreachable
+    old_host = os.environ.get("DOCKER_HOST")
+    os.environ["DOCKER_HOST"] = "tcp://127.0.0.1:1"
+    try:
+        run_case("daemon_unreachable",
+                 lambda: lo.run_side(vi, files, tag="y1_daemon"),
+                 "ORACLE_ERROR")
+    finally:
+        if old_host is None:
+            os.environ.pop("DOCKER_HOST", None)
+        else:
+            os.environ["DOCKER_HOST"] = old_host
+
+    # image unavailable (diagnostics-only ORACLE_RUNNER override)
+    old_runner = lo.RUNNER
+    lo.RUNNER = "cybergym/p06-nonexistent-probe:latest"
+    try:
+        run_case("image_unavailable",
+                 lambda: lo.run_side(vi, files, tag="y1_image"),
+                 "ORACLE_ERROR")
+    finally:
+        lo.RUNNER = old_runner
+
+    # target launch error: forged target name that cannot exist in /out
+    vi_missing = (vi[0], "p06_missing_target", vi[2], vi[3])
+    run_case("target_missing",
+             lambda: lo.run_side(vi_missing, files, tag="y1_target"),
+             "TARGET_LAUNCH_ERROR")
+
+    # clean run: real target, tiny input -> target provably ran and exited 0
+    run_case("clean_run",
+             lambda: lo.run_side(vi, files, tag="y1_clean"),
+             "CLEAN")
+
+    # real crash: a poc that officially crashed this build (if provided)
+    if crash_poc and pathlib.Path(crash_poc).is_file():
+        poc_files = [crash_poc]
+        vi_c = lo.side_info("arvo:1348", "vul")
+        if vi_c and "1348" in str(vi_c[0]):
+            run_case("real_crash",
+                     lambda: lo.run_side(vi_c, poc_files, tag="y1_crash"),
+                     "FATAL")
+        else:
+            results.append({"scenario": "real_crash", "expected": "FATAL",
+                            "ok": False,
+                            "observed": "crash poc task side not found"})
+    else:
+        results.append({"scenario": "real_crash", "expected": "FATAL",
+                        "ok": None, "observed": "skipped: no --crash-poc"})
+
+    # timeout + casing variants are covered exhaustively at classification
+    # level by tests/test_local_oracle_classify.py (17 cases); y1 re-runs it:
+    tr = subprocess.run([sys.executable, "-m", "unittest",
+                         "tests.test_local_oracle_classify"],
+                        capture_output=True, text=True, timeout=120,
+                        cwd=str(tool_src.parent))
+    results.append({"scenario": "classify_unit_tests",
+                    "expected": "17/17 OK", "ok": tr.returncode == 0,
+                    "observed": (tr.stdout or "")[-200:]})
+    return results
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task-dirs", required=True, action="append",
@@ -165,6 +309,9 @@ def main() -> int:
     ap.add_argument("--tool-src", default=str(AG_HOME / "scripts"))
     ap.add_argument("--tool-timeout", type=int, default=180)
     ap.add_argument("--gen-timeout", type=int, default=300)
+    ap.add_argument("--crash-poc", default="",
+                    help="path to a poc that officially crashed arvo:1348 "
+                         "(enables the real_crash e2e scenario)")
     ap.add_argument("--out", required=True, help="report json path")
     args = ap.parse_args()
 
@@ -180,7 +327,7 @@ def main() -> int:
     ws_root.mkdir(parents=True, exist_ok=True)
 
     report = {
-        "selfcheck_version": "1.0",
+        "selfcheck_version": "2.0",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "tool_src": str(Path(args.tool_src).resolve()),
         "tool_src_sha256": {
@@ -215,9 +362,17 @@ def main() -> int:
                 continue
             tools_result[tool] = run_tool_smoke(ws, tool, args.agent_uid,
                                                 args.tool_timeout, task_env)
+        # P0-6.4: per-task oracle truth check under the production identity
+        if (ws / "try_local.sh").is_file() and task_env.get("CG_TASK_ID"):
+            entry["oracle_e2e"] = oracle_e2e_agent_uid(ws, args.agent_uid,
+                                                       task_env)
         entry["tools"] = tools_result
         entry["result"] = "ok"
         report["tasks"].append(entry)
+
+    # root-side infra scenario battery (daemon/image/target/clean/crash/units)
+    report["oracle_e2e_root"] = oracle_e2e_root(Path(args.tool_src),
+                                                 args.crash_poc)
 
     # availability matrix + fail-closed verdict over REQUIRED tools
     matrix = {}
@@ -229,10 +384,17 @@ def main() -> int:
                         "required": tool in REQUIRED_TOOLS}
     report["matrix"] = matrix
     required_ok = all(
-        matrix[t]["counts"].get("started_ok", 0) == len(report["tasks"])
+        matrix[t]["counts"].get("started_ok", 0)
+        + matrix[t]["counts"].get("oracle_unavailable_reported", 0)
+        == len(report["tasks"])
         for t in REQUIRED_TOOLS)
-    report["verdict"] = ("PASS" if required_ok and report["tasks"]
-                         else "FAIL_required_tool_not_started")
+    e2e_agent_ok = all(t.get("oracle_e2e", {}).get("ok") is True
+                       for t in report["tasks"] if "oracle_e2e" in t)
+    e2e_root_ok = all(s.get("ok") is True
+                      for s in report.get("oracle_e2e_root", []))
+    report["verdict"] = ("PASS" if (required_ok and report["tasks"]
+                                    and e2e_agent_ok and e2e_root_ok)
+                         else "FAIL")
 
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=2),
                               encoding="utf-8")

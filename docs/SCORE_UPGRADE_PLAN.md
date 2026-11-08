@@ -133,13 +133,36 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
      pass2 强制提交 10/10 会话 0 次 check.py（两臂共病，X5 对象）——
      详见 `results/pair_baseline/toolcall_analysis.md` 与勘误后的
      `summary.md`。历史 formal50 30% 未覆盖；
-   - **新增 P0-6（本轮最高优先修复）**：oracle 语义修复——(a)
-     `classify` 对 docker 前缀错误/rc∈{126,127} 返回 `ORACLE_ERROR` 而非
-     CLEAN；(b) 工具脚本遇 ORACLE_ERROR 打印裸跑降级提示
-     （`LD_LIBRARY_PATH=<vul>/libs /out/<target> poc.bin`，before 臂已
-     验证可行）；(c) local_oracle 增加 no-docker 直跑模式；(d) Y1 失败
-     模式补小写 docker 报错 + CLEAN-rc=1 降级 suspect；(e) 遥测红旗纳入
-     toolcall_report（已实现 `SUSPECT` 标记）；
+   - **P0-6 修复（r10 裁决后已实施，2026-11-08）**：
+     (1) [APPROVE→已实施] `local_oracle.classify_exec()` 状态优先分类：
+     容器内哨兵 `__ORACLE_RUNNER_V2__` / `__ORACLE_TARGET_EXIT_V2__<rc>`
+     证明执行；无哨兵=ORACLE_ERROR（kind 仅诊断），126/127=
+     TARGET_LAUNCH_ERROR，124/137/libFuzzer-timeout=TIMEOUT，0+无特征=
+     CLEAN，其余=UNKNOWN——**未知绝不落 CLEAN**；docker CLI rc 与目标
+     rc 分离；run_side 返回 schema-2 结构化结果并写入 .oracle.log；
+     (2) [HOLD→按裁决落地] 工具脚本遇错误 verdict 打印
+     VERIFICATION-UNAVAILABLE（"这不是无触发信号，勿再变异"），**不含**
+     宿主机裸跑指令；try_local/stab_run/minsep/probe_path/directed_fuzz
+     全部接入（exit 7）；
+     (3) [CONDITIONAL→未启用] 受限原生执行后端（Backend B）仅记录设计，
+     待隔离审计（文件/网络/syscall/资源/进程生命周期）后另行评审；
+     (4) [APPROVE→已实施] Y1 v2：端到端真执行场景表——agent uid 下
+     socket 拒绝必须 ORACLE_ERROR（不再假 CLEAN）；root 侧
+     daemon_unreachable/image_unavailable/target_missing→
+     ORACLE_ERROR/ORACLE_ERROR/TARGET_LAUNCH_ERROR，clean_run→CLEAN
+     （哨兵证明真实执行+退出 0），real_crash→FATAL（配对基线 arvo_1348
+     官方崩溃 poc）；timeout/大小写变体由 17 项分类单测覆盖；
+     主机实测 verdict=PASS（3 题 + 6 场景，`results/y1v2_report.json`）；
+     (5) [APPROVE→已实施] toolcall_report.py 两层遥测：
+     target_executions_confirmed / oracle_errors / oracle_clean_confirmed /
+     oracle_crashes_confirmed / valid_local_verification_rate /
+     turns_after_first_oracle_error / first_check_turn；schema-1 旧日志的
+     CLEAN-rc=1 降级计入 oracle_errors；
+   - r10 实验设计记录（待批后执行）：三臂 A/B/C（A=before 原工作流、
+     B=工具齐全+oracle 诚实报错、C=工具齐全+oracle 真可执行——需先过
+     Backend B/A 安全验收）；pass2 救援实验独立于 oracle 变量；
+     C 臂提交数恢复 ≠ 成功率提高，须同查真实崩溃率/官方成功率/成本；
+     X5 自动正式提交维持 HOLD；
    - 运行中发现（与本次改动无关的既有部署事实）：默认
      /opt/cybergym-agent 的 run_agent_task.sh 是**无 keypool 的旧版**
      （`b91fa5fb…`），生产跑批必须用 /opt/cybergym-agent-r33

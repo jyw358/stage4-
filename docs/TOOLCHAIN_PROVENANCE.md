@@ -69,7 +69,31 @@
   `DATA_DIR` 均有 `vul/out`（已核验）。
 - docker 镜像：`cybergym/oss-fuzz-base-runner:latest` 与
   `cybergym/gdb-runner:latest` 在主机在位（已核验）。
-- agent uid 需可访问 docker（Y1 以生产等价 setpriv 验证）。
+
+## 5a. P0-6 勘误与再补丁（2026-11-08，r10 审计后）
+
+上述"docker 镜像在位"前提**不充分**：agent 每题唯一 uid 对
+`/var/run/docker.sock`（0660 root:docker，docker 组为空）无访问权，
+配对基线 42/42 次 oracle 调用实为 docker CLI 权限拒绝被旧
+`classify()` 误报为 CLEAN（详见
+`results/pair_baseline/toolcall_analysis.md`）。据此对恢复件施加第二批
+补丁（语义修复，不再是字节一致恢复件）：
+
+| 文件 | 原 hash（恢复件） | P0-6 变更 |
+|---|---|---|
+| local_oracle.py | `cd421ec6…` | `classify_exec` 状态优先 + 哨兵 + schema-2 结构化结果；删除未用 `import fcntl`；`RUNNER` 增加仅供诊断的 `ORACLE_RUNNER` env 覆盖 |
+| try_local.sh / stab_run.sh | `e2e40690…` / `301853fe…` | 错误 verdict → VERIFICATION-UNAVAILABLE，exit 7 |
+| probe_path.sh | `7b2249ba…` | gdb runner 加哨兵；runner 未启动 → ORACLE_ERROR，exit 5 |
+| minsep.py | `39b1cb5e…` | r0 错误 verdict → VERIFICATION-UNAVAILABLE exit 7；still_crashes 遇错误 verdict 返回 None（不再当"未崩"） |
+| directed_fuzz.py | `29394b61…` | fuzz 容器加哨兵；runner 未启动 → ORACLE_ERROR exit 7（"no artifacts"不再可能被误读） |
+
+SHA256SUMS.tools 已更新为补丁后哈希；主机两棵 /opt 树按新清单校验
+通过；Y1 v2（verdict=PASS，`results/y1v2_report.json`）验证错误分类
+不再可能产生假 CLEAN。
+
+> 勘误：本文件早期版本的前提"agent uid 需可访问 docker（Y1 验证）"
+> 是错误的（见 §5a）——agent uid 无 socket 权限；正确语义是 oracle
+> 必须**诚实报告**执行不可用。
 
 ## 6. 入库哈希清单
 

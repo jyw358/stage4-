@@ -126,14 +126,31 @@ def main():
            "-v", f"{corp.resolve()}:/corpus",
            "-v", f"{arts.resolve()}:/artifacts",
            RUNNER, "bash", "-c",
-           f"env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS={asan} {inner}"]
+           f"echo __ORACLE_RUNNER_V2__; env LD_LIBRARY_PATH=/out-libs "
+           f"ASAN_OPTIONS={asan} {inner}"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True,
                            timeout=a.seconds + 90)
-        rc, tail = r.returncode, ((r.stdout or "") + (r.stderr or ""))[-1200:]
+        full = (r.stdout or "") + (r.stderr or "")
+        rc, tail = r.returncode, full[-1200:]
     except subprocess.TimeoutExpired:
         subprocess.run(["docker", "kill", cname], capture_output=True)
-        rc, tail = 124, "HARD WALL CLOCK KILL (container terminated)"
+        full, rc = "", 124
+        tail = "HARD WALL CLOCK KILL (container terminated)"
+    if "__ORACLE_RUNNER_V2__" not in full:
+        # P0-6: the fuzz RUNNER never started (docker permission/daemon) --
+        # fail closed; "no artifacts" here means NOTHING, do not interpret it.
+        _oracle_log({"tag": "directed_fuzz", "side": "vul", "target": target,
+                     "files": len(list(corp.glob('seed*'))), "perturb": None,
+                     "timeout": a.seconds, "verdict": "ORACLE_ERROR",
+                     "runner_started": False, "target_started": False,
+                     "runner_exit_code": rc, "target_exit_code": None,
+                     "runner_error_kind": "other", "sanitizer_detected": False,
+                     "tail": tail[-300:], "wall_s": round(time.time() - t0, 1)})
+        print("RESULT: ORACLE_ERROR (fuzz runner failed -- docker unavailable);")
+        print("local fuzzing is UNAVAILABLE, not empty. Do NOT conclude")
+        print("'no crash found'; treat this session as having no local signal.")
+        return 7
     _oracle_log({"tag": "directed_fuzz", "side": "vul", "target": target,
                  "files": len(list(corp.glob('seed*'))), "perturb": None,
                  "timeout": a.seconds, "verdict": f"DONE rc={rc}",

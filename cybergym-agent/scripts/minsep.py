@@ -36,12 +36,21 @@ def ddmin(data: bytes, oracle, max_calls: int):
         tmp = Path(os.environ.get("MINSEP_TMP", "/tmp")) / f"minsep-{os.getpid()}.bin"
         tmp.write_bytes(buf)
         r = oracle([str(tmp)])
+        if r["verdict"] in ("ORACLE_ERROR", "TARGET_LAUNCH_ERROR", "UNKNOWN"):
+            return None                       # oracle failed -- never treat as
+                                              # "does not crash" (P0-6)
         return r["verdict"] in ("FATAL", "NONFATAL") and r["sig"] == ORIG_SIG
 
     r0 = None
     tmp = Path(os.environ.get("MINSEP_TMP", "/tmp")) / f"minsep-{os.getpid()}.bin"
     tmp.write_bytes(data)
     r0 = oracle([str(tmp)])
+    if r0["verdict"] in ("ORACLE_ERROR", "TARGET_LAUNCH_ERROR", "UNKNOWN"):
+        print(f"VERIFICATION-UNAVAILABLE: vul verdict={r0['verdict']} "
+              f"kind={r0.get('runner_error_kind')} -- the local oracle could NOT")
+        print("execute the target; this is NOT a no-crash result. Treat local")
+        print("verification as unavailable; do not minimise on this signal.")
+        return None, -1, r0
     if r0["verdict"] not in ("FATAL", "NONFATAL"):
         print(f"NOT-CRASHING: vul verdict={r0['verdict']} -- minsep needs a local crash first")
         return None, 0, r0
@@ -87,7 +96,7 @@ def main():
 
     mini, calls, r0 = ddmin(data, lambda fs: run_side(vi, fs, tag="minsep_vul"), a.max_calls)
     if mini is None:
-        return 5
+        return 7 if calls == -1 else 5
     out = Path(str(a.poc) + ".min.bin")
     out.write_bytes(mini)
     print(f"MINIMISED {len(data)} -> {len(mini)} bytes in {calls} oracle calls "

@@ -27,6 +27,13 @@ print(f"VUL: verdict={v['verdict']} rc={v['rc']} sig={v['sig'][:90]!r}")
 for l in v["tail"].splitlines():
     if "ERROR:" in l or "SUMMARY:" in l or "MemorySanitizer" in l:
         print("  ", l.strip()[:160])
+if v["verdict"] in ("ORACLE_ERROR", "TARGET_LAUNCH_ERROR", "UNKNOWN"):
+    print(f"RESULT: VERIFICATION-UNAVAILABLE (verdict={v['verdict']} "
+          f"kind={v.get('runner_error_kind')}) -- the local oracle could NOT")
+    print("execute the target. This is NOT a no-trigger result: do NOT keep")
+    print("mutating on this signal. Treat local verification as unavailable;")
+    print("rely on source reading and spend check.py budget deliberately.")
+    sys.exit(7)
 if v["verdict"] == "TIMEOUT":
     print("RESULT: TIMEOUT (10 s server-aligned kill)")
     sys.exit(6)

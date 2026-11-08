@@ -28,6 +28,12 @@ sigs = collections.Counter()
 rows = []
 for i in range(n):
     r = run_side(vi, [poc], perturb=PERTURB[i % len(PERTURB)], tag="stab")
+    if r["verdict"] in ("ORACLE_ERROR", "TARGET_LAUNCH_ERROR", "UNKNOWN"):
+        print(f"run {i+1}/{n} -> {r['verdict']} kind={r.get('runner_error_kind')}")
+        print("--- VERIFICATION-UNAVAILABLE: the local oracle could NOT execute")
+        print("the target; this is NOT a flaky/no-crash signal. Stop probing;")
+        print("treat local verification as unavailable.")
+        sys.exit(7)
     sigs[(r["verdict"], r["sig"])] += 1
     rows.append((i + 1, PERTURB[i % len(PERTURB)], r["verdict"], r["sig"][:70], r["rc"]))
     print(f"run {i+1}/{n} MALLOC_PERTURB_={PERTURB[i % len(PERTURB)] or 'unset':>5} "
