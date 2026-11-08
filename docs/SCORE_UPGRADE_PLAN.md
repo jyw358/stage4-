@@ -93,8 +93,18 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
    HOME/TMPDIR），try_local/stab_run/minsep/directed_fuzz 真实 docker
    oracle 执行——报告 `results/y1_selfcheck_report.json`，verdict=PASS；
    （工具使用**转化**遥测待真实 agent 会话，随 P0-3 基线跑采集）
-5. [ ] 建立可复核新基线（P0-3 双验证：5-10 题环境回归 + 12-20 题冻结
+5. [~] 建立可复核新基线（P0-3 双验证：5-10 题环境回归 + 12-20 题冻结
    配对，记录工具可用性/成功率/成本）；
+   - 生产树滚动已执行（2026-11-08T06:41Z）：两棵 /opt 树 `scripts/`
+     安装 14 件（13 工具 + 新 make_agent_ws.py），`sha256sum -c
+     SHA256SUMS.tools` 两树全 OK；备份
+     `/data2/backup/pre-pr-a-20261108T064133/`（旧 make_agent_ws
+     `aa0dd5fa…` 原样保留）；
+   - 5-10 题环境回归（生产树 -r33、8 题、uid 60101）：verdict=PASS，
+     11/11 工具 8/8 started_ok——`results/y1_envreg_prod.json`；
+   - 12 题冻结配对（`/data2/arms/pair/queue12.json` sha256
+     `572c7163…`；before/after 两臂仅差 scripts 目录，base 复制自
+     /opt/cybergym-agent）已启动；历史 formal50 30% 结果未覆盖；
 6. [ ] 启动 LLVM coverage / Clang AST 原型（独立分支，不改正式评分与
    提交路径；结果 schema 版本化，Clang AST 调用图/崩溃判定与自研输出
    **不保证语义等价，不可比处标 unknown**）。
