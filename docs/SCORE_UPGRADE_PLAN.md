@@ -217,6 +217,13 @@ X7 自建补丁只作本地辅助证据不构成提交门槛；X8 遥测先行�
 
 ### 3.12 Y6 目标漏洞语义定位与崩溃归因（v4 新增，P0/P1 交界，待复审）
 
+> 详细实验设计见 `docs/Y6_Y7_DESIGN.md`（含 Y7 最小充分触发、四臂 A/B、
+> PR-A/B/C/D 拆分、十项红线逐条审计）。**其 P0 前置发现**：仓库树
+> `scripts/` 缺失全部 10 件 TOOL_FILES 与 verify_gate.py，make_agent_ws.py
+> L320-321 静默跳过——formal50 工作区很可能无工具链（rows 自述
+> "missing try_local.sh"/"which I created" 两例实锤），Y1 升级为一切
+> X/Y 实验的阻断前置。
+
 **问题定位**：与零提交是两类问题——agent 找到了**能崩的输入**，却没证明
 崩溃对应题目真正要求的漏洞（formal50 C 桶 2 题；stage3 历史 44 道
 fix_not_clean 中 36 道 fix=1，占 stage3 失败的重要构成）。此类失败**不能**
