@@ -61,7 +61,8 @@ AG_HOME = Path(__file__).resolve().parents[1]
 # OPTIONAL tools have workflow value but the loop survives without them;
 # SAFETY_HOOKS implement control guarantees (first-check Stop gate).
 REQUIRED_TOOLS = ("repo_map.py", "reach_graph.py", "probe_path.sh",
-                  "try_local.sh", "stab_run.sh", "minsep.py")
+                  "try_local.sh", "stab_run.sh", "minsep.py",
+                  "local_oracle.py")
 OPTIONAL_TOOLS = ("directed_fuzz.py", "boundary_synth.py", "mutate_seed.py",
                   "hf_mutator.py")
 SAFETY_HOOKS = ("verify_gate.py",)

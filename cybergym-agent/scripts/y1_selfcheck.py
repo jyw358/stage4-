@@ -40,7 +40,7 @@ from pathlib import Path
 AG_HOME = Path(__file__).resolve().parents[1]
 
 REQUIRED_TOOLS = ("repo_map.py", "reach_graph.py", "probe_path.sh",
-                  "try_local.sh", "stab_run.sh", "minsep.py")
+                  "try_local.sh", "stab_run.sh", "minsep.py", "local_oracle.py")
 OPTIONAL_TOOLS = ("directed_fuzz.py", "boundary_synth.py", "mutate_seed.py",
                   "hf_mutator.py")
 
@@ -53,6 +53,7 @@ SMOKE = {
     "try_local.sh":     "printf 'x' > _y1_seed.bin && ./try_local.sh _y1_seed.bin",
     "stab_run.sh":      "printf 'x' > _y1_seed.bin && ./stab_run.sh _y1_seed.bin 2",
     "minsep.py":        "printf 'xxxx' > _y1_seed.bin && timeout 60 python3 minsep.py _y1_seed.bin",
+    "local_oracle.py":  "python3 -c 'import local_oracle; print(local_oracle.DATA_DIR)'",
     "directed_fuzz.py": "printf 'xxxx' > _y1_seed.bin && timeout 90 python3 directed_fuzz.py _y1_seed.bin --seconds 30",
     "boundary_synth.py":"printf 'xxxx' > _y1_seed.bin && python3 boundary_synth.py _y1_seed.bin",
     "mutate_seed.py":   "printf 'xxxx' > _y1_seed.bin && python3 mutate_seed.py _y1_seed.bin 0:1:flip",
@@ -110,7 +111,14 @@ def run_tool_smoke(ws: Path, tool: str, agent_uid: int,
         dur = round(time.time() - t0, 1)
         out = (r.stdout or "") + (r.stderr or "")
         env_broken = any(p in out for p in ENV_FAILURE_PATTERNS)
-        classification = ("env_failure" if env_broken else "started_ok")
+        if env_broken:
+            classification = "env_failure"
+        elif "NO_LOCAL_BUILD" in out:
+            # the tool itself started fine; the task has no prebuilt local
+            # vul binaries -- an infra/provisioning state, not a tool defect
+            classification = "no_local_build"
+        else:
+            classification = "started_ok"
         return {"classification": classification, "rc": r.returncode,
                 "duration_s": dur, "output_head": out[:400]}
     except subprocess.TimeoutExpired:
