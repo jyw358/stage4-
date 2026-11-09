@@ -102,6 +102,11 @@ def main():
                   f"search with your seed + dictionary instead")
             a.focus = None
 
+    # r16: converge containers orphaned by crashed predecessors (labels +
+    # age filter never touch an active sibling)
+    from local_oracle import sweep_label
+    sweep_label("cybergym.directed_fuzz=1")
+
     print(f"directed fuzz: engine={engine} focus={a.focus or '-'} "
           f"seconds={a.seconds} fork={a.fork} seeds={len(list(corp.glob('seed*')))}")
     t0 = time.time()
@@ -134,8 +139,9 @@ def main():
                  "-timeout=8", f"-max_total_time={a.seconds}",
                  f"-artifact_prefix=/artifacts/", "/corpus"]
         inner = " ".join(args)
-    cname = f"dfz-{os.getpid()}"
+    cname = f"dfz-{os.getpid()}-{int(time.time())}"
     cmd = ["docker", "run", "--rm", "--name", cname,
+           "--label", "cybergym.directed_fuzz=1",
            "-v", f"{bin_dir / 'out'}:/out:ro",
            "-v", f"{bin_dir / 'libs'}:/out-libs:ro",
            *dict_dir_mount,
@@ -158,6 +164,12 @@ def main():
         stdout_text, full, rc = "", "", 124
         tail = (f"HARD WALL CLOCK KILL (container terminated, "
                 f"cleanup={cleanup}, kill_rc={kill_rc})")
+    except BaseException:
+        # r16: caller interrupt must not orphan the fuzz container
+        from local_oracle import _kill_and_verify
+        cleanup, _krc = _kill_and_verify(cname)
+        print(f"INTERRUPTED: verified container cleanup -> {cleanup}")
+        raise
     if stdout_text.splitlines()[:1] != ["__ORACLE_RUNNER_V2__"]:
         # P0-6: the fuzz RUNNER never started (docker permission/daemon) --
         # fail closed; "no artifacts" here means NOTHING, do not interpret it.

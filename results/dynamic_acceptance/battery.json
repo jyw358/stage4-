@@ -1,0 +1,61 @@
+{
+  "ts": "2026-11-09T07:11:07Z",
+  "local_oracle": {
+    "F1_normal_exit": {
+      "verdict": "CLEAN"
+    },
+    "F2_outer_timeout": {
+      "verdict": "ORACLE_ERROR",
+      "kind": "runner_hang",
+      "cleanup": "cleanup_verified",
+      "residue": 0
+    },
+    "F3_daemon_unreachable": {
+      "verdict": "ORACLE_ERROR",
+      "kind": "daemon_unreachable"
+    },
+    "F4_inspection_failure": {
+      "cleanup": "inspection_incomplete"
+    },
+    "F5_kill_failure": {
+      "cleanup": "cleanup_failed"
+    }
+  },
+  "directed_fuzz": {
+    "L1_normal": {
+      "rc": 0,
+      "residue": 0
+    },
+    "L2_timeout_verified_kill": {
+      "rc": 7,
+      "tail": "'no crash found'; treat this session as having no local signal.",
+      "residue": 0
+    },
+    "L3_sigint_guard": {
+      "rc": -2,
+      "saw_cleanup": true,
+      "residue": 0
+    },
+    "L4_sigkill_crash_converges": {
+      "orphan": 1,
+      "sweep": [
+        {
+          "id": "5753ffde70eb",
+          "age": "10 seconds ago",
+          "cleanup": "cleanup_verified"
+        }
+      ],
+      "residue": 0
+    },
+    "L5_external_container_kill": {
+      "rc": 7,
+      "residue": 0
+    }
+  },
+  "residue": {
+    "local_oracle_labeled": 0,
+    "directed_fuzz_labeled": 0
+  },
+  "pass": true,
+  "residue_ok": true
+}

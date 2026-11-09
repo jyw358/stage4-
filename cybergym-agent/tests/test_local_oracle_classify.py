@@ -342,5 +342,86 @@ class TestPostAbnormalCleanupThreeWay(unittest.TestCase):
         self.assertEqual(cleanup, "cleanup_failed")
 
 
+class TestSweepLabel(unittest.TestCase):
+    """r16: orphaned-container convergence sweep (age-filtered, verified)."""
+
+    def test_age_minutes_parsing(self):
+        self.assertLess(lo._age_minutes("About a minute"), 2.0)
+        self.assertGreaterEqual(lo._age_minutes("About a minute"), 0.9)
+        self.assertEqual(lo._age_minutes("30 seconds"), 0.5)
+        self.assertEqual(lo._age_minutes("2 hours"), 120.0)
+        self.assertEqual(lo._age_minutes("3 days"), 3 * 1440.0)
+        self.assertEqual(lo._age_minutes(""), 0.0)
+        self.assertEqual(lo._age_minutes("weird text"), 999.0)
+
+    def _ps_result(self, stdout=""):
+        import types
+        r = types.SimpleNamespace(returncode=0, stdout=stdout)
+        import unittest.mock as mock
+        return mock.patch.object(
+            lo.subprocess, "run",
+            side_effect=lambda *a, **k: r if a and a[0][:2] == ["docker", "ps"]
+            else mock.DEFAULT)
+
+    def test_young_and_exited_skipped_old_killed(self):
+        import unittest.mock as mock
+        lines = ("aaa\t30 seconds\tUp 30 seconds\n"
+                 "bbb\tAbout a minute\tUp About a minute\n"   # young: skip
+                 "ccc\t2 hours\tUp 2 hours\n"                  # old: kill
+                 "ddd\t3 hours\tExited (0) 3 hours ago\n")    # exited: skip
+        with self._ps_result(lines), \
+                mock.patch.object(lo, "_kill_and_verify",
+                                  return_value=("cleanup_verified", 0)) as kv:
+            res = lo.sweep_label("cybergym.local_oracle=1")
+        self.assertEqual([r["id"] for r in res], ["ccc"])
+        kv.assert_called_once_with("ccc")
+
+    def test_inspection_failure_reported(self):
+        import unittest.mock as mock
+        with mock.patch.object(
+                lo.subprocess, "run",
+                side_effect=lo.subprocess.TimeoutExpired("docker", 1)):
+            res = lo.sweep_label("x=1")
+        self.assertEqual(res[0]["cleanup"], "inspection_incomplete")
+
+
+class TestContainerGoneMatching(unittest.TestCase):
+    """r16 battery fix: gone-check must match container ID **or** name
+    (the old `--filter name=` never matched a bare ID -> false positive)."""
+
+    def _ps(self, stdout):
+        import types
+        import unittest.mock as mock
+        r = types.SimpleNamespace(returncode=0, stdout=stdout)
+        return mock.patch.object(lo.subprocess, "run", return_value=r)
+
+    def test_gone_by_id_and_by_name(self):
+        listing = "aaa111 lo-abc\nddd222 dfz-9\n"
+        # present by id
+        with self._ps(listing):
+            self.assertIs(lo._container_gone("aaa111", tries=1), False)
+        # present by name
+        with self._ps(listing):
+            self.assertIs(lo._container_gone("dfz-9", tries=1), False)
+        # absent (old bug: id filter never matched -> spurious True)
+        with self._ps(listing):
+            self.assertIs(lo._container_gone("zzz999", tries=1), True)
+        with self._ps(""):
+            self.assertIs(lo._container_gone("anything", tries=1), True)
+
+    def test_inspection_error_is_none(self):
+        import types
+        import unittest.mock as mock
+        with mock.patch.object(
+                lo.subprocess, "run",
+                side_effect=lo.subprocess.TimeoutExpired("docker", 1)):
+            self.assertIsNone(lo._container_gone("x", tries=1))
+        with mock.patch.object(
+                lo.subprocess, "run",
+                return_value=types.SimpleNamespace(returncode=1,
+                                                   stdout="")):
+            self.assertIsNone(lo._container_gone("x", tries=1))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -327,21 +327,32 @@ def _copy_input(src, dst):
 
 
 def _container_gone(cname, tries=3, delay=1.0):
-    """Prove the container is really gone (r14-review B2).
+    """Prove the container is really gone (r14-review B2; r16 battery fix).
 
-    Returns True (provably absent) / False (still listed) / None
-    (inspection itself failed -> inspection_incomplete).  Absence of
-    evidence is not cleanup proof."""
+    Matches by container ID **or** name -- `--filter name=` alone never
+    matches a bare ID, which made kill-by-ID verification a FALSE
+    positive (the filter simply never matched).  Returns True (provably
+    absent) / False (still listed) / None (inspection itself failed ->
+    inspection_incomplete).  Absence of evidence is not cleanup proof."""
+    target = (cname or "").strip()
+    if not target:
+        return None
     for _ in range(tries):
         try:
             r = subprocess.run(
-                ["docker", "ps", "-aq", "--filter", f"name={cname}"],
+                ["docker", "ps", "-aq", "--format", "{{.ID}} {{.Names}}"],
                 capture_output=True, text=True, timeout=15)
         except (subprocess.TimeoutExpired, OSError):
             return None
         if r.returncode != 0:
             return None
-        if not (r.stdout or "").strip():
+        found = False
+        for line in (r.stdout or "").splitlines():
+            cid, _, name = line.partition(" ")
+            if cid == target or name == target:
+                found = True
+                break
+        if not found:
             return True
         time.sleep(delay)
     return False
@@ -387,6 +398,52 @@ def _post_abnormal_cleanup(cname):
     if gone is False:
         return _kill_and_verify(cname)
     return "inspection_incomplete", None
+
+
+_AGE_RE = re.compile(r"(\d+)\s*(second|minute|hour|day|week)s?")
+_AGE_UNITS = {"second": 1 / 60, "minute": 1.0, "hour": 60.0,
+              "day": 1440.0, "week": 10080.0, "month": 43200.0,
+              "year": 525600.0}
+
+
+def _age_minutes(running_for: str) -> float:
+    txt = running_for or ""
+    m = _AGE_RE.search(txt)
+    if m:
+        return int(m.group(1)) * _AGE_UNITS[m.group(2)]
+    for word, mul in _AGE_UNITS.items():      # "About a minute/an hour"...
+        if word in txt:
+            return mul
+    return 999.0 if txt.strip() else 0.0      # unknown non-empty -> old
+
+
+def sweep_label(label: str, min_age_min: float = 15.0):
+    """r16 dynamic-acceptance hardening: SIGKILL cannot be trapped, so a
+    crashed caller may orphan its container.  Convergence contract: the
+    NEXT tool invocation sweeps ORPHANED containers carrying the tool's
+    label (running longer than min_age_min -- never a healthy sibling:
+    oracle containers live <= timeout+150s) with verified disappearance.
+    Returns per-container results."""
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "-a", "--filter", f"label={label}",
+             "--format", "{{.ID}}\t{{.RunningFor}}\t{{.Status}}"],
+            capture_output=True, text=True, timeout=15)
+    except (subprocess.TimeoutExpired, OSError):
+        return [{"id": None, "cleanup": "inspection_incomplete"}]
+    out = []
+    for line in (r.stdout or "").splitlines():
+        parts = (line or "").split("\t")
+        if len(parts) < 3:
+            continue
+        cid, age_txt, status = parts[0], parts[1], parts[2]
+        if "Exited" in status:
+            continue                      # --rm leftovers are gone anyway
+        if _age_minutes(age_txt) < min_age_min:
+            continue                      # possibly an ACTIVE sibling
+        cs, _ = _kill_and_verify(cid)
+        out.append({"id": cid, "age": age_txt, "cleanup": cs})
+    return out
 
 
 def run_side(info, files, timeout: int = None, perturb=None, tag=""):
@@ -456,7 +513,9 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
                  + " ".join(mounted)
                  + f"; echo __ORACLE_TARGET_EXIT_V2__$?")
         cname = f"lo-{uuid.uuid4().hex[:10]}"
+        sweep_label("cybergym.local_oracle=1")   # r16: converge predecessors
         cmd = ["docker", "run", "--rm", "--name", cname,
+               "--label", "cybergym.local_oracle=1",
                "-v", f"{bin_dir / 'out'}:/out:ro",
                "-v", f"{bin_dir / 'libs'}:/out-libs:ro",
                "-v", f"{tmp}:/poc:ro", RUNNER, "bash", "-c", inner]
@@ -500,6 +559,17 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
                     "runner_error_kind": "docker_missing",
                     "sanitizer_detected": False, "sig": "",
                     "tail": f"docker invocation failed: {exc}"[:300]}
+        except BaseException:
+            # r16: caller interrupt (KeyboardInterrupt/SIGTERM...) must not
+            # orphan the container; verified cleanup, then re-raise.
+            cleanup, _krc = _kill_and_verify(cname)
+            _oracle_log({"tag": tag or "run_side", "side": str(bin_dir),
+                         "target": target, "files": len(mounted),
+                         "perturb": perturb, "timeout": timeout,
+                         "verdict": "ORACLE_ERROR",
+                         "runner_error_kind": "caller_interrupt",
+                         "cleanup": cleanup})
+            raise
         t2 = datetime.datetime.utcnow()
         # r14-review B2 + r15 P0: abnormal container exit needs an
         # independent resource-state check, with an explicit THREE-WAY
