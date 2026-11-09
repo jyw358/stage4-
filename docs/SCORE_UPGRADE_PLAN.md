@@ -176,9 +176,12 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
    - r10 发车门槛进度（7 项）：oracle 状态分类 ✅、真实目标可运行 ✅
      （root 侧）、Y1 不再假阳性 ✅、agent 正确使用反馈 ✅（B 臂）、
      评分防守不变量 ✅（verify 0 违规）；no-Docker 隔离 ⏸（C 臂前置）、
-     pass2 独立回归 ⏳（实验已设计待批，`docs/P2_RESCUE_DESIGN.md`：
-     四分类 triage + 类别提示词 + env 门控 pass2-only 重放，对照=B 臂
-     7 会话 0 check，主门槛 ≥4/7 会话出 check）——**5/7**；
+     pass2 独立回归 ⏳——**5/7**。r11 审计裁决 pass2 v1 设计
+     REQUEST CHANGES：已按裁决实现 v2（`pass2_triage.py` files-only+
+     加固 exec+A1/A2+错误分类学、四类提示词含 D 类有界救援、非评分
+     `check_double.py`；单测 11/11）；历史 7 题改**非评分诊断回放**
+     （E1 红线），生产效果须新冻结题完整 A/B 证明——设计全文
+     `docs/P2_RESCUE_DESIGN.md` v2；
    - 运行中发现（与本次改动无关的既有部署事实）：默认
      /opt/cybergym-agent 的 run_agent_task.sh 是**无 keypool 的旧版**
      （`b91fa5fb…`），生产跑批必须用 /opt/cybergym-agent-r33
