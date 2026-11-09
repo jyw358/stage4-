@@ -18,12 +18,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 exec python3 - "$SCRIPT_DIR" "$TID" "$@" <<'PYEOF'
 import pathlib, shutil, subprocess, sys, tempfile
 sys.path.insert(0, sys.argv[1])
-from local_oracle import side_info
+from local_oracle import side_info, gdb_loc_ok
 
 GDB_RUNNER = "cybergym/gdb-runner:latest"  # stock runner lacks gdb
 
 tid_full = sys.argv[2]
 poc, locs = sys.argv[3], sys.argv[4:]
+# r14-review C3: breakpoint locations are agent-supplied and end up inside
+# a bash -c GDB command string -- validate against a strict allowlist
+# grammar BEFORE constructing any command.
+bad = [l for l in locs if not gdb_loc_ok(l)]
+if bad:
+    print(f"REFUSE: invalid breakpoint location(s): {bad}")
+    print("allowed: function | file:line | *0xADDR (letters, digits,")
+    print("_ . : / + - only; no quotes/semicolons/spaces/substitution)")
+    sys.exit(2)
 vi = side_info(tid_full, "vul")
 if not vi:
     print("NO_LOCAL_BUILD: no prebuilt vul binaries for this task")

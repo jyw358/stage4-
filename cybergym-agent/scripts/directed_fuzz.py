@@ -30,7 +30,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from local_oracle import (run_side, side_info, _oracle_log, engine_of,
-                         DATA_DIR, RUNNER)
+                         DATA_DIR, RUNNER, focus_ok, dict_name_ok)
 
 TID = os.environ.get("CG_TASK_ID", "")
 
@@ -51,6 +51,19 @@ def main():
     a = ap.parse_args()
     a.seconds = min(max(a.seconds, 30), 1800)
     a.fork = min(max(a.fork, 1), 8)
+
+    # r14-review C4: agent-supplied identifiers are validated against a
+    # strict allowlist grammar BEFORE any shell command is constructed.
+    if a.focus and not focus_ok(a.focus):
+        print(f"REFUSE: --focus {a.focus!r} is not a valid symbol name "
+              f"(letters, digits, underscores, dots only)")
+        return 2
+    if a.dict:
+        dname = pathlib.Path(a.dict).name
+        if not dict_name_ok(dname):
+            print(f"REFUSE: dictionary filename {dname!r} is not a safe "
+                  f"basename (letters, digits, dot, dash, underscore only)")
+            return 2
 
     if not TID:
         print("CG_TASK_ID not set"); return 2

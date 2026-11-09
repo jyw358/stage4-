@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""minsep.py -- minimise a locally-crashing input, then ONE fix-side check.
+"""minsep.py -- minimise a locally-crashing input (VUL side only).
 
-Stage-1 S1.3: before spending an official check.py submission, shrink the
-candidate (classic delta debugging on bytes, guarded to the SAME crash
-signature), then run the fixed build once through the budgeted differential
-gate. A minimised input that crashes vul and leaves fix clean is the best
-possible submission candidate.
+Before spending an official check.py submission, shrink the candidate
+(classic delta debugging on bytes, guarded to the SAME crash signature).
+There is NO local fix-side access (stage3 contract, D4 strip): the official
+check.py fix_exit is the only differential.
 
-  python3 minsep.py poc.bin [--max-calls 40] [--no-fix-gate]
+  python3 minsep.py poc.bin [--max-calls 40]
 
-Writes <poc>.min.bin. Oracle = local vulnerable build (docker, ~2-10 s/call).
-The final fix-side run consumes one of the 5 per-task differential slots.
+Writes <poc>.min.bin (atomic tmp+rename) only after a final full re-run of
+the published bytes reproduces the crash signature; budget-stopped partial
+results are explicitly labelled in the output and re-verified the same way.
+Oracle = local vulnerable build (docker, ~2-10 s/call).
 """
 import argparse
 import os
@@ -118,18 +119,45 @@ def main():
         # -1/-3 unavailable -> 7; -2 timeout -> 6; 0 not-crashing -> 5
         return {-1: 7, -3: 7, -2: 6, 0: 5}[calls]
     budget_stopped = calls >= a.max_calls
-    out = Path(str(a.poc) + ".min.bin")
-    out.write_bytes(mini)
-    print(f"{'BUDGET-STOP (partial) ' if budget_stopped else ''}"
-          f"MINIMISED {len(data)} -> {len(mini)} bytes in {calls} oracle calls "
-          f"(sig: {r0['sig'][:80]})")
-    print(f" wrote {out}")
 
-    # FAQ compliance: no local fix access. check.py official fix_exit is the
-    # only differential; submit the minimised stable-crash candidate.
-    print("RESULT: MINIMISED-CANDIDATE -- vul crashes with stable signature; "
-          "submit via check.py (official fix_exit will filter)")
-    return 1
+    # r14-review C2: final full re-verification of the EXACT bytes we are
+    # about to publish; publish atomically (tmp + os.replace) only on a
+    # reproduced signature.
+    workdir = Path(tempfile.mkdtemp(prefix="minsep-pub-"))
+    try:
+        cand = workdir / "publish.bin"
+        cand.write_bytes(mini)
+        rf = run_side(vi, [str(cand)], tag="minsep_reverify")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    reverified = (rf.get("verdict") in ("FATAL", "NONFATAL")
+                  and rf.get("sig") == r0["sig"])
+
+    out = Path(str(a.poc) + ".min.bin")
+    if reverified:
+        tmp_out = out.with_name(out.name + ".tmp")
+        tmp_out.write_bytes(mini)
+        os.replace(tmp_out, out)             # atomic publish
+        print(f"{'BUDGET-STOP (partial result) ' if budget_stopped else ''}"
+              f"MINIMISED {len(data)} -> {len(mini)} bytes in {calls} oracle "
+              f"calls (sig: {r0['sig'][:80]})")
+        print(f" wrote {out} (final re-verify: {rf['verdict']}, same signature)")
+        if budget_stopped:
+            print(" NOTE: budget_stopped=true -- this is a PARTIAL result, "
+                  "not a fully converged minimisation")
+        print("RESULT: MINIMISED-CANDIDATE -- vul crashes with stable "
+              "signature; submit via check.py (official fix_exit will filter)")
+        return 1
+    # re-verify failed or was unavailable: do NOT publish as a verified
+    # candidate; keep the bytes under an explicit unverified name.
+    uv = Path(str(a.poc) + ".min.unverified.bin")
+    uv.write_bytes(mini)
+    print(f"REVERIFY-FAILED: final re-run verdict={rf.get('verdict')} "
+          f"kind={rf.get('runner_error_kind')} "
+          f"sig_match={rf.get('sig') == r0['sig']}")
+    print(f" bytes kept as {uv} -- NOT a verified candidate; do not submit "
+          "on this signal")
+    return 7
 
 
 if __name__ == "__main__":
