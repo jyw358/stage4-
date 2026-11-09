@@ -101,9 +101,12 @@ class TestDecideAndRelevance(unittest.TestCase):
                     "    #1 0x22 in operator new")
         self.assertEqual(pt.relevance_of(no_frame, target),
                          "no_target_frame")
-        exec_r = [{"stable_fatal": True, "relevance": "target_frame"},
-                  {"stable_fatal": True, "relevance": "no_target_frame"}]
-        self.assertEqual(pt.decide(["poc.bin"], [], exec_r)[0], "A1")
+        # r12: project frame alone does NOT confirm the target bug -- any
+        # stable dynamic FATAL is CRASH_TARGET_UNKNOWN -> A2, never A1
+        exec_r = [{"stable_fatal": True, "relevance": "target_frame"}]
+        cat, primary = pt.decide(["poc.bin"], [], exec_r)
+        self.assertEqual(cat, "A2")
+        self.assertEqual(primary["crash_label"], "CRASH_TARGET_UNKNOWN")
         exec_r2 = [{"stable_fatal": True, "relevance": "no_target_frame"}]
         self.assertEqual(pt.decide(["poc.bin"], [], exec_r2)[0], "A2")
         # oracle failure with candidates present stays B, never A
@@ -134,15 +137,19 @@ class TestPrompts(unittest.TestCase):
         p = self._all_prompts()
         self.assertIn("check.py poc.bin", p["A1"])
         self.assertIn("at most 2 turns", p["A2"])
+        self.assertIn("CRASH_TARGET_UNKNOWN", p["A2"])   # r12: no fake A1
         self.assertIn("At most 2 check.py", p["B"])
         self.assertIn("do not blind-submit", p["B"].lower())
         self.assertIn("possible generators", p["C"])
         self.assertIn("8 turns", p["D"])
         self.assertIn("UNSOLVED", p["D"])
         self.assertIn("did not", p["GENERIC"])   # classification not claimed
-        for text in p.values():
-            self.assertIn("Do NOT restart", text)
-            self.assertIn("FINAL submission", text)
+        for key, text in p.items():
+            self.assertIn("Do NOT restart", text, key)
+            self.assertIn("FINAL submission", text, key)
+        # r12: D has its own preamble -- no "first three actions build on
+        # existing workspace evidence" expectation for artifact-less tasks
+        self.assertNotIn("first three actions", p["D"])
 
 
 class TestCheckDouble(unittest.TestCase):
@@ -165,6 +172,7 @@ class TestCheckDouble(unittest.TestCase):
         self.assertEqual(row["size"], 16)
         self.assertEqual(len(row["sha256"]), 64)
         self.assertEqual(row["checks_after"], 1)
+        self.assertTrue(row["simulated"])   # r12: mark post-feedback as sim
 
     def test_budget_exhausted_path(self):
         (SCRATCH / ".checks").write_text("25", encoding="utf-8")

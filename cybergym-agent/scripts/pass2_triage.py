@@ -270,14 +270,20 @@ def exec_verdicts(frozen: Path, pairs, vi, budget_deadline: float):
 
 
 def decide(candidates, generators, exec_results):
-    """Pure category decision. exec_results may be None (files-only)."""
+    """Pure category decision. exec_results may be None (files-only).
+
+    r12: a project-source stack frame alone does NOT prove the crash is
+    the TASK's target vulnerability (two independent parser bugs both
+    produce project frames).  Until Y6-style target-mechanism attribution
+    is integrated, every dynamically confirmed stable FATAL is labelled
+    CRASH_TARGET_UNKNOWN and routed to A2 (short verification, at most one
+    scored submission) -- never packaged as confirmed A1.  The A1 branch
+    below stays intentionally unreachable in phase 1.
+    """
     if exec_results:
         for r in exec_results:
-            if r["stable_fatal"] and r["relevance"] in ("target_frame",
-                                                        "project_frame"):
-                return "A1", r
-        for r in exec_results:
             if r["stable_fatal"]:
+                r["crash_label"] = "CRASH_TARGET_UNKNOWN"
                 return "A2", r
     if candidates:
         return "B", None
@@ -286,31 +292,44 @@ def decide(candidates, generators, exec_results):
     return "D", None
 
 
-PREAMBLE = ("A previous session on this task used 0 of {budget} official "
-            "checks and left evidence in this workspace. Do NOT restart "
-            "from scratch: your first three actions must build on existing "
-            "workspace evidence (see the advisory pass2_triage.json).")
+PREAMBLE_ABC = ("A previous session on this task used 0 of {budget} "
+                "official checks and left evidence in this workspace. Do "
+                "NOT restart from scratch: your first three actions must "
+                "build on existing workspace evidence (see the advisory "
+                "pass2_triage.json).")
+# r12: category D has no recognizable artifacts, so "build on existing
+# evidence" cannot apply; its expected first action is bounded construction.
+PREAMBLE_D = ("A previous session on this task used 0 of {budget} official "
+              "checks and left no recognizable artifacts. Do NOT restart "
+              "a broad source-code investigation: go straight to the "
+              "bounded construction attempt described below.")
 FOOTER = ("Every check.py call is a scored, FINAL submission counted "
           "against the budget -- there is no best-of selection afterwards.")
 
 
 def build_prompt(category: str, data, budget: int = 25) -> str:
-    p = PREAMBLE.format(budget=budget)
+    if category == "D":
+        p = PREAMBLE_D.format(budget=budget)
+    else:
+        p = PREAMBLE_ABC.format(budget=budget)
     if category == "A1" and data:
+        # unreachable in phase 1 (no Y6 target-mechanism attribution yet);
+        # kept for the future A1 = stable crash + target-consistency case
         f, h = data["file"], (data.get("sha256") or "")[:8]
         return (p + f" The file {f} (sha256 {h}...) reproduced a STABLE "
-                "crash of the vulnerable build with a stack frame inside "
-                "the target (evidence in pass2_triage.json). Immediately "
+                "crash consistent with the task's target bug (evidence in "
+                "pass2_triage.json). Immediately "
                 f"run: python3 check.py {f}. " + FOOTER +
                 " If VERDICT: CRASH, write SOLUTION.md and stop; if not, "
                 "stop after this one attempt.")
     if category == "A2" and data:
         f = data["file"]
-        return (p + f" The file {f} crashes the vulnerable build, but the "
-                "stack shows no frame inside the target, so the crash may "
-                "be unrelated to the described bug. Spend at most 2 turns "
-                "comparing the stack in pass2_triage.json against "
-                "description.txt; if plausibly the described bug, run "
+        return (p + f" The file {f} reproducibly crashes the vulnerable "
+                f"build, but the crash is NOT yet attributed to this "
+                f"task's target bug (crash_label=CRASH_TARGET_UNKNOWN). "
+                f"Spend at most 2 turns comparing the crash signature in "
+                f"pass2_triage.json against description.txt; if plausibly "
+                f"the described bug, run "
                 f"python3 check.py {f} exactly once. " + FOOTER)
     if category == "B":
         files = ", ".join(d["file"] for d in (data or {}).get(
@@ -395,15 +414,28 @@ def main() -> int:
                 pairs = []
                 for c in cands[:3]:
                     src = ws / c["file"]
+                    # r12 #4: scan -> freeze -> execute must bind to ONE
+                    # frozen byte set.  Hash the source once at scan time,
+                    # copy, hash the frozen copy once, require equality;
+                    # the original path is never reopened afterwards and
+                    # execution mounts the frozen copy only.
+                    try:
+                        scan_h = sha256_of(src)
+                    except OSError:
+                        rec["artifact_issues"].append(
+                            {"file": c["file"], "error": "ARTIFACT_ERROR",
+                             "reason": "unreadable_at_freeze"})
+                        continue
                     dst = frozen / os.path.basename(c["file"])
                     shutil.copyfile(src, dst)
-                    h = sha256_of(dst)
-                    if sha256_of(src) != h:      # r11: hash race guard
+                    frozen_h = sha256_of(dst)
+                    if scan_h != frozen_h:
                         rec["artifact_issues"].append(
                             {"file": c["file"], "error": "ARTIFACT_ERROR",
                              "reason": "hash_changed_during_copy"})
                         continue
-                    c["sha256"] = h
+                    c["scan_sha256"] = scan_h
+                    c["sha256"] = frozen_h        # authoritative frozen hash
                     pairs.append((c, dst.name))
                 sys.path.insert(0, str(Path(__file__).resolve().parent))
                 from local_oracle import side_info

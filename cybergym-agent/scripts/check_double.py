@@ -47,7 +47,8 @@ def main() -> int:
         fh.write(json.dumps({"ts": round(time.time(), 3),
                              "argv": sys.argv[1:],
                              "sha256": digest, "size": size,
-                             "checks_after": n + 1}) + "\n")
+                             "checks_after": n + 1,
+                             "simulated": True}) + "\n")
 
     print("VERDICT: NO_TRIGGER")
     print("vul_exit=0")

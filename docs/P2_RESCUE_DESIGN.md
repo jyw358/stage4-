@@ -1,136 +1,143 @@
-# pass2 四分类救援实验设计 v2（r11 对抗性审计后，2026-11-09）
+# pass2 四分类救援实验设计 v3（r12 对抗性审计后，2026-11-09）
 
-状态：**v1 被 r11 裁决 REQUEST CHANGES；本 v2 按逐项裁决修订**。
-已放行：分类器（files-only）与四类提示词开发、历史 7 题**非评分**诊断
-回放。维持 HOLD：历史题正式重跑（E1 红线）、root `--exec` 进生产路径、
-X5 自动提交、生产默认启用。v1 原文要点保留在 git 历史（commit 308e19c）。
+状态：**r12 裁决 CONDITIONAL APPROVE——阶段 1A 修复后可执行；1B 与
+生产维持 HOLD**。v3 落地三项阻断修复、五个逻辑修订与三臂对照。
+历史版本：v1（308e19c，r11 REQUEST CHANGES）、v2（96c3600）。
 
-## 1. 问题与病因（不变）
+## 1. 病因（不变）
 
-pass2 触发条件（checks==0 ∧ ledger 空）下 7/7 会话 0 check / 0 提交；
-wrapper `be8f9b8a…` 第 585 行固定提示词命令 agent "from description.txt
-… write poc_gen.py"——**从零开始、无视 pass1 存货**。7 个空转工作区
-存货实测：有候选 2 题、仅生成器 2 题、无产物 3 题。
+wrapper `be8f9b8a…` 第 585 行 pass2 固定提示词命令 agent 从零写
+poc_gen.py，无视 pass1 存货；B 臂 7/7 会话 0 check / 0 提交。
+7 空转工作区存货：有候选 2、仅生成器 2、无产物 3（类别由运行时
+triage 决定，不做预标注）。
 
-> r11 勘误采纳：65765 等任务**不得预标 A/B**——类别只能由运行时的
-> 可信盘点（triage）结果决定；审计者的历史知识不得注入正式 agent
-> 策略。下文表格中"before 臂曾证明可崩"仅作诊断参考。
+## 2. 组件（v3 状态）
 
-## 2. 组件（按 r11 修订）
+### 2.1 `scripts/pass2_triage.py`（已实现 + r12 修订）
 
-### 2.1 `scripts/pass2_triage.py`（已实现，root 侧）
+- **files-only（阶段 1A 唯一模式）**：只读盘点，命名分层排序，
+  生成器仅 `possible_generator`，可信工具集来自 ws_manifest.json。
+- **A1 不可达（r12 #1）**：项目源码栈帧 ≠ 目标题漏洞。未接入 Y6
+  目标机制归因前，任何动态稳定 FATAL 一律标
+  `crash_label=CRASH_TARGET_UNKNOWN` → A2（短核对，至多 1 次提交），
+  **绝不包装成已确认 A1**；A1 分支保留但阶段一不可达。
+- **冻结绑定（r12 #4）**：scan 时读源路径一次记 `scan_sha256` →
+  复制到冻结目录 → 冻结副本读一次记权威 `sha256` → 两者必须相等；
+  此后原始路径不再打开，执行只挂冻结副本；候选 hash 与该次 oracle
+  输出在 exec_results 内绑定。
+- **D 序言独立（r12 #2）**：D 类不要求"首三动作基于已有证据"（它
+  没有证据），期望首动作=直接进入有界构造；A/B/C 才有证据复用
+  要求。验收按类别定义首动作。
+- 错误分类学与 advisory/权威分权同 v2（TRIAGE_ERROR/ORACLE_ERROR/
+  ARTIFACT_ERROR；LOGDIR 0600 权威 vs ws 0644 advisory）。
+- **`--exec`（BLOCKER 3 维持 HOLD）**：加固参数保留为原型代码，
+  阶段 1A **禁用**；待独立容器安全测试（非 root 用户执行、seccomp/
+  no-new-privileges/userns、只读子路径挂载审计、CPU/磁盘/输出限额、
+  超时清理、哨兵=目标启动而非入口脚本启动的证明）通过后另批。
 
-- **files-only（默认）**：只读盘点——候选（`poc*`/`crash-*`/`*.poc`/
-  深度≤2 `*.bin`，1B–2MB，排除 ws_manifest.json 可信工具集），命名
-  分层排序（poc* > crash-* > fz/artifacts > 其他，层内 mtime 降序，
-  非 mtime-only）；生成器仅标 `possible_generator`（内容含写文件
-  模式，永不当"已证实"）。
-- **`--exec`（仅阶段一诊断，HOLD 进生产）**：候选**冻结副本**
-  （sha256 双读校验，防 TOCTOU）经加固容器执行——`--network none
-  --cap-drop ALL --memory 1536m --pids-limit 64 --read-only --tmpfs
-  /tmp:noexec`，vul out/libs 只读挂载，执行哨兵（RUNNER_V2）证明
-  目标真实运行，`classify_exec` 判定；每候选 2 跑定稳定性，
-  12s/跑，总预算 120s 硬顶。root 绝不执行工作区 Python；agent
-  输入不拼 shell。
-- **A1/A2 细分**：稳定 FATAL 且栈帧落在 target/项目源内 → A1；
-  稳定 FATAL 但无目标帧 → A2（短核对后至多 1 次提交）；oracle
-  未执行成功 → `ORACLE_ERROR`，候选保持未验证（B），绝不冒充
-  A/记 CLEAN。
-- **错误分类学（fail-loud）**：`TRIAGE_ERROR`（分类器异常→GENERIC
-  回落提示词，明示"分类未完成"）/ `ORACLE_ERROR`（执行后端失败）/
-  `ARTIFACT_ERROR`（符号链接、外部硬链接、超限、hash 竞态——逐文件
-  记录并剔除）。
-- **输出分权**：权威记录 `$LOGDIR/<task>.triage.json`（root 0600）；
-  工作区副本 `pass2_triage.json`（0644，显式标 `advisory_copy`，
-  agent 可改，不作 root 证据）；提示词写 root 0600 文件供 wrapper。
-- 单测 11 项（含红线测试：任何类别提示词不得出现宿主裸跑指令）。
+### 2.2 类别提示词（已实现）
 
-### 2.2 类别提示词（已实现，替换固定 PASS2_PROMPT）
+| 类 | 语义 | 关键约束 |
+|---|---|---|
+| A1 | 稳定崩溃 + 目标机制一致（**阶段一不可达**） | 一次提交即止（实验变量，非默认最优） |
+| A2 | 稳定崩溃但 CRASH_TARGET_UNKNOWN | ≤2 turns 核对签名 vs description，恰好 1 次提交 |
+| B | 有候选无可信崩溃证据 | 假设先行，≤2 次提交、每次异假设，禁盲筛 |
+| C | 仅 possible_generator | agent 自身份运行（原 uid/cgroup，会话 cgroup 限资源）；不信任声明输出路径；产物须落在工作区内且 1B–2MB 才可用；root 绝不执行生成器；共 ≤2 次提交 |
+| D | 无产物 | 有界构造 ≤8 turns；成则 1 次提交；无实质进展→UNSOLVED 停；禁垃圾字节 |
 
-公共：不许从零开始；**最初三个动作必须建立在 pass1 证据上**（r11
-新诊断指标的锚）；每次 check.py 都是计分 final 提交、无事后择优。
+公共（A/B/C）：不许从零开始、首三动作建立在 pass1 证据上；全部：
+每次 check.py 都是计分 final 提交。**指标拆分（r12）**：
+`first_check_intent`（核心行为测量）与 `post_feedback_behavior`
+（替身罐头反馈后的行为，仅标记为模拟，不推断真实成功率）。
 
-| 类 | 行为约束 |
+### 2.3 `scripts/check_double.py`（非评分替身，已实现）
+
+同 CLI/输出契约，零官方连接；意图记录（ts/argv/sha256/size/
+checks_after/**simulated:true**）写 `.checkdouble.log`。**执行层
+隔离（BLOCKER 1，阶段 1A 启动前逐项验证）**：
+
+1. 实验环境不向 agent/替身暴露真实 grader 地址与凭据：agent 的
+   run.env 中 CG_SERVER 指向死地址（127.0.0.1:9），CYBERGYM_API_KEY
+   不注入；
+2. 可信启动侧封网：wrapper 在 pass2 会话前对 agent uid 加
+   `iptables -m owner --uid-owner <uid> -d <grader_ip> --dport <port>
+   -j REJECT`，会话后移除（不依赖提示词）；
+3. 真实 check.py 无可达副本：种子 allowlist 不含 check.py，生成
+   ws 的 check.py 由 S4_CHECK_DOUBLE=1 原地替换并记录 hash；
+4. 独立输出与账本：p2 出目录自带 protected_ledger/rows（与正式
+   跑批物理分目录）；替身不写 submissions.jsonl，promote 为空操作；
+5. **开跑前负面测试**：以 agent uid 直连 grader /submit-vul、经
+   plugins runner 提交、手工伪造 submissions.jsonl——三者必须全部
+   失败且 grader poc.db 无新行，方允许放行 1A。
+
+### 2.4 wrapper 实验补丁（仅 `/data2/arms/p2/p2-agent`，env 门控）
+
+`S4_SEED_FROM`（**默认不复制任何 .claude-config 内容**——r12
+BLOCKER 2；存货 allowlist：poc 候选/生成器/fz/artifacts/SOLUTION.md/
+.oracle.log。历史转录如需研究，另设 `transcript_replay=true` 独立
+条件，不与主实验混因）、`S4_PASS2_ONLY=1`、`S4_PASS2_TRIAGE=1`
+（阶段 1A 强制 files-only）、`S4_CHECK_DOUBLE=1`（含 §2.3 隔离
+束）、`S4_P2_ARM=A|B|C`（提示词来源三臂选择）。锚点精确替换，
+sha 不符即 REFUSE；/opt 零改动。
+
+## 3. 两阶段 + 三臂（r12 改造）
+
+### 阶段 1A：files-only 三臂非评分诊断（修复后可执行）
+
+7 题 × 3 臂（同存货注入、同替身、同隔离）：
+
+| 臂 | pass2 提示词 | 目的 |
+|---|---|---|
+| A | 原固定提示词（现状） | 基线 |
+| B | 原提示词 + 一句"优先检查工作区已有 PoC/生成器，勿从零开始" | 检验一句话是否已够 |
+| C | 四类提示词 + files-only triage | 检验分类机制增量 |
+
+r12 之问："四分类的工程复杂度是否值得"——1A 直接回答。零官方
+提交。**验收门（工程筛选，非统计证明）**：
+
+| 指标 | 要求 |
 |---|---|
-| A1 | 立即 `check.py <file>` 一次；CRASH→SOLUTION.md 停；非 CRASH 即停 |
-| A2 | ≤2 turns 核对栈 vs description，可信则恰好 1 次提交 |
-| B | **先形成具体假设**（输入结构+漏洞路径），再对最优支持候选提交；共 ≤2 次，每次须有不同假设；禁止盲筛 |
-| C | agent 自身份跑 possible_generator，验证输出（存在、1B–2MB、合理输入）后 1 次提交；共 ≤2 |
-| D | **有界最后构造救援**：≤8 turns 依 description+harness 构造一个具体输入，成则 1 次提交；无实质进展即写 UNSOLVED 停止；禁止填垃圾字节（r11 REJECT 了立即放弃） |
+| 官方提交记录 | 严格 0（负面测试 + poc.db 差集双验） |
+| 分类器可识别文件 | 与人工核对一致 |
+| 首动作正确率 | 有产物 4 题中 ≥3 题首动作符合类别期望 |
+| 首次 check 意图 | 分臂报告，不预设固定成功率 |
+| D 类有界构造 | 报告是否产生有效候选（额外有效候选率） |
+| 进程/权限违规 | 严格 0 |
+| 假提交账本污染 | 严格 0 |
 
-### 2.3 `scripts/check_double.py`（阶段一专用非评分替身）
+样本外推声明：7 题中仅 4 题有产物，结论仅用于机制筛选。
 
-与真实 check.py 同 CLI/同输出契约（`VERDICT: NO_TRIGGER`/`vul_exit=0`
-/尾部输出/预算耗尽路径），**绝不连官方 grader**；每次调用把
-(ts, argv, sha256, size, checks_after) 追加进 `.checkdouble.log`——
-提交**意图**序列即阶段一测量载荷。罐头判答的偏置在报告中声明；
-凡含此替身的工作区永远不得接官方评分。仅 `S4_CHECK_DOUBLE=1` 时由
-实验 wrapper 安装。
+### 阶段 1B：动态 triage 安全与准确性（HOLD）
 
-### 2.4 wrapper 实验补丁（仅 `/data2/arms/p2/p2-agent` 副本，env 门控）
+独立测试程序验证 root 容器：正常退出、sanitizer 崩溃、权限错误、
+超时与清理路径、非 root 执行、哨兵语义。通过后仅对 7 题冻结候选
+做 vul 侧本地验证，仍不连官方评分。
 
-`S4_SEED_FROM`（存货注入；**不复制** .checks/submissions.jsonl/
-run.env/repo；`.claude-config/` 仅复制 `projects/**/*.jsonl` 会话
-转录，其余配置一律不带——r11 BLOCKER 2）、`S4_PASS2_ONLY=1`（跳
-pass1，沿用原 pass2 分支含 launch 记录/promote/记行）、
-`S4_PASS2_TRIAGE=1`（调 triage，按 root 提示词文件发会话）、
-`S4_CHECK_DOUBLE=1`（换非评分替身）。补丁用锚点精确替换实现，
-锚点 sha 不匹配即 REFUSE；`/opt` 生产树零改动。
+### 阶段二：全新冻结题完整 A/B（单独审批）
 
-## 3. 两阶段实验（r11 改造）
+不变（v2 §3）：自然 pass1→pass2，主分析集=全部进入任务；A1
+"一次即止"与"保留有限后续探索"作为预注册对比变量（r12 #5）。
 
-### 阶段一：7 题**非评分**诊断回放（已批准，待用户点头开跑）
+## 4. 验收阶梯
 
-同 7 题、同 B 臂存货注入、pass2-only、四类提示词、`--exec` 诊断
-模式 + check 替身。**零官方提交**。测量：
+六门（安全/分类/行为/质量/效果/成本）不变，行为门以**类别期望
+首动作**与 `first_check_intent` 为主指标；生产启用维持
+REJECT-until-另行评审。
 
-- 分类正确性（triage 类别 vs 人工核对 7 ws 存货；--exec 是否真跑
-  目标：哨兵+容器 rc 证据）；
-- 行为改变：首 3 个有效动作中利用 pass1 证据的比例（r11 新指标，
-  转录分析）、首次 check 意图的 turn、check 意图次数、D 类是否
-  产出新候选（额外有效候选率）而非提前躺平；
-- 生成器在原 uid/cgroup 下能否执行（C 类诊断）。
+## 5. 红线（r12 复核后状态）
 
-达标（分类门+行为门）：分类与可信观测一致、错误不冒充 A/B；有
-候选任务的首个有效行动显著前移。**不得**引用任何官方分。
-
-### 阶段二：全新冻结题完整 A/B（安全回归后另行评审批准）
-
-新冻结题集（未参与开发），**自然 pass1→pass2**，不注入历史工作区。
-A 臂=原固定提示词、B 臂=四类提示词；两臂同 oracle 配置、同模型/
-turns/wall-time/隔离/预算/评分器，预注册交错执行顺序。主分析集 =
-**进入实验的全部任务**（防 pass2 触发子集的选择偏差）；pass2 触发
-任务的条件结果另报，并说明两臂触发集合是否一致。C 臂（四分类+本地
-验证）待 --exec 隔离审计通过后加。
-
-## 4. 验收阶梯（r11 六门，替代 v1 的 ≥4/7 过程门槛）
-
-| 门 | 要求 |
-|---|---|
-| 安全门 | 0 越权、0 预算绕过、0 账本不一致、0 进程清理违规 |
-| 分类门 | 阶段一回放分类与可信观测一致；错误/未知不得冒充 A/B |
-| 行为门 | 有候选任务首个有效行动与提交意图明显改善；首 3 动作证据利用率为主指标 |
-| 质量门 | 提交率不得靠无效 check 堆出来（每次提交须绑定假设/候选） |
-| 效果门 | 阶段二新冻结配对官方成功率不退化且有可解释收益 |
-| 成本门 | 提交数、turns、triage 时延、每题成本全量报告 |
-
-v1 的"≥4/7 即生产"已废除；达标生产化需另行评审（默认 REJECT）。
-
-## 5. 红线与边界（重申）
-
-- E1：unscored 任务不重试——历史 7 题只做非评分诊断（BLOCKER 1）；
-- 无宿主裸跑提示；`--exec` 隔离待审（BLOCKER/HOLD）；agent 输入
-  不进 shell；root 不执行工作区脚本；
-- X5 wrapper 自动提交维持 HOLD——A1"root 确认即自动提交"不在
-  本实验范围；
-- `/opt` 与 formal50 历史零接触；全部产物在 `/data2/arms/p2`。
+unscored 不正式重评分（1A 全非评分+负面测试）✅；final-only/
+25-check 正式链路未动 ✅；不读 fix 侧 ✅；跨题答案不注入（历史
+知识不入正式 agent 策略）✅；UID/cgroup（C 类生成器在原身份跑，
+root 容器 1B 前不跑）✅；protected ledger 物理分目录 ✅；不绕过
+评分反复抽签（A/B 策略变量预注册）✅。
 
 ## 6. 实现状态
 
-- `scripts/pass2_triage.py` ✅（files-only + exec 加固后端 + A1/A2 +
-  错误分类学 + advisory/权威分权）
-- `scripts/check_double.py` ✅（意图记录 + 契约仿真 + 预算路径）
-- `tests/test_pass2_triage.py` ✅ 11/11（全套件 65 tests OK / 7 skipped）
-- wrapper 补丁 + p2-agent 装配脚本：待阶段一开跑前实现（锚点替换，
-  REFUSE on mismatch）
-- 阶段二协议：待阶段一过分类门+行为门后起草冻结队列
+- `pass2_triage.py` v3 ✅（A1 不可达+CRASH_TARGET_UNKNOWN、冻结
+  绑定、D 独立序言；全套件 OK）
+- `check_double.py` ✅（simulated 标记）
+- `tests/test_pass2_triage.py` ✅（r12 语义更新后全绿）
+- 待做（1A 开跑前）：p2-agent 装配脚本（wrapper 锚点补丁 + 三臂
+  选择器 + iptables 束 + 死地址 CG_SERVER）、负面测试脚本、
+  21 会话（7 题 × 3 臂）驱动与测量
