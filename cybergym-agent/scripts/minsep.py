@@ -102,7 +102,9 @@ def ddmin(data: bytes, oracle, max_calls: int):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="ddmin + single fix-side gate")
+    ap = argparse.ArgumentParser(
+        description="ddmin minimisation of a crashing input (vul side only; "
+                    "official check.py is the only differential)")
     ap.add_argument("poc")
     ap.add_argument("--max-calls", type=int, default=40)
     a = ap.parse_args()

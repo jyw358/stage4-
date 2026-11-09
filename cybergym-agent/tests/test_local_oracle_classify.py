@@ -284,6 +284,63 @@ class TestCopyInput(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(reason.startswith("open_failed"))
 
+    def test_open_uses_nonblocking_flag(self):
+        # r15: a FIFO must not be able to BLOCK open() before the fstat
+        # type check -- the open flags must include O_NONBLOCK (POSIX).
+        import unittest.mock as mock
+        if not hasattr(lo.os, "O_NONBLOCK"):
+            self.skipTest("O_NONBLOCK not available on this platform")
+        seen = {}
+        real_open = lo.os.open
+
+        def spy(path, flags, *a, **k):
+            seen["flags"] = flags
+            return real_open(path, flags, *a, **k)
+
+        src = self.d / "nb"
+        src.write_bytes(b"z")
+        with mock.patch.object(lo.os, "open", side_effect=spy):
+            ok, _ = lo._copy_input(src, self.d / "nb_out")
+        self.assertTrue(ok)
+        self.assertTrue(seen["flags"] & lo.os.O_NONBLOCK)
+
+
+class TestPostAbnormalCleanupThreeWay(unittest.TestCase):
+    """r15 P0 regression: the tri-state inspection result must NEVER map
+    an UNKNOWN (None) to cleanup_verified."""
+
+    def _patch_gone(self, value):
+        import unittest.mock as mock
+        return mock.patch.object(lo, "_container_gone", return_value=value)
+
+    def test_inspection_failure_is_incomplete(self):
+        # docker ps failed / timed out / errored -> inspection_incomplete
+        with self._patch_gone(None):
+            cleanup, kill_rc = lo._post_abnormal_cleanup("c1")
+        self.assertEqual(cleanup, "inspection_incomplete")
+
+    def test_gone_is_verified(self):
+        with self._patch_gone(True):
+            cleanup, _ = lo._post_abnormal_cleanup("c2")
+        self.assertEqual(cleanup, "cleanup_verified")
+
+    def test_alive_triggers_kill_and_verify(self):
+        import unittest.mock as mock
+        with self._patch_gone(False), \
+                mock.patch.object(lo, "_kill_and_verify",
+                                  return_value=("cleanup_verified", 0)) as kv:
+            cleanup, kill_rc = lo._post_abnormal_cleanup("c3")
+        self.assertEqual(cleanup, "cleanup_verified")
+        kv.assert_called_once_with("c3")
+
+    def test_alive_kill_unverified_propagates(self):
+        import unittest.mock as mock
+        with self._patch_gone(False), \
+                mock.patch.object(lo, "_kill_and_verify",
+                                  return_value=("cleanup_failed", 1)):
+            cleanup, _ = lo._post_abnormal_cleanup("c4")
+        self.assertEqual(cleanup, "cleanup_failed")
+
 
 if __name__ == "__main__":
     unittest.main()

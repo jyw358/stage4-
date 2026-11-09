@@ -294,8 +294,11 @@ def _copy_input(src, dst):
       * non-regular files (fifo/dir/device) are refused at fstat time;
       * a per-file size cap is enforced at fstat time AND during the read
         loop (race-safe against post-open growth);
-      * a short/copy error refuses the file -- never a silent partial."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+      * a short/copy error refuses the file -- never a silent partial;
+      * O_NONBLOCK so a FIFO (or other weird node) cannot block open()
+        BEFORE the fstat type check (r15: availability edge)."""
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_NONBLOCK", 0))
     try:
         fd = os.open(str(src), flags)
     except OSError as exc:
@@ -369,6 +372,21 @@ def _kill_and_verify(cname):
     if gone2 is None:
         return "inspection_incomplete", kill_rc
     return "cleanup_failed", kill_rc
+
+
+def _post_abnormal_cleanup(cname):
+    """r15 P0: explicit THREE-WAY decision after an abnormal container rc.
+
+    _container_gone() is tri-state (True/False/None); the former
+    `is False` test silently mapped None (inspection itself failed) to
+    cleanup_verified.  An unknown inspection result stays
+    inspection_incomplete -- NEVER success."""
+    gone = _container_gone(cname, tries=1)
+    if gone is True:
+        return "cleanup_verified", None
+    if gone is False:
+        return _kill_and_verify(cname)
+    return "inspection_incomplete", None
 
 
 def run_side(info, files, timeout: int = None, perturb=None, tag=""):
@@ -483,14 +501,13 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
                     "sanitizer_detected": False, "sig": "",
                     "tail": f"docker invocation failed: {exc}"[:300]}
         t2 = datetime.datetime.utcnow()
-        # r14-review B2: abnormal container exit needs an independent
-        # resource-state check (--rm removal is not guaranteed then).
+        # r14-review B2 + r15 P0: abnormal container exit needs an
+        # independent resource-state check, with an explicit THREE-WAY
+        # tri-state decision (unknown inspection != verified cleanup).
         cleanup = None
+        kill_rc = None
         if rc != 0:
-            if _container_gone(cname, tries=1) is False:
-                cleanup, kill_rc = _kill_and_verify(cname)
-            else:
-                cleanup = "cleanup_verified"
+            cleanup, kill_rc = _post_abnormal_cleanup(cname)
         out_text = stdout_text + "\n" + stderr_text
         proof = parse_execution(stdout_text, rc)
         runner_started = proof["runner_started"]

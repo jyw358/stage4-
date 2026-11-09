@@ -152,9 +152,12 @@ def main():
         full = stdout_text + "\n" + stderr_text
         rc, tail = r.returncode, full[-1200:]
     except subprocess.TimeoutExpired:
-        subprocess.run(["docker", "kill", cname], capture_output=True)
+        # r15: verified cleanup (was a bare unchecked `docker kill`)
+        from local_oracle import _kill_and_verify
+        cleanup, kill_rc = _kill_and_verify(cname)
         stdout_text, full, rc = "", "", 124
-        tail = "HARD WALL CLOCK KILL (container terminated)"
+        tail = (f"HARD WALL CLOCK KILL (container terminated, "
+                f"cleanup={cleanup}, kill_rc={kill_rc})")
     if stdout_text.splitlines()[:1] != ["__ORACLE_RUNNER_V2__"]:
         # P0-6: the fuzz RUNNER never started (docker permission/daemon) --
         # fail closed; "no artifacts" here means NOTHING, do not interpret it.
