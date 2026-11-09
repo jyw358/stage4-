@@ -4,7 +4,7 @@
 验证对象：两棵 /opt 树（15/15 双树，哈希见下）。
 
 **BATTERY_V2_PASS 12/12（单实例干净跑）**；数据 `battery_v2.json` +
-harness `r17_battery.py`（入仓，调用参数全部可审计）。
+harness `r18_battery.py`（入仓，调用参数全部可审计）。
 
 ## r18 三项整改
 
