@@ -416,6 +416,99 @@ class TestSweepLabel(unittest.TestCase):
         self.assertEqual(res[0]["cleanup"], "inspection_incomplete")
 
 
+class TestSweepPreflight(unittest.TestCase):
+    """r18 P1: sweep state must gate startup (unverified cleanup refuses
+    the tool call); young siblings never block."""
+
+    def _entries(self, *cleanups):
+        return [{"id": f"c{i}", "age": "x", "cleanup": c}
+                for i, c in enumerate(cleanups)]
+
+    def test_gate_semantics(self):
+        import unittest.mock as mock
+        with mock.patch.object(lo, "sweep_label", return_value=[]):
+            self.assertEqual(lo.sweep_preflight("L"), (True, []))
+        for good in (["cleanup_verified"], ["cleanup_verified"] * 3):
+            with mock.patch.object(lo, "sweep_label",
+                                   return_value=self._entries(*good)):
+                ok, e = lo.sweep_preflight("L")
+                self.assertTrue(ok)
+        for bad in (["inspection_incomplete"], ["cleanup_failed"],
+                    ["cleanup_unverified"],
+                    ["cleanup_verified", "inspection_incomplete"]):
+            with mock.patch.object(lo, "sweep_label",
+                                   return_value=self._entries(*bad)):
+                ok, e = lo.sweep_preflight("L")
+                self.assertFalse(ok, bad)
+
+    def test_run_side_refuses_on_failed_preflight(self):
+        # r18: ORACLE_ERROR + sweep_preflight_failed, and NO docker start
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path as P
+        seed = P(tempfile.mkdtemp()) / "in"
+        seed.write_bytes(b"x")
+        info = (P("/data/arvo/1348/vul"), "t", "detect_leaks=0", "arvo")
+        docker_calls = []
+
+        def no_docker(cmd, *a, **k):
+            if cmd[:2] == ["docker", "run"]:
+                docker_calls.append(cmd)
+                raise AssertionError("docker run must not start after "
+                                     "failed sweep preflight")
+            raise lo.subprocess.TimeoutExpired("docker", 1)
+
+        with mock.patch.object(
+                lo, "sweep_label",
+                return_value=[{"id": "z", "age": "2 hours",
+                               "cleanup": "inspection_incomplete"}]), \
+             mock.patch.object(lo.subprocess, "run", side_effect=no_docker):
+            r = lo.run_side(info, [str(seed)], tag="r18_preflight")
+        self.assertEqual(r["verdict"], "ORACLE_ERROR")
+        self.assertEqual(r["runner_error_kind"], "sweep_preflight_failed")
+        self.assertEqual(docker_calls, [])
+
+
+class TestProbeCleanupGate(unittest.TestCase):
+    """r18 P1: focus-probe cleanup failure must abort the tool call."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "directed_fuzz_u",
+            ORACLE.parent / "directed_fuzz.py")
+        cls.df = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.df)
+
+    def test_probe_cleanup_returns_and_logs_status(self):
+        import os as _os
+        import tempfile
+        import unittest.mock as mock
+        logdir = tempfile.mkdtemp()
+        _os.environ["ORACLE_LOG"] = _os.path.join(logdir, "o.log")
+        try:
+            with mock.patch.object(
+                    self.df, "_kill_and_verify",
+                    return_value=("cleanup_failed", 1)) as kv:
+                st = self.df.probe_cleanup("dfzp-1", "timeout")
+            self.assertEqual(st, "cleanup_failed")
+            kv.assert_called_once_with("dfzp-1")
+            logged = open(_os.path.join(logdir, "o.log")).read()
+            self.assertIn("cleanup_failed", logged)
+            self.assertIn("directed_fuzz.probe", logged)
+        finally:
+            _os.environ.pop("ORACLE_LOG", None)
+
+    def test_probe_abort_rc_matrix(self):
+        # timeout + kill failure / timeout + inspection failure -> abort;
+        # verified cleanup -> may degrade to no-focus mode
+        self.assertEqual(self.df.probe_abort_rc("cleanup_verified"), 0)
+        self.assertEqual(self.df.probe_abort_rc("cleanup_failed"), 7)
+        self.assertEqual(self.df.probe_abort_rc("inspection_incomplete"), 7)
+        self.assertEqual(self.df.probe_abort_rc("cleanup_unverified"), 7)
+
+
 class TestContainerGoneMatching(unittest.TestCase):
     """r16 battery fix: gone-check must match container ID **or** name
     (the old `--filter name=` never matched a bare ID -> false positive)."""

@@ -30,9 +30,26 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from local_oracle import (run_side, side_info, _oracle_log, engine_of,
-                         DATA_DIR, RUNNER, focus_ok, dict_name_ok)
+                         DATA_DIR, RUNNER, focus_ok, dict_name_ok,
+                         _kill_and_verify, sweep_preflight)
 
 TID = os.environ.get("CG_TASK_ID", "")
+
+
+def probe_cleanup(probe_name: str, phase: str) -> str:
+    """r18 P1: verified cleanup of the focus-probe container; the status
+    is logged and RETURNED so callers can abort when it is not
+    cleanup_verified (a failed probe cleanup must never degrade into a
+    plain 'running without focus')."""
+    status, _krc = _kill_and_verify(probe_name)
+    _oracle_log({"tag": "directed_fuzz.probe", "phase": phase,
+                 "probe": probe_name, "cleanup": status})
+    return status
+
+
+def probe_abort_rc(status: str) -> int:
+    """0 only when cleanup was PROVEN; anything else aborts the tool call."""
+    return 0 if status == "cleanup_verified" else 7
 
 
 def hard_kill_containerized(cmd_proc, deadline, docker_name_hint="fz"):
@@ -86,11 +103,10 @@ def main():
     # 3-second probe: most prebuilt ARVO binaries lack the symbolization
     # -focus_function needs; probe first, degrade gracefully instead of
     # burning the whole budget on ERROR loops.
-    # r17 P1: the probe container shares the tool's lifecycle discipline --
-    # unique name + tool label + verified cleanup on timeout/interrupt, so
-    # a SIGKILLed probe is swept by the next tool call like any orphan.
+    # r17/r18 P1: the probe container shares the tool's lifecycle
+    # discipline -- unique name + tool label + VERIFIED cleanup whose
+    # status gates continuation (failed cleanup aborts the tool call).
     if engine == "libfuzzer" and a.focus:
-        from local_oracle import _kill_and_verify
         probe_name = f"dfzp-{os.getpid()}-{int(time.time())}"
         probe = ["docker", "run", "--rm", "--name", probe_name,
                  "--label", "cybergym.directed_fuzz=1",
@@ -105,11 +121,17 @@ def main():
             pr = subprocess.run(probe, capture_output=True, text=True,
                                 timeout=60)
         except subprocess.TimeoutExpired:
-            _kill_and_verify(probe_name)
-            print("note: focus probe timed out; running WITHOUT focus")
+            st = probe_cleanup(probe_name, "timeout")
+            if probe_abort_rc(st):
+                print(f"RESULT: ORACLE_ERROR (focus probe timeout AND "
+                      f"cleanup={st}); aborting this tool call -- the "
+                      f"probe container's lifecycle could not be verified.")
+                return 7
+            print("note: focus probe timed out (cleanup verified); "
+                  "running WITHOUT focus")
             a.focus = None
         except BaseException:
-            _kill_and_verify(probe_name)
+            probe_cleanup(probe_name, "interrupt")
             raise
         if "Failed to set focus" in (pr.stdout or ""):
             print(f"note: -focus_function not supported by this binary "
@@ -117,13 +139,21 @@ def main():
                   f"search with your seed + dictionary instead")
             a.focus = None
 
-    # r16: converge containers orphaned by crashed predecessors (labels +
-    # age filter never touch an active sibling); r17: results audited
-    from local_oracle import sweep_label
-    _sw = sweep_label("cybergym.directed_fuzz=1")
-    if _sw:
+    # r16/r17: converge orphaned predecessors; r18 P1: the sweep state
+    # GATES startup -- unverified/incomplete cleanup aborts the tool call
+    _sw_ok, _sw_entries = sweep_preflight("cybergym.directed_fuzz=1")
+    if _sw_entries:
         _oracle_log({"tag": "sweep", "label": "cybergym.directed_fuzz=1",
-                     "swept": _sw})
+                     "swept": _sw_entries})
+    if not _sw_ok:
+        print("RESULT: ORACLE_ERROR (sweep preflight failed -- prior "
+              "orphan cleanup unverified); refusing to start a new fuzz "
+              "container in an unverifiable lifecycle state.")
+        _oracle_log({"tag": "directed_fuzz", "side": "vul",
+                     "target": target, "verdict": "ORACLE_ERROR",
+                     "runner_error_kind": "sweep_preflight_failed",
+                     "swept": _sw_entries})
+        return 7
 
     print(f"directed fuzz: engine={engine} focus={a.focus or '-'} "
           f"seconds={a.seconds} fork={a.fork} seeds={len(list(corp.glob('seed*')))}")

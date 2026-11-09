@@ -1,5 +1,5 @@
 {
-  "ts": "2026-11-09T08:15:03Z",
+  "ts": "2026-11-09T12:49:33Z",
   "local_oracle": {
     "F1_normal_exit": {
       "verdict": "CLEAN"
@@ -12,7 +12,8 @@
     },
     "F3_daemon_unreachable": {
       "verdict": "ORACLE_ERROR",
-      "kind": "daemon_unreachable"
+      "kind": "sweep_preflight_failed",
+      "refused_before_docker": true
     },
     "F4_inspection_failure": {
       "cleanup": "inspection_incomplete"
@@ -24,9 +25,10 @@
   "directed_fuzz": {
     "L4b_default_15min_convergence": {
       "df_trigger_rc": 0,
-      "orphan_age": "15 minutes ago",
+      "orphan_age_sweep": "15 minutes ago",
       "young_survived": true,
-      "remaining_labeled": 1
+      "remaining_labeled": 1,
+      "young_removed": true
     },
     "L1_normal": {
       "rc": 0,
@@ -45,7 +47,7 @@
       "orphan": 1,
       "sweep": [
         {
-          "id": "8e1f9550d988",
+          "id": "568c29ceb081",
           "age": "10 seconds ago",
           "cleanup": "cleanup_verified"
         }
@@ -56,15 +58,16 @@
       "rc": 7,
       "residue": 0
     },
-    "L6_probe_sigkill_labeled_orphan": {
+    "L6a_probe_sigkill_labeled_orphan_IMMEDIATE_OVERRIDE": {
       "orphans": 1,
       "sweep": [
         {
-          "id": "f5b32e503e67",
+          "id": "945ddb13ec80",
           "age": "8 seconds ago",
           "cleanup": "cleanup_verified"
         }
       ],
+      "default_threshold_proof": "L4b",
       "residue": 0
     }
   },
@@ -74,13 +77,14 @@
   },
   "pass": true,
   "L4b_evidence": {
-    "orphan_created_utc": "2026-11-09T08:15:03Z",
-    "orphan_name": "dfz-r17-orphan-proof",
-    "orphan_id": "225c8f99d3a7",
+    "orphan_created_utc": "2026-11-09T12:49:33Z",
+    "orphan_name": "dfz-r18-orphan-proof",
+    "orphan_id": "383f3676837cb0597f8bea1a77ea67e00f6ab4e1ac954c21e8034746da396bcb",
     "label": "cybergym.directed_fuzz=1",
-    "orphan_age_at_sweep": "15 minutes ago",
+    "young_id": "178fd30017e310426989b117e207600217596b0a7355e11fe956a8e34aaac350",
     "sweep_call": "directed_fuzz startup sweep_label(DEFAULT 15.0)",
-    "sweep_log_line": "{\"ts\": \"2026-11-09T08:30:36.691816Z\", \"tag\": \"sweep\", \"label\": \"cybergym.directed_fuzz=1\", \"swept\": [{\"id\": \"225c8f99d3a7\", \"age\": \"15 minutes ago\", \"cleanup\": \"cleanup_verified\"}]}",
+    "sweep_log_line": "{\"ts\": \"2026-11-09T13:05:07.380045Z\", \"tag\": \"sweep\", \"label\": \"cybergym.directed_fuzz=1\", \"swept\": [{\"id\": \"383f3676837c\", \"age\": \"15 minutes ago\", \"cleanup\": \"cleanup_verified\"}]}",
+    "orphan_age_at_sweep": "15 minutes ago",
     "young_sibling_alive_after_sweep": true,
     "df_trigger_rc": 0
   },

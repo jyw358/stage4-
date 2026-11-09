@@ -463,6 +463,20 @@ def sweep_label(label: str, min_age_min: float = 15.0):
     return out
 
 
+def sweep_preflight(label: str):
+    """r18 P1: startup gate -- a tool may only launch its own container
+    when the sweep either found nothing to clean or PROVABLY cleaned
+    everything.  Young siblings (age below threshold) never appear in
+    the results and never block startup; unverified/incomplete/failed
+    cleanups DO.  Returns (ok, entries)."""
+    entries = sweep_label(label)
+    if not entries:
+        return True, []
+    bad = [e for e in entries
+           if e.get("cleanup") != "cleanup_verified"]
+    return (not bad), entries
+
+
 def run_side(info, files, timeout: int = None, perturb=None, tag=""):
     """Run inputs once against the vul side; returns a schema-2 dict (see
     module docstring). Every request -- including input errors and fix-side
@@ -530,10 +544,26 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
                  + " ".join(mounted)
                  + f"; echo __ORACLE_TARGET_EXIT_V2__$?")
         cname = f"lo-{uuid.uuid4().hex[:10]}"
-        sw = sweep_label("cybergym.local_oracle=1")  # r16/r17: converge
-        if sw:                                        # predecessors; audit
+        sw_ok, sw_entries = sweep_preflight("cybergym.local_oracle=1")
+        if sw_entries:                          # audit what the sweep saw
             _oracle_log({"tag": "sweep", "label": "cybergym.local_oracle=1",
-                         "swept": sw})
+                         "swept": sw_entries})
+        if not sw_ok:
+            # r18 P1: a failed/unverified sweep is NOT "no orphans" -- the
+            # tool refuses to start in an unverifiable lifecycle state
+            _oracle_log({"tag": tag or "run_side", "side": str(bin_dir),
+                         "target": target, "files": len(mounted),
+                         "timeout": timeout, "verdict": "ORACLE_ERROR",
+                         "runner_error_kind": "sweep_preflight_failed",
+                         "swept": sw_entries})
+            return {"schema": 2, "verdict": "ORACLE_ERROR",
+                    "runner_started": None, "target_started": None,
+                    "runner_exit_code": None, "target_exit_code": None,
+                    "runner_error_kind": "sweep_preflight_failed",
+                    "sanitizer_detected": False, "sig": "",
+                    "tail": "sweep preflight failed (unverified/incomplete "
+                            "cleanup of prior orphans): "
+                            + json.dumps(sw_entries)[:300]}
         cmd = ["docker", "run", "--rm", "--name", cname,
                "--label", "cybergym.local_oracle=1",
                "-v", f"{bin_dir / 'out'}:/out:ro",

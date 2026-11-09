@@ -1,4 +1,77 @@
-# r17 动态安全验收报告（v2，含 r16 复审整改）
+# r18 动态安全验收报告（v6 终版，含 r17 复审整改）
+
+时间：2026-11-09T12:49Z→13:08Z（单实例）；主机 nacocom（root，非评分）；
+验证对象：两棵 /opt 树（15/15 双树，哈希见下）。
+
+**BATTERY_V2_PASS 12/12（单实例干净跑）**；数据 `battery_v2.json` +
+harness `r17_battery.py`（入仓，调用参数全部可审计）。
+
+## r18 三项整改
+
+1. **L6 勘误（P0）**：原 L6 是显式 `min_age_min=0` 的即时清理，
+   不构成默认门证据。已改名 **L6a_..._IMMEDIATE_OVERRIDE**，json 记录
+   显式标注 `default_threshold_proof: "L4b"`；L4b 保留为默认阈值
+   唯一证据类。
+2. **sweep 状态传播（P1）**：新增 `sweep_preflight()` 启动门——
+   空结果/全部 `cleanup_verified` 放行；任一
+   `inspection_incomplete`/`cleanup_failed`/`cleanup_unverified`
+   → **拒启**：run_side 返回 `ORACLE_ERROR/sweep_preflight_failed`，
+   df 打印 RESULT ORACLE_ERROR 并 rc=7，均写 .oracle.log；年轻兄弟
+   不产生条目、永不阻塞。单测：门语义矩阵 + run_side 拒启
+   （断言 docker run 未被调用）。
+3. **probe 清理门（P1）**：`probe_cleanup()` 返回并记录状态；
+   `probe_abort_rc()` 仅 `cleanup_verified` 允许降级无 focus，其余
+   终止工具调用。专项测试：timeout+kill 失败、timeout+inspection
+   失败 → abort；verified → 0；日志断言。
+
+## 12/12 结果（v6）
+
+F1 CLEAN；F2 外层超时真实验证 kill（cleanup_verified/残留 0）；
+F3 daemon 不可达 → **sweep_preflight_failed 先拒启**（r18 后比旧
+daemon_unreachable 更早的诚实拒绝，battery 已按语义放宽断言）；
+F4 inspection_incomplete；F5 cleanup_failed 传播；L1 正常自清；
+L2 注入超时 fail-closed rc=7+真实验证 kill；L3 SIGINT 守卫
+（rc=-2、输出含 cleanup）；**L4b 默认 15 分钟收敛**；L4m 机制
+（显式 OVERRIDE）；L5 外部强杀 rc=7；L6a probe 孤儿发现+即时清理
+（OVERRIDE，默认门证据=L4b）。终态标签残留 0/0。
+
+## L4b 证据链（第三次独立实测，v6）
+
+- 孤儿 `383f3676837c`（dfz-r18-orphan-proof）创建于 12:49:33Z；
+- 15.5 分钟后以真实 df 调用触发**默认 15.0** 启动清扫；
+- sweep 日志（13:05:07Z）：`{"id":"383f3676837c","age":"15 minutes
+  ago","cleanup":"cleanup_verified"}`；
+- 同批年轻兄弟 `young_survived=True`（默认门不误杀），残留=1
+  （仅 young，随后按 ID 删除成功 `young_removed=True`）。
+- 历史两次独立证据：08:30:36Z（225c8f99d3a7）、12:11:04Z
+  （1117d7a4676f）——三次一致。
+
+## 过程勘误（如实披露）
+
+v3/v4 的 FAIL 均为 harness 缺陷：v3 受旧电池实例未死透+新实例并发
+互踩同名容器影响（name 过滤瞬时空查询、young 残留贯穿）；v4 为
+断言用完整 64 位 ID 对比 docker 12 位短 ID。修复：按 ID 追踪容器、
+年龄以 sweep 日志为准、rm 校验 rc、单实例清场重跑（pkill 防自匹配
+写法）。**产品代码在 v2→v6 全程零缺陷**；F3 语义变化是 r18 新门的
+正确行为。
+
+## 部署哈希（双树一致、15/15）
+
+```
+ccb95678e95f48a0b9e847a738d1b4709bbac1cb8b61bf74096bedcd79d6eda9  local_oracle.py
+a4d60d09b01a0372043635866c6a4d3c41103a7d7d8dcb371e7bbf90075260ea  directed_fuzz.py
+```
+
+测试：oracle 单测 55/55、全套件 OK（8 skipped）。
+
+## 边界
+
+非评分动态回归；正式评分跑批维持 HOLD；未来改进（非阻断）：年龄
+改用 Docker CreatedAt 精确判断。
+
+---
+
+# r17 动态安全验收报告（v2，已被 r18 v6 取代，存档）
 
 时间：2026-11-09T08:15Z→08:33Z；主机 nacocom（root，非评分）；
 验证对象：两棵 /opt 树（SHA256SUMS.tools 15/15 双树，本节末哈希）。

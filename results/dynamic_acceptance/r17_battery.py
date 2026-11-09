@@ -52,16 +52,41 @@ def rec(section, name, **kv):
 
 
 # ================= L4b FIRST (needs the 15-minute age window) ==============
-ORPHAN = "dfz-r17-orphan-proof"
-YOUNG = "dfz-r17-young-sibling"
+# v4 harness hardening: track containers by ID (creation output), NOT by
+# name filters (v3 showed name-filter queries can transiently return
+# empty while the container demonstrably exists); aliveness via the
+# label+names listing; removal by ID with rc checks.
+ORPHAN = "dfz-r18-orphan-proof"
+YOUNG = "dfz-r18-young-sibling"
+
+
+def run_detached(name, seconds):
+    r = subprocess.run(["docker", "run", "-d", "--rm",
+                        "--label", "cybergym.directed_fuzz=1",
+                        "--name", name, lo.RUNNER, "sleep", str(seconds)],
+                       capture_output=True, text=True, timeout=60)
+    cid = (r.stdout or "").strip()
+    assert r.returncode == 0 and cid, f"detached create failed: {r.stderr}"
+    return cid
+
+
+def labeled_names():
+    r = subprocess.run(["docker", "ps", "--filter",
+                        "label=cybergym.directed_fuzz=1",
+                        "--format", "{{.Names}}"],
+                       capture_output=True, text=True, timeout=15)
+    return set((r.stdout or "").split())
+
+
+def rm_verified(cid):
+    r = subprocess.run(["docker", "rm", "-f", cid],
+                       capture_output=True, text=True, timeout=30)
+    return r.returncode == 0
+
+
 subprocess.run(["docker", "rm", "-f", ORPHAN, YOUNG], capture_output=True)
 t_create = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-subprocess.run(["docker", "run", "-d", "--rm",
-                "--label", "cybergym.directed_fuzz=1",
-                "--name", ORPHAN, lo.RUNNER, "sleep", "1800"],
-               capture_output=True, timeout=60)
-orph_id = subprocess.run(["docker", "ps", "-q", "--filter", f"name={ORPHAN}"],
-                         capture_output=True, text=True).stdout.strip()
+orph_id = run_detached(ORPHAN, 1800)
 OUT["L4b_evidence"] = {"orphan_created_utc": t_create,
                        "orphan_name": ORPHAN, "orphan_id": orph_id,
                        "label": "cybergym.directed_fuzz=1"}
@@ -69,14 +94,9 @@ print(f"L4b orphan {orph_id} created at {t_create}; waiting 15.5 min",
       flush=True)
 time.sleep(15.5 * 60)
 # young labeled sibling created just before the sweep
-subprocess.run(["docker", "run", "-d", "--rm",
-                "--label", "cybergym.directed_fuzz=1",
-                "--name", YOUNG, lo.RUNNER, "sleep", "600"],
-               capture_output=True, timeout=60)
-age_line = subprocess.run(
-    ["docker", "ps", "--filter", f"name={ORPHAN}", "--format",
-     "{{.RunningFor}}"], capture_output=True, text=True).stdout.strip()
-OUT["L4b_evidence"]["orphan_age_at_sweep"] = age_line
+young_id = run_detached(YOUNG, 600)
+assert YOUNG in labeled_names(), "young sibling not running pre-sweep"
+OUT["L4b_evidence"]["young_id"] = young_id
 OUT["L4b_evidence"]["sweep_call"] = ("directed_fuzz startup "
                                      "sweep_label(DEFAULT 15.0)")
 # harness fix (r17): a directed_fuzz orphan is converged by the NEXT
@@ -94,27 +114,37 @@ pL4b = subprocess.run(
     cwd=WSb, env=ENVb, capture_output=True, text=True, timeout=300)
 time.sleep(3)
 orph_gone = label_count("cybergym.directed_fuzz=1")  # young sibling remains
-young_alive = subprocess.run(
-    ["docker", "ps", "-q", "--filter", f"name={YOUNG}"],
-    capture_output=True, text=True).stdout.strip()
+young_alive = YOUNG in labeled_names()
 sweep_logged = ""
+sweep_age = ""
 try:
     for ln in open(ORACLE_LOG):
         if '"tag": "sweep"' in ln or '"tag":"sweep"' in ln:
             sweep_logged = ln.strip()[:400]
 except OSError:
     pass
+# v4: the AUTHORITATIVE age is the one the sweep itself observed (the
+# v3 pre-query via name filter transiently returned empty)
+import re as _re
+_m = _re.search(r'"age": "([^"]+)"', sweep_logged)
+if _m:
+    sweep_age = _m.group(1)
 OUT["L4b_evidence"]["sweep_log_line"] = sweep_logged
+OUT["L4b_evidence"]["orphan_age_at_sweep"] = sweep_age
 OUT["L4b_evidence"]["young_sibling_alive_after_sweep"] = bool(young_alive)
 OUT["L4b_evidence"]["df_trigger_rc"] = pL4b.returncode
-subprocess.run(["docker", "rm", "-f", YOUNG, ORPHAN], capture_output=True)
+young_removed = rm_verified(young_id)
+if not young_removed:
+    rm_verified(young_id)          # one retry
 shutil.rmtree(WSb, ignore_errors=True)
 rec("directed_fuzz", "L4b_default_15min_convergence",
-    df_trigger_rc=pL4b.returncode, orphan_age=age_line,
+    df_trigger_rc=pL4b.returncode, orphan_age_sweep=sweep_age,
     young_survived=bool(young_alive),
-    remaining_labeled=orph_gone,
-    ok=("cleanup_verified" in sweep_logged and bool(young_alive)
-        and orph_gone == 1))   # only the young sibling remains
+    remaining_labeled=orph_gone, young_removed=young_removed,
+    ok=("cleanup_verified" in sweep_logged
+        and orph_id[:12] in sweep_logged      # docker logs SHORT ids
+        and bool(young_alive)
+        and orph_gone == 1 and young_removed))
 
 # ================= F1-F5 ====================================================
 seed = pathlib.Path(tempfile.mkdtemp()) / "in"
@@ -149,12 +179,20 @@ rec("local_oracle", "F2_outer_timeout", verdict=r2["verdict"],
 
 os.environ["DOCKER_HOST"] = "tcp://127.0.0.1:1"
 try:
-    r3 = lo.run_side(vi, [str(seed)], tag="r17_F3")
+    r3 = lo.run_side(vi, [str(seed)], tag="r18_F3")
 finally:
     os.environ.pop("DOCKER_HOST", None)
+# r18: with the daemon down the STARTUP SWEEP is the first refusal point
+# (sweep_preflight_failed) -- an even earlier honest refusal than the old
+# daemon_unreachable from the docker run itself.  Both are ORACLE_ERROR.
 rec("local_oracle", "F3_daemon_unreachable", verdict=r3["verdict"],
     kind=r3.get("runner_error_kind"),
-    ok=(r3["verdict"] == "ORACLE_ERROR"))
+    refused_before_docker=(r3.get("runner_error_kind")
+                           in ("sweep_preflight_failed",
+                               "daemon_unreachable")),
+    ok=(r3["verdict"] == "ORACLE_ERROR"
+        and r3.get("runner_error_kind") in ("sweep_preflight_failed",
+                                            "daemon_unreachable")))
 
 with mock.patch.object(lo, "_container_gone", return_value=None):
     c4, _ = lo._post_abnormal_cleanup("ghost")
@@ -266,8 +304,9 @@ rec("directed_fuzz", "L5_external_container_kill", rc=p5.returncode,
     residue=label_count("cybergym.directed_fuzz=1"),
     ok=(label_count("cybergym.directed_fuzz=1") == 0))
 
-# L6: focus-probe lifecycle -- SIGKILL during probe leaves a LABELED
-# dfzp- orphan; mechanism + default-threshold convergence identical (L4b)
+# L6a (r18 P0 erratum): probe SIGKILL -> LABELED orphan DISCOVERY test.
+# The immediate cleanup below uses an EXPLICIT min_age_min=0 OVERRIDE --
+# it is NOT evidence for the default 15-min threshold; that proof is L4b.
 probe_harness = r'''
 import subprocess, sys, time
 sys.path.insert(0, ".")
@@ -297,10 +336,12 @@ l6_orphans = subprocess.run(
     ["docker", "ps", "-q", "--filter", "name=dfzp-"],
     capture_output=True, text=True).stdout.split()
 l6_labeled = [c for c in l6_orphans]
-swept6 = lo.sweep_label("cybergym.directed_fuzz=1", min_age_min=0)  # OVERRIDE
+# EXPLICIT OVERRIDE (immediate test cleanup -- NOT default-threshold proof)
+swept6 = lo.sweep_label("cybergym.directed_fuzz=1", min_age_min=0)
 time.sleep(3)
-rec("directed_fuzz", "L6_probe_sigkill_labeled_orphan",
+rec("directed_fuzz", "L6a_probe_sigkill_labeled_orphan_IMMEDIATE_OVERRIDE",
     orphans=len(l6_labeled), sweep=swept6,
+    default_threshold_proof="L4b",
     residue=label_count("cybergym.directed_fuzz=1"),
     ok=(len(l6_labeled) >= 1
         and label_count("cybergym.directed_fuzz=1") == 0
