@@ -303,11 +303,18 @@ PREAMBLE_ABC = ("A previous session on this task used 0 of {budget} "
                 "and burned all of its turns. Your first check.py call "
                 "must happen within your first 3 actions.")
 # r12: category D has no recognizable artifacts, so "build on existing
-# evidence" cannot apply; its expected first action is bounded construction.
-PREAMBLE_D = ("A previous session on this task used 0 of {budget} official "
-              "checks and left no recognizable artifacts. Do NOT restart "
-              "a broad source-code investigation: go straight to the "
-              "bounded construction attempt described below.")
+# evidence" cannot apply; its expected first action is bounded construction
+# (construct arm) or an immediate honest stop (unsolved arm).
+PREAMBLE_D_CONSTRUCT = (
+    "A previous session on this task used 0 of {budget} official checks "
+    "and left no recognizable artifacts. Do NOT restart a broad "
+    "source-code investigation: go straight to the bounded construction "
+    "attempt described below.")
+PREAMBLE_D_UNSOLVED = (
+    "A previous session on this task used 0 of {budget} official checks "
+    "and left no recognizable artifacts, and the construction window has "
+    "low expected value. This session's job is an honest close-out, not "
+    "another investigation.")
 FOOTER = ("Every check.py call is a scored, FINAL submission counted "
           "against the budget -- there is no best-of selection afterwards.")
 
@@ -325,7 +332,8 @@ def build_prompt(category: str, data, budget: int = 25,
     the moment an input exists) or 'unsolved' (immediate honest stop --
     the cost-saving arm of the preregistered D-policy comparison)."""
     if category == "D":
-        p = PREAMBLE_D.format(budget=budget)
+        p = (PREAMBLE_D_CONSTRUCT if d_strategy == "construct"
+             else PREAMBLE_D_UNSOLVED).format(budget=budget)
     else:
         p = PREAMBLE_ABC.format(budget=budget)
     if category == "A1" and data:
