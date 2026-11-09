@@ -387,6 +387,9 @@ def main() -> int:
     ap.add_argument("--mode", choices=("files-only", "exec"),
                     default="files-only")
     ap.add_argument("--prompt-out", default=None)
+    ap.add_argument("--no-advisory", action="store_true",
+                    help="skip the agent-writable advisory copy (control "
+                         "arms A/B: classification stays root-side only)")
     ap.add_argument("--exec-budget", type=int,
                     default=DEFAULT_EXEC_BUDGET_S)
     a = ap.parse_args()
@@ -474,10 +477,11 @@ def main() -> int:
     advisory["advisory_copy"] = True
     advisory["note"] = ("agent-writable copy; the authoritative record is "
                         "root-owned in the run logdir")
-    (ws / "pass2_triage.json").write_text(
-        json.dumps(advisory, ensure_ascii=False, indent=2),
-        encoding="utf-8")
-    os.chmod(ws / "pass2_triage.json", 0o644)
+    if not a.no_advisory:
+        (ws / "pass2_triage.json").write_text(
+            json.dumps(advisory, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        os.chmod(ws / "pass2_triage.json", 0o644)
 
     if a.prompt_out:
         Path(a.prompt_out).write_text(prompt, encoding="utf-8")
