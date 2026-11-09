@@ -132,11 +132,32 @@ unscored 不正式重评分（1A 全非评分+负面测试）✅；final-only/
 root 容器 1B 前不跑）✅；protected ledger 物理分目录 ✅；不绕过
 评分反复抽签（A/B 策略变量预注册）✅。
 
-## 6. 实现状态与阶段 1A 结果
+## 6. 阶段 1A 结果（2026-11-09 已执行，详见 `results/p2_phase1a/summary.md`）
+
+- 隔离/纪律门全过：官方提交 0（poc.db 37→37）、假账本污染 0、
+  违规 0（iptables 零残留）、21 行 rows 全部打模拟标记；
+- 分类门过：files-only triage 7/7 与人工存货一致（0 artifact_issues）；
+- 首动作门过：C 臂 4/4（首动作即 triage/存货）、B 臂 4/4（动作 2
+  命中）、A 臂 0/4（复现"从零研究"根因）；
+- **转化未达标（核心负结果）**：首次 check 意图 A 1/7 = B 1/7 >
+  C 0/7——四分类"假设先行+≤2 次"纪律在 15-turn 预算内抑制转化；
+  C 类生成器被读未执行；B 臂 65765 执行了生成器并走到 check；A/B
+  臂 post-feedback 试图走真实提交路径被隔离层挡下（`submit_error`
+  即其痕迹，无外部记录）——替身反馈只作模拟解读；
+- D 类有界构造 0/9 产出新候选；
+- 成本 $11.49/21 会话；实验范式（死地址+iptables+替身+打标）可复用；
+- 阶段二预注册建议（待批）：C 类命令式首步（先执行生成器禁先读
+  源码）、B 类放宽首次提交时点、D 类两策略对比（有界构造 vs 立即
+  UNSOLVED 省成本）、A1 动态分层待 1B exec 解封；1B/二/生产维持 HOLD。
+
+## 7. 实现状态
 
 - `pass2_triage.py` v3 ✅（A1 不可达+CRASH_TARGET_UNKNOWN、冻结
   绑定、D 独立序言、`--no-advisory`；全套件 OK）
 - `check_double.py` ✅（simulated 标记）
+- p2-agent 装配 ✅（stock `be8f9b8a` 双锚点补丁：P1A 准备块折入
+  pass1 前 + PASS2_PROMPT 改读 root 提示词文件；全 env 门控、
+  逐项 fail-closed；`P1A_MANIFEST.json` 在树根）
 - r13 安全门 5/5 ✅（N1 死地址/N2 UDS/N3 runner URLError/N4
   iptables REJECT/N5 poc.db 基线）；装配锚点补丁（stock `be8f9b8a`
   校验 + `# ---- pass 1` 前折入 P1A 准备块 + PASS2_PROMPT 替换），
