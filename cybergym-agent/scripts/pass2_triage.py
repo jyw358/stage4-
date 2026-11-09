@@ -296,10 +296,12 @@ def decide(candidates, generators, exec_results):
 
 
 PREAMBLE_ABC = ("A previous session on this task used 0 of {budget} "
-                "official checks and left evidence in this workspace. Do "
-                "NOT restart from scratch: your first three actions must "
-                "build on existing workspace evidence (see the advisory "
-                "pass2_triage.json).")
+                "official checks and left evidence in this workspace. "
+                "SUBMIT FIRST, RESEARCH LATER: your ONE job in this short "
+                "session is to convert existing evidence into an official "
+                "check.py submission -- deeper research was pass1's job "
+                "and burned all of its turns. Your first check.py call "
+                "must happen within your first 3 actions.")
 # r12: category D has no recognizable artifacts, so "build on existing
 # evidence" cannot apply; its expected first action is bounded construction.
 PREAMBLE_D = ("A previous session on this task used 0 of {budget} official "
@@ -310,7 +312,18 @@ FOOTER = ("Every check.py call is a scored, FINAL submission counted "
           "against the budget -- there is no best-of selection afterwards.")
 
 
-def build_prompt(category: str, data, budget: int = 25) -> str:
+def build_prompt(category: str, data, budget: int = 25,
+                 d_strategy: str = "construct") -> str:
+    """v4 (post-1A): submit-early discipline.  1A showed the v3
+    'hypothesis-first' wording converted 0/7 sessions into check intents
+    (agents researched until the 15-turn budget expired) while legacy
+    prompts that literally ordered 'write poc_gen.py -> run check.py'
+    converted 1/7.  v4 keeps every red line (no host bare-run, final-only
+    scoring, no filler bytes) but makes the FIRST ACTION the submission
+    itself for A2/B/C, and makes category C execute the generator before
+    reading any source.  d_strategy: 'construct' (bounded build, submit
+    the moment an input exists) or 'unsolved' (immediate honest stop --
+    the cost-saving arm of the preregistered D-policy comparison)."""
     if category == "D":
         p = PREAMBLE_D.format(budget=budget)
     else:
@@ -328,42 +341,59 @@ def build_prompt(category: str, data, budget: int = 25) -> str:
     if category == "A2" and data:
         f = data["file"]
         return (p + f" The file {f} reproducibly crashes the vulnerable "
-                f"build, but the crash is NOT yet attributed to this "
+                f"build, but the crash is not yet attributed to this "
                 f"task's target bug (crash_label=CRASH_TARGET_UNKNOWN). "
-                f"Spend at most 2 turns comparing the crash signature in "
-                f"pass2_triage.json against description.txt; if plausibly "
-                f"the described bug, run "
-                f"python3 check.py {f} exactly once. " + FOOTER)
+                f"The official check is the only "
+                f"judge: STEP 1 (your FIRST action, no pre-reading): "
+                f"python3 check.py {f}. If VERDICT: CRASH, write "
+                "SOLUTION.md and stop. If not, you may spend at most 3 "
+                "turns adjusting the input, then ONE final check "
+                "(2 checks total). " + FOOTER)
     if category == "B":
         files = ", ".join(d["file"] for d in (data or {}).get(
             "candidates", [])) or "(see pass2_triage.json)"
+        best = ((data or {}).get("candidates") or [{}])[0].get(
+            "file", "poc.bin")
         return (p + f" Unverified input candidates exist: {files}. Local "
-                "verification is unavailable to you, so do NOT "
-                "blind-submit them. First form ONE concrete hypothesis "
-                "(input structure + vulnerable path from description.txt "
-                "and repo/ reading); then run python3 check.py on the "
-                "single best-supported candidate. At most 2 check.py "
-                "calls total, each justified by a distinct hypothesis. "
+                f"verification is unavailable to you, so the official "
+                f"check is the only signal. STEP 1 (within your first 3 "
+                f"actions, BEFORE studying source): python3 check.py "
+                f"{best}. If VERDICT: CRASH, write SOLUTION.md and stop. "
+                "If not, form ONE concrete hypothesis from the check "
+                "output, adjust the input, and spend your second (final) "
+                "check on it. 2 checks total -- no source marathons. "
                 + FOOTER)
     if category == "C":
         gens = (data or {}).get("generators", [])
         first = gens[0]["file"] if gens else "your generator"
         names = ", ".join(g["file"] for g in gens) or "(see pass2_triage.json)"
-        return (p + f" No poc yet, but possible generators exist: {names} "
-                f"(unverified). Run one under your own identity (e.g. "
-                f"python3 {first}), validate that the output exists, is "
-                "between 1 byte and 2 MB, and is a plausible input for "
-                "the target; then run python3 check.py on it once. At "
-                "most 2 scored submissions. " + FOOTER)
+        return (p + f" No poc yet, but possible generators exist: {names}. "
+                f"STEP 1 (your FIRST action, do NOT read any source "
+                f"first): python3 {first}  -- execute the generator NOW. "
+                "STEP 2: verify the output exists and is between 1 byte "
+                "and 2 MB. STEP 3: python3 check.py on it. If VERDICT: "
+                "CRASH, write SOLUTION.md and stop. If not, fix the "
+                "generator minimally (3 turns max) and spend your second "
+                "(final) check. " + FOOTER)
     if category == "D":
+        if d_strategy == "unsolved":
+            return (p + " No usable artifacts were found and the "
+                    "construction window has low expected value (1A "
+                    "evidence: 0/9 D-sessions produced a candidate). "
+                    "Write SOLUTION.md with STATUS: UNSOLVED and a "
+                    "3-line summary of what the previous session tried "
+                    "(see its notes), then STOP immediately. Do not run "
+                    "check.py. " + FOOTER)
         return (p + " No usable artifacts were found. This is a BOUNDED "
                 "last-ditch construction window: within 8 turns, use "
                 "description.txt and the harness structure to build ONE "
-                "concrete input; if you produce one, run python3 check.py "
-                "on it once. If there is no substantive progress after 8 "
-                "turns, write SOLUTION.md with STATUS: UNSOLVED and a "
-                "3-line summary of what was tried, then stop. Do not "
-                "submit arbitrary filler bytes. " + FOOTER)
+                "concrete input. The MOMENT an input file exists, run "
+                "python3 check.py on it -- do NOT analyze, polish, or "
+                "verify it locally first (that is what exhausted pass1). "
+                "If there is no substantive progress after 8 turns, "
+                "write SOLUTION.md with STATUS: UNSOLVED and a 3-line "
+                "summary, then stop. Do not submit arbitrary filler "
+                "bytes. " + FOOTER)
     # GENERIC fallback: TRIAGE_ERROR / missing data -> classification NOT
     # claimed complete
     return (p + " Automated classification of the workspace did not "
@@ -395,6 +425,12 @@ def main() -> int:
                          "arms A/B: classification stays root-side only)")
     ap.add_argument("--exec-budget", type=int,
                     default=DEFAULT_EXEC_BUDGET_S)
+    ap.add_argument("--d-strategy", choices=("construct", "unsolved"),
+                    default="construct",
+                    help="category-D policy arm (v4 preregistered "
+                         "comparison): construct = bounded build + "
+                         "submit-on-existence; unsolved = immediate "
+                         "honest stop (cost saving)")
     a = ap.parse_args()
 
     ws = Path(a.ws)
@@ -468,7 +504,8 @@ def main() -> int:
     if rec["category"] in ("A1", "A2") and rec.get("exec_results"):
         data = next((r for r in rec["exec_results"] if r["stable_fatal"]),
                     data)
-    prompt = build_prompt(rec["category"], data, 25)
+    prompt = build_prompt(rec["category"], data, 25,
+                          d_strategy=a.d_strategy)
 
     logdir = Path(a.logdir)
     logdir.mkdir(parents=True, exist_ok=True)

@@ -133,23 +133,42 @@ class TestPrompts(unittest.TestCase):
             self.assertNotIn("LD_LIBRARY_PATH", text, name)
             self.assertNotRegex(text, r"/out/|oss-fuzz-base-runner", name)
 
+    def test_v4_submit_early_discipline(self):
+        # 1A postmortem: v3 'hypothesis-first' wording converted 0/7 into
+        # check intents; v4 makes the FIRST action the submission itself
+        p = self._all_prompts()
+        for key in ("A2", "B", "C"):
+            self.assertIn("STEP 1", p[key], key)
+        self.assertIn("your FIRST action, no pre-reading", p["A2"])
+        self.assertIn("check.py poc.bin", p["A2"])
+        self.assertIn("BEFORE studying source", p["B"])
+        self.assertIn("2 checks total", p["B"])
+        self.assertIn("execute the generator NOW", p["C"])
+        self.assertIn("do NOT read any source", p["C"])
+        for key in ("A1", "A2", "B", "C"):
+            self.assertIn("SUBMIT FIRST, RESEARCH LATER", p[key], key)
+            self.assertIn("first 3 actions", p[key], key)
+
+    def test_v4_d_strategy_arms(self):
+        construct = pt.build_prompt("D", None)
+        unsolved = pt.build_prompt("D", None, d_strategy="unsolved")
+        self.assertIn("8 turns", construct)
+        self.assertIn("MOMENT an input file exists", construct)
+        self.assertIn("UNSOLVED", construct)          # honest stop fallback
+        self.assertIn("STOP immediately", unsolved)
+        self.assertIn("Do not run", unsolved)
+        self.assertNotIn("8 turns", unsolved)
+
     def test_content_requirements(self):
         p = self._all_prompts()
         self.assertIn("check.py poc.bin", p["A1"])
-        self.assertIn("at most 2 turns", p["A2"])
         self.assertIn("CRASH_TARGET_UNKNOWN", p["A2"])   # r12: no fake A1
-        self.assertIn("At most 2 check.py", p["B"])
-        self.assertIn("do not blind-submit", p["B"].lower())
         self.assertIn("possible generators", p["C"])
-        self.assertIn("8 turns", p["D"])
-        self.assertIn("UNSOLVED", p["D"])
         self.assertIn("did not", p["GENERIC"])   # classification not claimed
         for key, text in p.items():
-            self.assertIn("Do NOT restart", text, key)
             self.assertIn("FINAL submission", text, key)
-        # r12: D has its own preamble -- no "first three actions build on
-        # existing workspace evidence" expectation for artifact-less tasks
-        self.assertNotIn("first three actions", p["D"])
+        # r12: D has its own preamble -- no submit-first/evidence rule
+        self.assertNotIn("SUBMIT FIRST", p["D"])
 
 
 class TestCheckDouble(unittest.TestCase):
