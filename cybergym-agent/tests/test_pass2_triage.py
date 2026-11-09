@@ -75,11 +75,25 @@ class TestDiscovery(unittest.TestCase):
             encoding="utf-8")
         (self.ws / "reader.py").write_text("print(open('a.txt').read())",
                                            encoding="utf-8")
+        # r19 P0: unsafe filenames never become prompt-interpolated commands
+        for bad in ("weird name.py", "semi;colon.py",
+                    "u'nicode\U0001f600.py"):
+            (self.ws / bad).write_text("open('poc.bin','wb')",
+                                       encoding="utf-8")
         gens = pt.discover_generators(self.ws,
                                       pt.load_trusted_tools(self.ws))
-        self.assertEqual([g["file"] for g in gens], ["poc_gen.py"])
+        names = [g["file"] for g in gens]
+        self.assertEqual(names, ["poc_gen.py"])
         self.assertEqual(gens[0]["confidence"], "possible_generator")
         self.assertIn("write_bytes", gens[0]["matched"])
+
+    def test_gen_name_safe(self):
+        self.assertTrue(pt.gen_name_safe("poc_gen.py"))
+        self.assertTrue(pt.gen_name_safe("gen-2_v3.py"))
+        for bad in ("", "a b.py", "a;b.py", "a'b.py", "a\nb.py", "../x.py",
+                    "a|b.py", "a$(x).py", "脚本.py", "-lead.py",
+                    "x" * 200 + ".py"):
+            self.assertFalse(pt.gen_name_safe(bad), repr(bad))
 
 
 class TestDecideAndRelevance(unittest.TestCase):
@@ -153,7 +167,6 @@ class TestPrompts(unittest.TestCase):
         construct = pt.build_prompt("D", None)
         unsolved = pt.build_prompt("D", None, d_strategy="unsolved")
         self.assertIn("8 turns", construct)
-        self.assertIn("MOMENT an input file exists", construct)
         self.assertIn("UNSOLVED", construct)          # honest stop fallback
         self.assertIn("STOP immediately", unsolved)
         self.assertIn("Do not run", unsolved)
@@ -164,11 +177,39 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("check.py poc.bin", p["A1"])
         self.assertIn("CRASH_TARGET_UNKNOWN", p["A2"])   # r12: no fake A1
         self.assertIn("possible generators", p["C"])
-        self.assertIn("did not", p["GENERIC"])   # classification not claimed
         for key, text in p.items():
-            self.assertIn("FINAL submission", text, key)
-        # r12: D has its own preamble -- no submit-first/evidence rule
-        self.assertNotIn("SUBMIT FIRST", p["D"])
+            # r19 P1: precise final-only semantics in every prompt
+            self.assertIn("final-only rule", text, key)
+            self.assertIn("no best-of", text, key)
+
+    def test_r19_revisions(self):
+        p = self._all_prompts()
+        # P1 preamble: action definition + minimum candidate validity
+        for key in ("A1", "A2", "B", "C"):
+            self.assertIn("substantive tool or file operations", p[key])
+            self.assertIn("never an empty file", p[key])
+        # P1 A2/B: second check needs a stated structural change
+        self.assertIn("ONLY if you can state the specific structural "
+                      "change", p["A2"])
+        self.assertIn("do not\nmerely rename".replace("\n", " ")
+                      if False else "merely rename, re-save", p["B"])
+        # P0 C: sandbox + workspace-local-only + failure handling
+        self.assertIn("session sandbox", p["C"])
+        self.assertIn("never run files from outside the workspace", p["C"])
+        self.assertIn("do NOT\nsubmit an unrelated".replace("\n", " ")
+                      if False else "submit an unrelated file", p["C"])
+        # P1 D-construct: non-empty task-format gate
+        self.assertIn("concrete, non-empty,", self._d_construct())
+        self.assertIn("Never submit intermediate", self._d_construct())
+        # P1 GENERIC: own discipline, classification failure != validation
+        g = p["GENERIC"]
+        self.assertIn("NOT validation", g)
+        self.assertIn("If candidate\nintegrity".replace("\n", " ")
+                      if False else "cannot be confirmed", g)
+        self.assertNotIn("SUBMIT FIRST, RESEARCH LATER", g)
+
+    def _d_construct(self):
+        return pt.build_prompt("D", None, d_strategy="construct")
 
 
 class TestCheckDouble(unittest.TestCase):

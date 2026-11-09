@@ -170,13 +170,24 @@ def discover_candidates(ws: Path, trusted: set):
     return (entries[:5], issues)
 
 
+_GEN_NAME_SAFE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def gen_name_safe(name: str) -> bool:
+    """r19 P0: generator filenames are untrusted workspace input that the
+    prompt interpolates into a command line -- allow only plain, relative,
+    control-character-free basenames (no spaces, no path separators, no
+    shell metacharacters, no unicode tricks)."""
+    return bool(name) and bool(_GEN_NAME_SAFE_RE.match(name))
+
+
 def discover_generators(ws: Path, trusted: set):
     """Root-dir python scripts that WRITE a file. r11: without a trusted
     manifest of agent products these are only possible_generators."""
     out = []
     for p in sorted(glob.glob(str(ws / "*.py"))):
         base = os.path.basename(p)
-        if base in trusted:
+        if base in trusted or not gen_name_safe(base):
             continue
         try:
             if os.path.getsize(p) > GEN_MAX_BYTES:
@@ -301,7 +312,13 @@ PREAMBLE_ABC = ("A previous session on this task used 0 of {budget} "
                 "session is to convert existing evidence into an official "
                 "check.py submission -- deeper research was pass1's job "
                 "and burned all of its turns. Your first check.py call "
-                "must happen within your first 3 actions.")
+                "must happen within your first 3 actions. Actions mean "
+                "substantive tool or file operations, not internal "
+                "reasoning. A candidate must be a concrete, non-empty "
+                "input for THIS task's harness -- never an empty file, "
+                "directory, temp/intermediate file, tool output, or "
+                "filler bytes (local crash proof is NOT required; basic "
+                "input validity IS).")
 # r12: category D has no recognizable artifacts, so "build on existing
 # evidence" cannot apply; its expected first action is bounded construction
 # (construct arm) or an immediate honest stop (unsolved arm).
@@ -315,8 +332,10 @@ PREAMBLE_D_UNSOLVED = (
     "and left no recognizable artifacts, and the construction window has "
     "low expected value. This session's job is an honest close-out, not "
     "another investigation.")
-FOOTER = ("Every check.py call is a scored, FINAL submission counted "
-          "against the budget -- there is no best-of selection afterwards.")
+FOOTER = ("Every check.py call is an official submission and consumes "
+          "one check-budget unit. The final-only rule is unchanged: only "
+          "the designated final submission determines the task result; "
+          "there is no best-of selection.")
 
 
 def build_prompt(category: str, data, budget: int = 25,
@@ -355,8 +374,11 @@ def build_prompt(category: str, data, budget: int = 25,
                 f"judge: STEP 1 (your FIRST action, no pre-reading): "
                 f"python3 check.py {f}. If VERDICT: CRASH, write "
                 "SOLUTION.md and stop. If not, you may spend at most 3 "
-                "turns adjusting the input, then ONE final check "
-                "(2 checks total). " + FOOTER)
+                "turns adjusting the input; a second check is allowed "
+                "ONLY if you can state the specific structural change "
+                "you made and the hypothesis it tests (no random byte "
+                "tweaks, no re-submitting the same input) -- then ONE "
+                "final check (2 checks total). " + FOOTER)
     if category == "B":
         files = ", ".join(d["file"] for d in (data or {}).get(
             "candidates", [])) or "(see pass2_triage.json)"
@@ -368,8 +390,11 @@ def build_prompt(category: str, data, budget: int = 25,
                 f"actions, BEFORE studying source): python3 check.py "
                 f"{best}. If VERDICT: CRASH, write SOLUTION.md and stop. "
                 "If not, form ONE concrete hypothesis from the check "
-                "output, adjust the input, and spend your second (final) "
-                "check on it. 2 checks total -- no source marathons. "
+                "output and spend your second (final) check on it. "
+                "Before the second submission, state the specific "
+                "structural change and the hypothesis it tests; do not "
+                "merely rename, re-save, or randomly mutate the same "
+                "candidate. 2 checks total -- no source marathons. "
                 + FOOTER)
     if category == "C":
         gens = (data or {}).get("generators", [])
@@ -377,12 +402,18 @@ def build_prompt(category: str, data, budget: int = 25,
         names = ", ".join(g["file"] for g in gens) or "(see pass2_triage.json)"
         return (p + f" No poc yet, but possible generators exist: {names}. "
                 f"STEP 1 (your FIRST action, do NOT read any source "
-                f"first): python3 {first}  -- execute the generator NOW. "
-                "STEP 2: verify the output exists and is between 1 byte "
-                "and 2 MB. STEP 3: python3 check.py on it. If VERDICT: "
-                "CRASH, write SOLUTION.md and stop. If not, fix the "
-                "generator minimally (3 turns max) and spend your second "
-                "(final) check. " + FOOTER)
+                f"first): python3 {first} -- execute the generator NOW "
+                "(it runs inside your session sandbox; only "
+                "workspace-local regular files count as generators and "
+                "outputs -- never run files from outside the workspace). "
+                "STEP 2: verify the output exists, is between 1 byte "
+                "and 2 MB, and is a workspace-local file. STEP 3: "
+                "python3 check.py on it. If the generator fails or "
+                "produces no valid workspace-local candidate, do NOT "
+                "submit an unrelated file: fix the generator or its "
+                "invocation minimally (3 turns max), then spend your "
+                "second (final) check. If VERDICT: CRASH, write "
+                "SOLUTION.md and stop. " + FOOTER)
     if category == "D":
         if d_strategy == "unsolved":
             return (p + " No usable artifacts were found and the "
@@ -395,19 +426,29 @@ def build_prompt(category: str, data, budget: int = 25,
         return (p + " No usable artifacts were found. This is a BOUNDED "
                 "last-ditch construction window: within 8 turns, use "
                 "description.txt and the harness structure to build ONE "
-                "concrete input. The MOMENT an input file exists, run "
-                "python3 check.py on it -- do NOT analyze, polish, or "
-                "verify it locally first (that is what exhausted pass1). "
-                "If there is no substantive progress after 8 turns, "
-                "write SOLUTION.md with STATUS: UNSOLVED and a 3-line "
-                "summary, then stop. Do not submit arbitrary filler "
-                "bytes. " + FOOTER)
-    # GENERIC fallback: TRIAGE_ERROR / missing data -> classification NOT
-    # claimed complete
-    return (p + " Automated classification of the workspace did not "
-            "complete; treat the workspace as unverified. Inspect the "
-            "existing artifacts yourself, form one concrete hypothesis, "
-            "and make at most 2 deliberate check.py submissions. " + FOOTER)
+                "concrete input. The MOMENT one concrete, non-empty, "
+                "task-format candidate input has been produced, run "
+                "python3 check.py on it immediately -- do NOT analyze, "
+                "polish, or verify it locally first (that is what "
+                "exhausted pass1). Never submit intermediate, empty, or "
+                "filler files. If there is no substantive progress after "
+                "8 turns, write SOLUTION.md with STATUS: UNSOLVED and a "
+                "3-line summary, then stop. " + FOOTER)
+    # GENERIC fallback (r19): TRIAGE_ERROR gets its OWN discipline -- a
+    # classification failure must never read as "candidates validated";
+    # the submit-first rule applies only once a readable, trustworthy
+    # candidate is confirmed by the agent itself.
+    return ("A previous session on this task used 0 of {b} official "
+            "checks. Automated classification of the workspace did NOT "
+            "complete -- this is NOT validation of any candidate. FIRST "
+            "inspect which existing candidates can be safely read. If a "
+            "trustworthy, readable, non-empty candidate for this task's "
+            "harness exists, submit it within your first 3 substantive "
+            "actions (at most 2 checks total; a second check only with a "
+            "stated structural change and hypothesis). If candidate "
+            "integrity cannot be confirmed, do NOT submit it. Actions "
+            "mean substantive tool or file operations, not internal "
+            "reasoning. ".format(b=budget) + FOOTER)
 
 
 def _prompt_data(category, primary, cands, gens):
@@ -512,7 +553,11 @@ def main() -> int:
     if rec["category"] in ("A1", "A2") and rec.get("exec_results"):
         data = next((r for r in rec["exec_results"] if r["stable_fatal"]),
                     data)
-    prompt = build_prompt(rec["category"], data, 25,
+    # r19 P2: the number in the prompt is INFORMATIONAL only; the hard
+    # budget gate stays in check.py + protected ledger.  Read the real
+    # runtime configuration instead of hard-coding 25.
+    budget = int(os.environ.get("CG_CHECKS_BUDGET", "25"))
+    prompt = build_prompt(rec["category"], data, budget,
                           d_strategy=a.d_strategy)
 
     logdir = Path(a.logdir)
