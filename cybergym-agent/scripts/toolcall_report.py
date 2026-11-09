@@ -78,60 +78,84 @@ def scan_session(path: str) -> dict:
 
 
 def oracle_log(ws: str) -> dict:
-    """Two-layer oracle telemetry (P0-6.5, r10 review).
+    """Two-layer oracle telemetry (P0-6.5 r10 / r14 D1 rework).
 
-    Schema-2 entries carry runner_started/target_started/exit codes, so
-    validity is decided by execution proof -- not by the legacy
-    `CLEAN rc=1` heuristic (kept only as a red flag for old logs)."""
+    Requests vs attempts vs confirmed verdicts are separated:
+      requests   every logged oracle request (incl. NO_INPUT/INPUT_ERROR/
+                 FIX_SIDE_BLOCKED early returns)
+      attempts   runs whose sentinels proved the target LAUNCHED
+                 (TARGET_LAUNCH_ERROR counts as an attempt, not a verdict)
+      confirmed  attempts that also produced a trusted verdict
+                 (CLEAN/FATAL/NONFATAL/TIMEOUT)
+    Schema-1 legacy rows can prove nothing: CLEAN-rc1 stays a SUSPECT
+    (never claimed confirmed infra failure on its own), FATAL/NONFATAL are
+    unverified_legacy, neither enters the confirmed numerator."""
     p = os.path.join(ws, ".oracle.log")
     if not os.path.isfile(p):
         return {"entries": 0}
-    st = {"entries": 0, "target_executions_confirmed": 0,
-          "oracle_errors": 0, "oracle_clean_confirmed": 0,
-          "oracle_crashes_confirmed": 0, "legacy_clean_rc1_suspect": 0,
+    VERDICT_SET = ("CLEAN", "FATAL", "NONFATAL", "TIMEOUT")
+    st = {"entries": 0, "bad_lines": 0, "requests": 0,
+          "verification_attempts": 0, "target_executions_confirmed": 0,
+          "oracle_errors": 0, "launch_errors": 0,
+          "oracle_clean_confirmed": 0, "oracle_crashes_confirmed": 0,
+          "legacy_clean_rc1_suspect": 0, "legacy_crashes_unverified": 0,
           "first_error_ts": None, "first_confirmed_ts": None,
           "verdicts": {}}
     for line in open(p, encoding="utf-8", errors="replace"):
         try:
             d = json.loads(line)
         except Exception:
+            st["bad_lines"] += 1
             continue
         st["entries"] += 1
+        st["requests"] += 1
         v = d.get("verdict", "?")
         st["verdicts"][v] = st["verdicts"].get(v, 0) + 1
+        ts = d.get("ts")
+
+        def note_err():
+            if st["first_error_ts"] is None and ts:
+                st["first_error_ts"] = ts
+
         if d.get("schema") == 2 or "runner_started" in d:
+            if v in ("NO_INPUT", "INPUT_ERROR", "FIX_SIDE_BLOCKED"):
+                st["oracle_errors"] += 1
+                note_err()
+                continue
             if d.get("runner_started") and d.get("target_started"):
-                st["target_executions_confirmed"] += 1
-                ts = d.get("ts")
-                if st["first_confirmed_ts"] is None and ts:
-                    st["first_confirmed_ts"] = ts
-                if v == "CLEAN":
-                    st["oracle_clean_confirmed"] += 1
-                elif v in ("FATAL", "NONFATAL"):
-                    st["oracle_crashes_confirmed"] += 1
-                elif v in ("ORACLE_ERROR", "TARGET_LAUNCH_ERROR", "UNKNOWN"):
+                if v in VERDICT_SET:
+                    st["verification_attempts"] += 1
+                    st["target_executions_confirmed"] += 1
+                    if st["first_confirmed_ts"] is None and ts:
+                        st["first_confirmed_ts"] = ts
+                    if v == "CLEAN":
+                        st["oracle_clean_confirmed"] += 1
+                    elif v in ("FATAL", "NONFATAL"):
+                        st["oracle_crashes_confirmed"] += 1
+                elif v == "TARGET_LAUNCH_ERROR":
+                    st["verification_attempts"] += 1   # target attempted to
+                    st["launch_errors"] += 1            # launch, no verdict
+                    note_err()
+                else:                                   # ORACLE_ERROR/UNKNOWN
+                    st["verification_attempts"] += 1
                     st["oracle_errors"] += 1
-                    ts = d.get("ts")
-                    if st["first_error_ts"] is None and ts:
-                        st["first_error_ts"] = ts
+                    note_err()
             else:
-                st["oracle_errors"] += 1
-                ts = d.get("ts")
-                if st["first_error_ts"] is None and ts:
-                    st["first_error_ts"] = ts
+                st["oracle_errors"] += 1                # runner never proved
+                note_err()
         else:
-            # schema-1 legacy entries: cannot prove execution
+            # schema-1 legacy rows: cannot prove execution
             if v == "CLEAN" and d.get("rc") == 1:
-                st["legacy_clean_rc1_suspect"] += 1
-                st["oracle_errors"] += 1
-                ts = d.get("ts")
-                if st["first_error_ts"] is None and ts:
-                    st["first_error_ts"] = ts
+                st["legacy_clean_rc1_suspect"] += 1     # suspect, NOT proof
+                note_err()
             elif v in ("FATAL", "NONFATAL"):
-                st["oracle_crashes_confirmed"] += 1
-    n = st["entries"]
+                st["legacy_crashes_unverified"] += 1
+    n = st["verification_attempts"]
     st["valid_local_verification_rate"] = (
         round(st["target_executions_confirmed"] / n, 3) if n else None)
+    st["request_valid_rate"] = (
+        round(st["target_executions_confirmed"] / st["requests"], 3)
+        if st["requests"] else None)
     return st
 
 
@@ -144,14 +168,22 @@ def report_task(ws: str) -> dict:
     # turns spent after the oracle first proved unavailable (r10 metric:
     # how much exploration budget was burned on a dead oracle)
     err_ts = (orc.get("first_error_ts") or "")[:19]
+    # r14 E1: post-error count and the task total MUST share one unit
+    # (timestamped assistant events across all sessions of this task), and
+    # the subset can never exceed the total.
+    events_total = sum(len(s["event_ts"]) for s in per)
     turns_after_err = None
     if err_ts:
         turns_after_err = sum(1 for s in per for t in s["event_ts"]
                               if t > err_ts)
+        assert turns_after_err <= events_total, (
+            f"unit mismatch: post_error={turns_after_err} > "
+            f"events_total={events_total}")
     return {"task": os.path.basename(ws), "n_sessions": len(sess),
             "total": merge(per), "pass2": pass2,
             "oracle": orc,
             "first_check_turn": per[0]["first_check_seq"] if per else None,
+            "events_total": events_total,
             "turns_after_first_oracle_error": turns_after_err,
             "solution_file": os.path.exists(os.path.join(ws, "SOLUTION.md")),
             "submitted_hint": total_checks > 0}
@@ -200,18 +232,23 @@ def main() -> int:
                 p2["asst_msgs"], p2["strict_checks"], json.dumps(p2["tool_calls"])))
     tot_checks = sum(r["total"]["strict_checks"] for r in rows)
     tot_exec = sum(r["oracle"].get("target_executions_confirmed", 0) for r in rows)
+    tot_attempts = sum(r["oracle"].get("verification_attempts", 0) for r in rows)
     tot_entries = sum(r["oracle"].get("entries", 0) for r in rows)
     tot_err = sum(r["oracle"].get("oracle_errors", 0) for r in rows)
+    tot_events = sum(r.get("events_total") or 0 for r in rows)
     tot_wasted = sum(r.get("turns_after_first_oracle_error") or 0 for r in rows)
+    assert tot_wasted <= tot_events, (
+        f"unit mismatch: arm post_error={tot_wasted} > events={tot_events}")
     p2_checks = sum((r["pass2"] or {}).get("strict_checks", 0) for r in rows)
     p2_sessions = sum(1 for r in rows if r["pass2"])
     print("--- ARM TOTAL tasks=%d strict_checks=%d pass2_sessions=%d pass2_checks=%d" % (
         len(rows), tot_checks, p2_sessions, p2_checks))
-    print("--- ORACLE entries=%d target_executions_confirmed=%d oracle_errors=%d "
-          "arm_valid_rate=%s turns_after_oracle_error=%d" % (
-              tot_entries, tot_exec, tot_err,
-              (round(tot_exec / tot_entries, 3) if tot_entries else None),
-              tot_wasted))
+    print("--- ORACLE entries=%d attempts=%d target_executions_confirmed=%d "
+          "oracle_errors=%d attempt_valid_rate=%s "
+          "events_after_oracle_error=%d/%d" % (
+              tot_entries, tot_attempts, tot_exec, tot_err,
+              (round(tot_exec / tot_attempts, 3) if tot_attempts else None),
+              tot_wasted, tot_events))
     return 0
 
 

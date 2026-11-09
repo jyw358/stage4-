@@ -95,6 +95,27 @@ SHA256SUMS.tools 已更新为补丁后哈希；主机两棵 /opt 树按新清单
 > 是错误的（见 §5a）——agent uid 无 socket 权限；正确语义是 oracle
 > 必须**诚实报告**执行不可用。
 
+## 5b. r14 外审再补丁（2026-11-09，对抗性外部评审后）
+
+外审（用户委托的独立评审 AI）确认两条可复现假负反馈路径与多个
+fail-closed 漏点，全部修复并滚动部署两棵 /opt 树（备份
+`/data2/backup/pre-r14-20261109T034620Z/`，`sha256sum -c` 15/15 OK）：
+
+| 文件 | r14 变更 |
+|---|---|
+| local_oracle.py | **A1**：哨兵改 stdout 专属解析（首行=runner 证明；退出标记取最后一个全行匹配；docker rc≠0 时解析结果作废→ORACLE_ERROR）——目标回显字面量无法再伪造 CLEAN/FATAL；**A2**：124=TIMEOUT、137 无超时证据=UNKNOWN(killed)、libFuzzer timeout/OOM 文本分家、FATAL 需 sanitizer 文本∧非零退出；**B1**：>8 输入显式 INPUT_ERROR（不再静默截断）、open+fstat 拒非普通文件、bytes 读取（二进制输出不再炸 oracle）、docker CLI 缺失→ORACLE_ERROR(docker_missing)；**B2**：容器 --name 唯一化+外层超时 docker kill、阶段耗时入记录；**F1**：fix 侧守卫加 realpath 分量检查；**D2**：日志 O_APPEND 单次完整写（UTF-8）；NO_INPUT/INPUT_ERROR/FIX_SIDE_BLOCKED 也入 .oracle.log；删除 legacy `classify()` shim |
+| try_local.sh / stab_run.sh | **C1**：默认分支 fail-closed（NO_INPUT/INPUT_ERROR/FIX_SIDE_BLOCKED/未来枚举→VERIFICATION-UNAVAILABLE exit 7）；stab_run 只聚合已验证 run，0 验证→exit 7；CLEAN 是唯一 NO_TRIGGER 出口 |
+| minsep.py | **C2**：中途 oracle 失败≠预算用尽（-3/-1 分离）；中途失败不再发布候选（exit 7）；基线 TIMEOUT 独立状态（exit 6）不再误判 NOT-CRASHING；私有 mkdtemp 替换可预测 /tmp 文件名 |
+| probe_path.sh | **C3**：容器 rc≠0 / gdb 断点错误 → VERIFICATION-UNAVAILABLE exit 5；NOT-REACHED 仅在会话正常完成时输出；try/finally 清理 |
+| directed_fuzz.py | **C4**：修复 -dict 参数前插导致 rc=127 的真 bug（字典参数移到目标之后）；rc 126/127→TARGET_LAUNCH_ERROR exit 7；artifact 按本轮 mtime 过滤（不再把旧轮产物当本轮样本）；rc≠0 无 artifact 不再输出"keep iterating" |
+| toolcall_report.py | **D1**：requests/attempts/confirmed 三层分离（TARGET_LAUNCH_ERROR 不再计入 confirmed；旧 schema FATAL/NONFATAL 记 unverified 不记 confirmed；CLEAN-rc1 降级为 suspect）；**E1**：错误后事件与总量同单位并内置断言；坏行计数 |
+| pass2_triage.py | **A1 同源修复**：_run_once 复用 parse_execution/classify_exec 新语义 |
+| tests | test_local_oracle_classify 重写：25 项（含哨兵伪造 4 场景、假 FATAL 退出 0、137 语义、realpath 守卫 mock） |
+
+主机复算（新口径）：after 臂错误后事件 **702/1296（54%）**、B 臂
+**270/1127（24%）**——"702>674"矛盾系单位混用，已在
+`results/pair_baseline/summary.md` 勘误。
+
 ## 6. 入库哈希清单
 
 见 `cybergym-agent/scripts/SHA256SUMS.tools`（随本提交生成）。

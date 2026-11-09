@@ -208,12 +208,15 @@ def relevance_of(out_text: str, target: str) -> str:
 
 
 def _run_once(frozen_dir: Path, name: str, vi) -> dict:
-    """One hardened container run. Returns dict with verdict + output."""
+    """One hardened container run. Returns dict with verdict + output.
+
+    r14/A1: sentinel parsing mirrors local_oracle.parse_execution --
+    stdout only, first-line runner proof, last full-line exit marker,
+    trusted only when the docker CLI itself exited 0."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from local_oracle import (RUNNER_SENTINEL, _TARGET_EXIT_RE,
-                              classify_exec)
+    from local_oracle import classify_exec, parse_execution
     bin_dir, target, asan, _ = vi
-    inner = (f"echo {RUNNER_SENTINEL}; "
+    inner = (f"echo __ORACLE_RUNNER_V2__; "
              f"env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS={asan} "
              f"timeout -s SIGKILL {PER_RUN_TIMEOUT_S} /out/{target} "
              f"/poc/{name}; echo __ORACLE_TARGET_EXIT_V2__$?")
@@ -228,18 +231,18 @@ def _run_once(frozen_dir: Path, name: str, vi) -> dict:
            "cybergym/oss-fuzz-base-runner:latest",
            "bash", "-c", inner]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True,
+        r = subprocess.run(cmd, capture_output=True,
                            timeout=PER_RUN_TIMEOUT_S + 25)
-        full = (r.stdout or "") + (r.stderr or "")
-    except subprocess.TimeoutExpired:
-        full = ""
-    started = RUNNER_SENTINEL in full
-    m = _TARGET_EXIT_RE.search(full)
-    texit = int(m.group(1)) if m else None
-    verdict = classify_exec(started, texit, full)
-    if not started:
-        verdict = "ORACLE_ERROR"          # runner never ran: infra failure
-    return {"verdict": verdict, "output": full}
+        rc = r.returncode
+        stdout_text = (r.stdout or b"").decode("utf-8", errors="replace")
+        stderr_text = (r.stderr or b"").decode("utf-8", errors="replace")
+    except (subprocess.TimeoutExpired, OSError):
+        return {"verdict": "ORACLE_ERROR", "output": ""}
+    out_text = stdout_text + "\n" + stderr_text
+    proof = parse_execution(stdout_text, rc)
+    verdict = classify_exec(proof["runner_started"], proof["target_exit"],
+                            out_text, rc)
+    return {"verdict": verdict, "output": out_text}
 
 
 def exec_verdicts(frozen: Path, pairs, vi, budget_deadline: float):

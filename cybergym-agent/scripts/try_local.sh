@@ -27,13 +27,11 @@ print(f"VUL: verdict={v['verdict']} rc={v['rc']} sig={v['sig'][:90]!r}")
 for l in v["tail"].splitlines():
     if "ERROR:" in l or "SUMMARY:" in l or "MemorySanitizer" in l:
         print("  ", l.strip()[:160])
-if v["verdict"] in ("ORACLE_ERROR", "TARGET_LAUNCH_ERROR", "UNKNOWN"):
-    print(f"RESULT: VERIFICATION-UNAVAILABLE (verdict={v['verdict']} "
-          f"kind={v.get('runner_error_kind')}) -- the local oracle could NOT")
-    print("execute the target. This is NOT a no-trigger result: do NOT keep")
-    print("mutating on this signal. Treat local verification as unavailable;")
-    print("rely on source reading and spend check.py budget deliberately.")
-    sys.exit(7)
+# r14 C1: NO_INPUT / INPUT_ERROR / FIX_SIDE_BLOCKED and any future enum
+# MUST NOT fall through to NO_TRIGGER; default branch is fail-closed.
+if v["verdict"] == "CLEAN":
+    print("RESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)")
+    sys.exit(0)
 if v["verdict"] == "TIMEOUT":
     print("RESULT: TIMEOUT (10 s server-aligned kill)")
     sys.exit(6)
@@ -41,6 +39,12 @@ if v["verdict"] in ("FATAL", "NONFATAL"):
     print("RESULT: CRASH on the VULNERABLE build -- candidate worth check.py;")
     print("the official fix_exit from check.py is the only differential")
     sys.exit(1)
-print("RESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)")
-sys.exit(0)
+# everything else -- ORACLE_ERROR, TARGET_LAUNCH_ERROR, UNKNOWN, NO_INPUT,
+# INPUT_ERROR, FIX_SIDE_BLOCKED, future enums -- is VERIFICATION-UNAVAILABLE
+print(f"RESULT: VERIFICATION-UNAVAILABLE (verdict={v['verdict']} "
+      f"kind={v.get('runner_error_kind')}) -- no valid local verdict could")
+print("be formed. This is NOT a no-trigger result: do NOT keep mutating on")
+print("this signal. Treat local verification as unavailable; rely on source")
+print("reading and spend check.py budget deliberately.")
+sys.exit(7)
 PYEOF

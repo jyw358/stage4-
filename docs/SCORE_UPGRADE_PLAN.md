@@ -183,6 +183,16 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
      内 0 check 转化（C 类生成器读了没跑、D 类 0/9 产出）；
      `results/p2_phase1a/summary.md`；阶段 1B（exec 安全测试）与
      阶段二（新冻结题 A/B + 预注册变量）待批；
+   - **r14 外审（用户委托独立评审 AI）已处置（2026-11-09）**：A1
+     哨兵伪造（stdout 专属解析+docker-rc 信任门+末位全行匹配）、
+     A2 退出语义细化（137 无超时证据=UNKNOWN、假 FATAL 需非零退出）、
+     B1/B2 生命周期（输入拒绝、bytes、容器命名与外层清理）、
+     C1-C4 前端 fail-closed 补漏（NO_INPUT/中途失败/gdb 异常/
+     fuzz 启动失败与 -dict 真 bug）、D1 遥测三层口径、D2 追加写、
+     E1 单位勘误（702/1296 vs 270/1127，McNemar p=0.25 方向性）、
+     F1 realpath 守卫、legacy shim 删除；单测 25+11 全绿、全套件
+     OK；两棵 /opt 树滚动部署 15/15 OK（备份 pre-r14-…034620Z）——
+     详见 `docs/TOOLCHAIN_PROVENANCE.md` §5b 与 summary.md 勘误；
    - 运行中发现（与本次改动无关的既有部署事实）：默认
      /opt/cybergym-agent 的 run_agent_task.sh 是**无 keypool 的旧版**
      （`b91fa5fb…`），生产跑批必须用 /opt/cybergym-agent-r33

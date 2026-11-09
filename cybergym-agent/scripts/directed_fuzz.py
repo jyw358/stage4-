@@ -109,14 +109,17 @@ def main():
                  f"/out/{target} /corpus /artifacts {a.seconds} "
                  f"{'/poc/' + dictname if dictname else ''}")
     else:
-        args = [f"/out/{target}",
-                f"-fork={a.fork}", "-ignore_crashes=1", "-ignore_timeouts=1",
-                "-ignore_ooms=1", "-max_len=1048576", "-rss_limit_mb=2560",
-                "-timeout=8", f"-max_total_time={a.seconds}",
-                f"-artifact_prefix=/artifacts/", "/corpus"]
+        args = [f"/out/{target}"]
         if a.focus:
-            args.insert(1, f"-focus_function={a.focus}")
-        args = args_extra[:1] + args if args_extra else args
+            args.append(f"-focus_function={a.focus}")
+        args += args_extra                      # r14 C4: -dict AFTER the
+        #                                          binary (prepending made
+        #                                          bash try to execute
+        #                                          "-dict=..." -> rc 127)
+        args += [f"-fork={a.fork}", "-ignore_crashes=1", "-ignore_timeouts=1",
+                 "-ignore_ooms=1", "-max_len=1048576", "-rss_limit_mb=2560",
+                 "-timeout=8", f"-max_total_time={a.seconds}",
+                 f"-artifact_prefix=/artifacts/", "/corpus"]
         inner = " ".join(args)
     cname = f"dfz-{os.getpid()}"
     cmd = ["docker", "run", "--rm", "--name", cname,
@@ -129,15 +132,17 @@ def main():
            f"echo __ORACLE_RUNNER_V2__; env LD_LIBRARY_PATH=/out-libs "
            f"ASAN_OPTIONS={asan} {inner}"]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True,
+        r = subprocess.run(cmd, capture_output=True,
                            timeout=a.seconds + 90)
-        full = (r.stdout or "") + (r.stderr or "")
+        stdout_text = (r.stdout or b"").decode("utf-8", errors="replace")
+        stderr_text = (r.stderr or b"").decode("utf-8", errors="replace")
+        full = stdout_text + "\n" + stderr_text
         rc, tail = r.returncode, full[-1200:]
     except subprocess.TimeoutExpired:
         subprocess.run(["docker", "kill", cname], capture_output=True)
-        full, rc = "", 124
+        stdout_text, full, rc = "", "", 124
         tail = "HARD WALL CLOCK KILL (container terminated)"
-    if "__ORACLE_RUNNER_V2__" not in full:
+    if stdout_text.splitlines()[:1] != ["__ORACLE_RUNNER_V2__"]:
         # P0-6: the fuzz RUNNER never started (docker permission/daemon) --
         # fail closed; "no artifacts" here means NOTHING, do not interpret it.
         _oracle_log({"tag": "directed_fuzz", "side": "vul", "target": target,
@@ -156,6 +161,12 @@ def main():
                  "timeout": a.seconds, "verdict": f"DONE rc={rc}",
                  "rc": rc, "sig": (a.focus or "")[:120],
                  "tail": "", "wall_s": round(time.time() - t0, 1)})
+    if rc in (126, 127):
+        # r14 C4: the runner started but the TARGET/fuzzer could not launch
+        # -- this is not "no crashes found"
+        print(f"RESULT: VERIFICATION-UNAVAILABLE (target launch failed rc={rc});")
+        print("the fuzzer never started. Do NOT conclude 'no crash found'.")
+        return 7
     m = re.search(r"stat::number_of_executed_units:\s*(\d+)", tail)
     print(f"container rc={rc} wall={time.time()-t0:.0f}s "
           f"execs={m.group(1) if m else '?'} " \
@@ -164,8 +175,15 @@ def main():
         print("--- container output tail ---")
         print(tail[-800:])
 
-    artifacts = sorted(arts.glob("*"))
+    # r14 C4: only artifacts from THIS run (mtime >= run start) count
+    artifacts = sorted(x for x in arts.glob("*") if x.stat().st_mtime >= t0
+                       and x.suffix != ".log")
     if not artifacts:
+        if rc != 0:
+            # abnormal campaign end without artifacts: no conclusion either
+            print("RESULT: VERIFICATION-UNAVAILABLE (campaign rc!=0, no")
+            print("artifacts); do NOT conclude 'no crash found'.")
+            return 7
         print("no artifacts -- widen the seed, adjust --focus, or raise --seconds")
         return 0
     print(f"\n{len(artifacts)} artifacts; triaging (oracle verdicts):")

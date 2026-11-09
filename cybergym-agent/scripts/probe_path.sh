@@ -33,47 +33,69 @@ p = pathlib.Path(poc)
 if not p.is_file():
     print(f"poc not found: {poc}"); sys.exit(2)
 tmp = pathlib.Path(tempfile.mkdtemp(prefix="probe-"))
-shutil.copyfile(p, tmp / "in0")
-
-ex = ["set confirm off", "set pagination off"]
-for loc in locs[:6]:
-    ex += [f"break {loc}"]
-ex += ["run /poc/in0"]
-for i, loc in enumerate(locs[:6]):
-    ex += [f"printf \"=== BP{i} {loc}: REACHED\\n\"", "bt 8", "continue"]
-
-inner = ("echo __ORACLE_RUNNER_V2__; "
-         f"env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS={asan} "
-         f"timeout -s SIGKILL 60 gdb -q -batch "
-         + " ".join(f"-ex '{e}'" for e in ex)
-         + f" /out/{target}")
-cmd = ["docker", "run", "--rm",
-       "-v", f"{bin_dir / 'out'}:/out:ro",
-       "-v", f"{bin_dir / 'libs'}:/out-libs:ro",
-       "-v", f"{tmp}:/poc:ro", GDB_RUNNER, "bash", "-c", inner]
 try:
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-except subprocess.TimeoutExpired:
-    print("RESULT: TIMEOUT (gdb session hung)"); sys.exit(5)
-out = (r.stdout or "") + (r.stderr or "")
-if "__ORACLE_RUNNER_V2__" not in out:
-    # P0-6: the gdb RUNNER never started (docker permission/daemon/image) --
-    # fail closed; this is NOT "input does not reach the path".
-    print("RESULT: ORACLE_ERROR (probe runner failed -- docker unavailable);")
-    print("local reachability probing is UNAVAILABLE, not negative. Do not")
-    print("draw reach conclusions from this run.")
-    sys.exit(5)
-if "gdb: command not found" in out or "gdb: not found" in out:
-    print("NO_GDB: runner image lacks gdb -- fall back to try_local.sh")
-    sys.exit(4)
-print(out[-4000:])
-reached = [loc for i, loc in enumerate(locs[:6]) if f"BP{i} {loc}: REACHED" in out]
-missed = [loc for loc in locs[:6] if loc not in reached]
-print("--- SUMMARY ---")
-for loc in reached:
-    print(f"REACHED    {loc}")
-for loc in missed:
-    print(f"NOT-REACHED {loc}  (breakpoint never hit: input does not take this path)")
-shutil.rmtree(tmp, ignore_errors=True)
-sys.exit(0 if reached else 1)
+    shutil.copyfile(p, tmp / "in0")
+
+    ex = ["set confirm off", "set pagination off"]
+    for loc in locs[:6]:
+        ex += [f"break {loc}"]
+    ex += ["run /poc/in0"]
+    for i, loc in enumerate(locs[:6]):
+        ex += [f"printf \"=== BP{i} {loc}: REACHED\\n\"", "bt 8", "continue"]
+
+    inner = ("echo __ORACLE_RUNNER_V2__; "
+             f"env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS={asan} "
+             f"timeout -s SIGKILL 60 gdb -q -batch "
+             + " ".join(f"-ex '{e}'" for e in ex)
+             + f" /out/{target}")
+    cmd = ["docker", "run", "--rm",
+           "-v", f"{bin_dir / 'out'}:/out:ro",
+           "-v", f"{bin_dir / 'libs'}:/out-libs:ro",
+           "-v", f"{tmp}:/poc:ro", GDB_RUNNER, "bash", "-c", inner]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        print("RESULT: VERIFICATION-UNAVAILABLE (gdb session hung)"); sys.exit(5)
+    stdout_text = (r.stdout or b"").decode("utf-8", errors="replace")
+    stderr_text = (r.stderr or b"").decode("utf-8", errors="replace")
+    out = stdout_text + "\n" + stderr_text
+    if stdout_text.splitlines()[:1] != ["__ORACLE_RUNNER_V2__"]:
+        # P0-6: the gdb RUNNER never started (docker permission/daemon/image) --
+        # fail closed; this is NOT "input does not reach the path".
+        print("RESULT: ORACLE_ERROR (probe runner failed -- docker unavailable);")
+        print("local reachability probing is UNAVAILABLE, not negative. Do not")
+        print("draw reach conclusions from this run.")
+        sys.exit(5)
+    if r.returncode != 0:
+        # r14 C3: an abnormal container (SIGKILL/OOM/daemon kill) proves
+        # nothing about reachability; NOT-REACHED requires a completed run
+        print(f"RESULT: VERIFICATION-UNAVAILABLE (container rc={r.returncode});")
+        print("the gdb session did not complete normally. Do not draw reach")
+        print("conclusions from this run.")
+        sys.exit(5)
+    if "gdb: command not found" in out or "gdb: not found" in out:
+        print("NO_GDB: runner image lacks gdb -- fall back to try_local.sh")
+        sys.exit(4)
+    bad_gdb = ("Error in sourced command file" in out
+               or "No symbol table is loaded" in out
+               or "No source file" in out
+               or "No function" in out
+               or "No line" in out
+               or "not defined" in out)
+    if bad_gdb:
+        # r14 C3: breakpoint/parse errors are infrastructure, not evidence
+        print("RESULT: VERIFICATION-UNAVAILABLE (gdb could not set/evaluate")
+        print("the requested breakpoints); NOT a reachability result.")
+        sys.exit(5)
+    print(out[-4000:])
+    reached = [loc for i, loc in enumerate(locs[:6]) if f"BP{i} {loc}: REACHED" in out]
+    missed = [loc for loc in locs[:6] if loc not in reached]
+    print("--- SUMMARY ---")
+    for loc in reached:
+        print(f"REACHED    {loc}")
+    for loc in missed:
+        print(f"NOT-REACHED {loc}  (breakpoint never hit: input does not take this path)")
+    sys.exit(0 if reached else 1)
+finally:
+    shutil.rmtree(tmp, ignore_errors=True)
 PYEOF

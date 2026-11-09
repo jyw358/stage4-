@@ -26,18 +26,26 @@ if not vi:
 PERTURB = [None, "85", "170", "1", "255"]
 sigs = collections.Counter()
 rows = []
+verified = 0
 for i in range(n):
     r = run_side(vi, [poc], perturb=PERTURB[i % len(PERTURB)], tag="stab")
-    if r["verdict"] in ("ORACLE_ERROR", "TARGET_LAUNCH_ERROR", "UNKNOWN"):
+    if r["verdict"] not in ("CLEAN", "FATAL", "NONFATAL", "TIMEOUT"):
+        # r14 C1: any non-verdict state (ORACLE_ERROR, launch error, UNKNOWN,
+        # NO_INPUT, INPUT_ERROR, ...) is unavailable, never a flaky signal
         print(f"run {i+1}/{n} -> {r['verdict']} kind={r.get('runner_error_kind')}")
-        print("--- VERIFICATION-UNAVAILABLE: the local oracle could NOT execute")
-        print("the target; this is NOT a flaky/no-crash signal. Stop probing;")
+        print("--- VERIFICATION-UNAVAILABLE: no valid local verdict could be")
+        print("formed. This is NOT a flaky/no-crash signal. Stop probing;")
         print("treat local verification as unavailable.")
         sys.exit(7)
+    verified += 1
     sigs[(r["verdict"], r["sig"])] += 1
     rows.append((i + 1, PERTURB[i % len(PERTURB)], r["verdict"], r["sig"][:70], r["rc"]))
     print(f"run {i+1}/{n} MALLOC_PERTURB_={PERTURB[i % len(PERTURB)] or 'unset':>5} "
           f"-> {r['verdict']:<8} rc={r['rc']:<4} sig={r['sig'][:70]}")
+if verified == 0:
+    # r14 C1: a stability call must aggregate VERIFIED runs only
+    print("--- VERIFICATION-UNAVAILABLE: zero verified runs; no stability call")
+    sys.exit(7)
 best, cnt = (sigs.most_common(1) or ((("NONE", ""), 0)))[0]
 stable = cnt >= 2 and best[0] in ("FATAL", "NONFATAL")
 print(f"--- {'STABLE' if stable else 'UNSTABLE'}: {cnt}/{n} identical signature "
