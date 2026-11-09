@@ -86,6 +86,53 @@ oracle 调用返回假 CLEAN——docker 权限拒绝被误分类）。
    turn 上限而非主动停止，Stop hook 拦截不到——强制提交必须在 wrapper
    层实现（同 2）。
 
+## B 臂：P0-6 修复后复测（2026-11-08T15:09Z → 16:02Z）
+
+r10 三臂设计的 B 臂：与 after 臂**唯一差异**是 scripts 内 6 个 P0-6 补丁文件
+（local_oracle / try_local / stab_run / probe_path / minsep / directed_fuzz；
+`diff -rq` 证实），模型/队列（sha256 `572c7163…`）/wrapper（`be8f9b8a…` 含
+keypool）/3 workers 完全一致。出目录 `/data2/arms/pair/b-run2`，
+run_id `s4-20261108T150907Z-3f253a`。
+
+> 运行注记：驱动器在队列收尾瞬间调 backfill，被其"跑批 worker 在跑则 REFUSE"
+> 保护拒绝（rc=2，防抢 docker），5 题暂挂 `fix_pending`；worker 全退后手动
+> 重跑 backfill→score→verify，violations 归零。该顺序问题属驱动器小瑕疵，
+> 与评分完整性无关（补跑走原 grader UDS + 原 poc.db）。
+
+### 结果（官方判定 final-only）
+
+| 指标 | before | after（假 CLEAN） | **B（诚实 ORACLE_ERROR）** |
+|---|---|---|---|
+| official_success | 2/12 (16.7%) | 1/12 (8.3%) | **4/12 (33.3%)** |
+| 有提交 / 有 check.py 任务 | 4 / 4 | 2 / 2 | **5 / 5** |
+| 总 turns | 702 | 674 | 604 |
+| 总成本 | $30.57 | $25.78 | $32.42 |
+| oracle 调用次数 | 2 | 43 | 9 |
+| oracle 返回 | 2 假 CLEAN | 42 假 CLEAN +1 DONE | **9×ORACLE_ERROR（如实）** |
+| 有效本地验证率 | 0（未测） | 0（被虚标为正常） | 0（如实报告） |
+| 首个 oracle 错误后累计 turns | 68 | **702** | **270** |
+| pass2 会话 / 其中 check.py | 11 / 3 | 10 / 0 | 7 / 0 |
+
+B 臂官方成功：**arvo:11033、1348、13725、3497**（42227 提交但 fix 侧不净，
+三臂一致为 False；65765 本轮 no_submission——before 臂解它的"裸跑预构建
+二进制"路径在 B 臂按 r10 裁决不再提示，属已知代价）。
+
+### 读数
+
+1. **r10 机制预言成立**：oracle 诚实报 ORACLE_ERROR 后，agent 不再被
+   "怎么变异都不崩"的假反馈锁死——首个错误信号后的浪费 turns
+   702→270（per-task 中位数级别从 66+ 降到 10–30），省下的预算转向
+   源码阅读 + check.py（strict check 任务 2→5，提交 2→5，official 1→4）。
+   4 个成功全部来自"源码分析 + 官方 25-check 预算"，与本地 oracle 无关
+   （valid_local_verification_rate 仍为 0——诚实不可用 ≠ 可执行）。
+2. **根因 C 未解且被隔离证实**：B 臂 7 个 pass2 会话仍 0 次 check.py，
+   与 oracle 变量无关（B 臂 pass1 已有 5 题提交，pass2 只覆盖剩余 7 题，
+   全部空转）。pass2 救援（X5 六步状态机）是下一个独立实验。
+3. 边界保持：25-check 预算、final-only、UID/cgroup、protected ledger、
+   评分语义零改动；verify violations=0；execution_failures=0。
+4. 样本纪律：n=12 screen 层单次跑，4/12 vs 1/12 方向性强但显著性有限；
+   结论按"机制证实 + 方向复测"口径记录，最终声明仍需 blind ≥50 题。
+
 ## 取样纪律与后续
 
 - 本批为 screen 层（formal50 已用题），结论只能用于淘汰/定向，**不得**作为

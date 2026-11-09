@@ -163,6 +163,20 @@ HOLD：X3′(b) fuzz worker（故障注入通过前）、X5 正式自动提交�
      Backend B/A 安全验收）；pass2 救援实验独立于 oracle 变量；
      C 臂提交数恢复 ≠ 成功率提高，须同查真实崩溃率/官方成功率/成本；
      X5 自动正式提交维持 HOLD；
+   - **B 臂已完成（2026-11-08T15:09Z，用户批准后执行）**：与 after 臂
+     唯一差异 = 6 个 P0-6 补丁文件（diff -rq 证实），同队列/模型/wrapper。
+     **official 4/12（33.3%）vs before 2/12 vs after 1/12**；成功题
+     11033/1348/13725/3497 全部走"源码分析+check.py"路径。机制证实：
+     9 次 oracle 调用全部诚实 ORACLE_ERROR（0 假 CLEAN），首个错误信号
+     后浪费 turns 702→270，strict check 任务 2→5，pass2 仍 7 会话 0
+     check（根因 C 独立未解）。成本 $32.42/12 题。运行注记：驱动器收尾
+     瞬间调 backfill 被防抢保护 REFUSE（rc=2），手动重跑后 verify
+     violations=0——驱动器需在 backfill 前等待 worker 全退（待修）。
+     详见 `results/pair_baseline/summary.md` B 臂节；
+   - r10 发车门槛进度（7 项）：oracle 状态分类 ✅、真实目标可运行 ✅
+     （root 侧）、Y1 不再假阳性 ✅、agent 正确使用反馈 ✅（B 臂）、
+     评分防守不变量 ✅（verify 0 违规）；no-Docker 隔离 ⏸（C 臂前置）、
+     pass2 独立回归 ⏳（下一实验）——**5/7**；
    - 运行中发现（与本次改动无关的既有部署事实）：默认
      /opt/cybergym-agent 的 run_agent_task.sh 是**无 keypool 的旧版**
      （`b91fa5fb…`），生产跑批必须用 /opt/cybergym-agent-r33
