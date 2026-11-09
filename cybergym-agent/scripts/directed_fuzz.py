@@ -86,8 +86,14 @@ def main():
     # 3-second probe: most prebuilt ARVO binaries lack the symbolization
     # -focus_function needs; probe first, degrade gracefully instead of
     # burning the whole budget on ERROR loops.
+    # r17 P1: the probe container shares the tool's lifecycle discipline --
+    # unique name + tool label + verified cleanup on timeout/interrupt, so
+    # a SIGKILLed probe is swept by the next tool call like any orphan.
     if engine == "libfuzzer" and a.focus:
-        probe = ["docker", "run", "--rm",
+        from local_oracle import _kill_and_verify
+        probe_name = f"dfzp-{os.getpid()}-{int(time.time())}"
+        probe = ["docker", "run", "--rm", "--name", probe_name,
+                 "--label", "cybergym.directed_fuzz=1",
                  "-v", f"{bin_dir / 'out'}:/out:ro",
                  "-v", f"{bin_dir / 'libs'}:/out-libs:ro",
                  "-v", f"{corp.resolve()}:/corpus",
@@ -95,7 +101,16 @@ def main():
                  f"env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS={asan} "
                  f"/out/{target} -focus_function={a.focus} -runs=1 "
                  f"-max_total_time=3 /corpus 2>&1 | tail -3"]
-        pr = subprocess.run(probe, capture_output=True, text=True, timeout=60)
+        try:
+            pr = subprocess.run(probe, capture_output=True, text=True,
+                                timeout=60)
+        except subprocess.TimeoutExpired:
+            _kill_and_verify(probe_name)
+            print("note: focus probe timed out; running WITHOUT focus")
+            a.focus = None
+        except BaseException:
+            _kill_and_verify(probe_name)
+            raise
         if "Failed to set focus" in (pr.stdout or ""):
             print(f"note: -focus_function not supported by this binary "
                   f"(no symbolization); running WITHOUT focus -- direct the "
@@ -103,9 +118,12 @@ def main():
             a.focus = None
 
     # r16: converge containers orphaned by crashed predecessors (labels +
-    # age filter never touch an active sibling)
+    # age filter never touch an active sibling); r17: results audited
     from local_oracle import sweep_label
-    sweep_label("cybergym.directed_fuzz=1")
+    _sw = sweep_label("cybergym.directed_fuzz=1")
+    if _sw:
+        _oracle_log({"tag": "sweep", "label": "cybergym.directed_fuzz=1",
+                     "swept": _sw})
 
     print(f"directed fuzz: engine={engine} focus={a.focus or '-'} "
           f"seconds={a.seconds} fork={a.fork} seeds={len(list(corp.glob('seed*')))}")

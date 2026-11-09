@@ -351,12 +351,16 @@ class TestSweepLabel(unittest.TestCase):
         self.assertEqual(lo._age_minutes("30 seconds"), 0.5)
         self.assertEqual(lo._age_minutes("2 hours"), 120.0)
         self.assertEqual(lo._age_minutes("3 days"), 3 * 1440.0)
-        self.assertEqual(lo._age_minutes(""), 0.0)
-        self.assertEqual(lo._age_minutes("weird text"), 999.0)
 
-    def _ps_result(self, stdout=""):
+    def test_age_unknown_is_none_never_old(self):
+        # r17 P1: unknown formats and empty values are UNKNOWN, never old
+        self.assertIsNone(lo._age_minutes(""))
+        self.assertIsNone(lo._age_minutes("   "))
+        self.assertIsNone(lo._age_minutes("weird text"))
+
+    def _ps_result(self, stdout="", returncode=0):
         import types
-        r = types.SimpleNamespace(returncode=0, stdout=stdout)
+        r = types.SimpleNamespace(returncode=returncode, stdout=stdout)
         import unittest.mock as mock
         return mock.patch.object(
             lo.subprocess, "run",
@@ -375,6 +379,33 @@ class TestSweepLabel(unittest.TestCase):
             res = lo.sweep_label("cybergym.local_oracle=1")
         self.assertEqual([r["id"] for r in res], ["ccc"])
         kv.assert_called_once_with("ccc")
+
+    def test_unknown_age_not_swept_reported_incomplete(self):
+        import unittest.mock as mock
+        lines = "eee\tgarbage-format\tUp less than a second\n"
+        with self._ps_result(lines), \
+                mock.patch.object(lo, "_kill_and_verify") as kv:
+            res = lo.sweep_label("cybergym.local_oracle=1")
+        kv.assert_not_called()                     # never killed
+        self.assertEqual(res[0]["id"], "eee")
+        self.assertEqual(res[0]["cleanup"], "inspection_incomplete")
+
+    def test_empty_age_not_swept_reported_incomplete(self):
+        import unittest.mock as mock
+        lines = "fff\t\tUp\n"
+        with self._ps_result(lines), \
+                mock.patch.object(lo, "_kill_and_verify") as kv:
+            res = lo.sweep_label("cybergym.local_oracle=1")
+        kv.assert_not_called()
+        self.assertEqual(res[0]["id"], "fff")
+        self.assertEqual(res[0]["cleanup"], "inspection_incomplete")
+
+    def test_scan_returncode_failure_is_incomplete(self):
+        # r17 P1: docker ps rc!=0 must NOT look like "no orphans"
+        with self._ps_result(stdout="", returncode=1):
+            res = lo.sweep_label("cybergym.local_oracle=1")
+        self.assertEqual(res, [{"id": None,
+                                "cleanup": "inspection_incomplete"}])
 
     def test_inspection_failure_reported(self):
         import unittest.mock as mock

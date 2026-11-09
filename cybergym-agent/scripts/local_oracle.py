@@ -406,30 +406,41 @@ _AGE_UNITS = {"second": 1 / 60, "minute": 1.0, "hour": 60.0,
               "year": 525600.0}
 
 
-def _age_minutes(running_for: str) -> float:
+def _age_minutes(running_for: str):
+    """r17 P1 fail-closed: returns float minutes, or None when the age
+    text is empty/unrecognised.  UNKNOWN IS NEVER TREATED AS OLD -- a
+    Docker output-format change must not turn a fresh sibling into a
+    sweep target."""
     txt = running_for or ""
+    if not txt.strip():
+        return None
     m = _AGE_RE.search(txt)
     if m:
         return int(m.group(1)) * _AGE_UNITS[m.group(2)]
     for word, mul in _AGE_UNITS.items():      # "About a minute/an hour"...
         if word in txt:
             return mul
-    return 999.0 if txt.strip() else 0.0      # unknown non-empty -> old
+    return None                                # unrecognised -> unknown
 
 
 def sweep_label(label: str, min_age_min: float = 15.0):
-    """r16 dynamic-acceptance hardening: SIGKILL cannot be trapped, so a
-    crashed caller may orphan its container.  Convergence contract: the
-    NEXT tool invocation sweeps ORPHANED containers carrying the tool's
-    label (running longer than min_age_min -- never a healthy sibling:
-    oracle containers live <= timeout+150s) with verified disappearance.
-    Returns per-container results."""
+    """r16/r17: converge containers orphaned by SIGKILLed callers.
+
+    Tri-state outcome semantics (r17 P1): a FAILED scan is reported as
+    inspection_incomplete and is NEVER an empty "no orphans" list;
+    unknown age text is never treated as old (no sweep); only containers
+    whose age is PROVABLY >= min_age_min are killed with verified
+    disappearance (never a healthy sibling: oracle containers live
+    <= timeout+150s)."""
     try:
         r = subprocess.run(
             ["docker", "ps", "-a", "--filter", f"label={label}",
              "--format", "{{.ID}}\t{{.RunningFor}}\t{{.Status}}"],
             capture_output=True, text=True, timeout=15)
     except (subprocess.TimeoutExpired, OSError):
+        return [{"id": None, "cleanup": "inspection_incomplete"}]
+    if r.returncode != 0:
+        # r17 P1: a failed scan must not look like "no orphans found"
         return [{"id": None, "cleanup": "inspection_incomplete"}]
     out = []
     for line in (r.stdout or "").splitlines():
@@ -439,7 +450,13 @@ def sweep_label(label: str, min_age_min: float = 15.0):
         cid, age_txt, status = parts[0], parts[1], parts[2]
         if "Exited" in status:
             continue                      # --rm leftovers are gone anyway
-        if _age_minutes(age_txt) < min_age_min:
+        age = _age_minutes(age_txt)
+        if age is None:
+            # r17 P1: unrecognised/empty age -> fail-closed, never sweep
+            out.append({"id": cid, "age": age_txt,
+                        "cleanup": "inspection_incomplete"})
+            continue
+        if age < min_age_min:
             continue                      # possibly an ACTIVE sibling
         cs, _ = _kill_and_verify(cid)
         out.append({"id": cid, "age": age_txt, "cleanup": cs})
@@ -513,7 +530,10 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
                  + " ".join(mounted)
                  + f"; echo __ORACLE_TARGET_EXIT_V2__$?")
         cname = f"lo-{uuid.uuid4().hex[:10]}"
-        sweep_label("cybergym.local_oracle=1")   # r16: converge predecessors
+        sw = sweep_label("cybergym.local_oracle=1")  # r16/r17: converge
+        if sw:                                        # predecessors; audit
+            _oracle_log({"tag": "sweep", "label": "cybergym.local_oracle=1",
+                         "swept": sw})
         cmd = ["docker", "run", "--rm", "--name", cname,
                "--label", "cybergym.local_oracle=1",
                "-v", f"{bin_dir / 'out'}:/out:ro",
