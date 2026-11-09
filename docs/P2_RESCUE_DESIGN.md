@@ -132,12 +132,22 @@ unscored 不正式重评分（1A 全非评分+负面测试）✅；final-only/
 root 容器 1B 前不跑）✅；protected ledger 物理分目录 ✅；不绕过
 评分反复抽签（A/B 策略变量预注册）✅。
 
-## 6. 实现状态
+## 6. 实现状态与阶段 1A 结果
 
 - `pass2_triage.py` v3 ✅（A1 不可达+CRASH_TARGET_UNKNOWN、冻结
-  绑定、D 独立序言；全套件 OK）
+  绑定、D 独立序言、`--no-advisory`；全套件 OK）
 - `check_double.py` ✅（simulated 标记）
-- `tests/test_pass2_triage.py` ✅（r12 语义更新后全绿）
-- 待做（1A 开跑前）：p2-agent 装配脚本（wrapper 锚点补丁 + 三臂
-  选择器 + iptables 束 + 死地址 CG_SERVER）、负面测试脚本、
-  21 会话（7 题 × 3 臂）驱动与测量
+- r13 安全门 5/5 ✅（N1 死地址/N2 UDS/N3 runner URLError/N4
+  iptables REJECT/N5 poc.db 基线）；装配锚点补丁（stock `be8f9b8a`
+  校验 + `# ---- pass 1` 前折入 P1A 准备块 + PASS2_PROMPT 替换），
+  `P1A_MANIFEST.json` 存档
+- **阶段 1A 已执行完毕（2026-11-09T02:16→03:05Z，21 会话，$11.49）**：
+  验收表 7 项全过（官方提交 0/poc.db 一致、分类 7/7、C 臂首动作
+  4/4、违规 0、污染 0）；行为读数——**B 臂一句话拿到大部分锚定
+  收益（动作 2 触存货），C 臂锚定最好（首动作即 triage）但 0/7
+  check 意图**（假设先行纪律在 15-turn 内抑制转化；C 类生成器
+  读了没跑；D 类 0/9 产出候选）。A/B 臂 65765 实证"重生成→check"
+  路径可行且不服罐头 NO_TRIGGER 转寻真实提交被隔离挡下。详见
+  `results/p2_phase1a/summary.md`；阶段二预注册变量（C 类命令式
+  首步、B 类首次提交时限、D 类双策略、1B exec 解封后的 A1 动态
+  分层）已列入待批清单。

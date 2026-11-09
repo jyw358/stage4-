@@ -1,0 +1,14 @@
+{
+  "run_agent_task.sh": {
+    "sha256_8": "75e785ea",
+    "patched_bytes": 34208
+  },
+  "pass2_triage.py": {
+    "sha256_8": "7a99faaa"
+  },
+  "check_double.py": {
+    "sha256_8": "ee1c0a3a"
+  },
+  "source_tree": "/data2/arms/pair/b-agent",
+  "stock_sha_before": "be8f9b8a"
+}

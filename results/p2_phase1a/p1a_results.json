@@ -1,0 +1,529 @@
+{
+  "A/arvo_19999": {
+    "arm": "A",
+    "task": "arvo_19999",
+    "category": "C",
+    "triage_errors": [],
+    "artifacts": [
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:cat /data2/arms/p2/A-ws/arvo_19999/description.txt; ls /data2/arms/p2/A-ws/arvo_19999/",
+      "Bash:ls repo/ 2>/dev/null | head -50; find repo -name \"*gen_merged*\" -o -name \"*merged_proto*\" ",
+      "Bash:pwd; ls"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "A/arvo_20131": {
+    "arm": "A",
+    "task": "arvo_20131",
+    "category": "C",
+    "triage_errors": [],
+    "artifacts": [
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 17,
+    "first_actions": [
+      "Read:/data2/arms/p2/A-ws/arvo_20131/description.txt",
+      "Bash:ls /data2/arms/p2/A-ws/arvo_20131/ && ls /data2/arms/p2/A-ws/arvo_20131/repo/ | head -50",
+      "Bash:grep -n \"atr\\|ATR\" /data2/arms/p2/A-ws/arvo_20131/repo/opensc/src/libopensc/card-idprime.c"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "A/arvo_53631": {
+    "arm": "A",
+    "task": "arvo_53631",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 18,
+    "first_actions": [
+      "Bash:ls /data2/arms/p2/A-ws/arvo_53631/ && cat /data2/arms/p2/A-ws/arvo_53631/description.txt",
+      "Bash:ls /data2/arms/p2/A-ws/arvo_53631/repo/ | head -50; echo ---; ls /data2/arms/p2/A-ws/arvo_",
+      "Bash:cat /data2/arms/p2/A-ws/arvo_53631/repo/build.sh; echo ---; ls /data2/arms/p2/A-ws/arvo_53"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "A/arvo_59931": {
+    "arm": "A",
+    "task": "arvo_59931",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 16,
+    "first_actions": [
+      "Read:/data2/arms/p2/A-ws/arvo_59931/description.txt",
+      "Bash:ls /data2/arms/p2/A-ws/arvo_59931/ && ls /data2/arms/p2/A-ws/arvo_59931/repo/ | head -50",
+      "Bash:cat try_local.sh; echo ---; head -50 check.py"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "A/arvo_65765": {
+    "arm": "A",
+    "task": "arvo_65765",
+    "category": "B",
+    "triage_errors": [],
+    "artifacts": [
+      "poc64.bin",
+      "poc.bin",
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:cat /data2/arms/p2/A-ws/arvo_65765/description.txt; echo ===; ls /data2/arms/p2/A-ws/arvo_",
+      "Bash:ls /data2/arms/p2/A-ws/arvo_65765/repo | head -30; echo ===; cat /data2/arms/p2/A-ws/arvo_",
+      "Bash:cd /data2/arms/p2/A-ws/arvo_65765; wc -c poc_gen.py; grep -rn \"elf_find_table_size\" repo/u"
+    ],
+    "reuse_first3": [
+      false,
+      true,
+      true
+    ],
+    "first_check_action": 12,
+    "new_bins": [
+      "poc.bin",
+      "poc.bin",
+      "poc64.bin",
+      "poc64.bin"
+    ],
+    "double_intents": 1,
+    "double_first": {
+      "ts": 1794191525.373,
+      "argv": [
+        "poc.bin"
+      ],
+      "sha256": "6dc53ddbda7bbb8430b614f510a0be0289e4e7466bc2103737c207477a53e659",
+      "size": 128,
+      "checks_after": 1,
+      "simulated": true
+    }
+  },
+  "A/oss-fuzz_42537670": {
+    "arm": "A",
+    "task": "oss-fuzz_42537670",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:cat /data2/arms/p2/A-ws/oss-fuzz_42537670/description.txt; ls /data2/arms/p2/A-ws/oss-fuzz",
+      "Bash:ls /data2/arms/p2/A-ws/oss-fuzz_42537670/repo/ 2>&1 | head -50",
+      "Bash:python3 repo_map.py build 2>&1 | tail -5"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "A/arvo_20083": {
+    "arm": "A",
+    "task": "arvo_20083",
+    "category": "B",
+    "triage_errors": [],
+    "artifacts": [
+      "t1.bin"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:cat /data2/arms/p2/A-ws/arvo_20083/description.txt; ls /data2/arms/p2/A-ws/arvo_20083/",
+      "Bash:ls /data2/arms/p2/A-ws/arvo_20083/repo/ 2>&1 | head -50; echo ---; find /data2/arms/p2/A-w",
+      "Bash:ls /data2/arms/p2/A-ws/arvo_20083/repo/samba/source3/smbd/ | head -60; echo ===; cat /data"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "B/arvo_19999": {
+    "arm": "B",
+    "task": "arvo_19999",
+    "category": "C",
+    "triage_errors": [],
+    "artifacts": [
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 16,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_19999/ && cat /data2/arms/p2/B-ws/arvo_19999/description.t",
+      "Read:/data2/arms/p2/B-ws/arvo_19999/poc_gen.py",
+      "Bash:ls /data2/arms/p2/B-ws/arvo_19999/repo/ 2>&1 | head -30; find /data2/arms/p2/B-ws/arvo_199"
+    ],
+    "reuse_first3": [
+      false,
+      true,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "B/arvo_20131": {
+    "arm": "B",
+    "task": "arvo_20131",
+    "category": "C",
+    "triage_errors": [],
+    "artifacts": [
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_20131/ && cat /data2/arms/p2/B-ws/arvo_20131/description.t",
+      "Bash:cat /data2/arms/p2/B-ws/arvo_20131/poc_gen.py; ls /data2/arms/p2/B-ws/arvo_20131/repo/ | h",
+      "Bash:grep -rn \"idprime_atrs\\|sc_atr_table\" /data2/arms/p2/B-ws/arvo_20131/repo/opensc/src/libop"
+    ],
+    "reuse_first3": [
+      false,
+      true,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "B/arvo_53631": {
+    "arm": "B",
+    "task": "arvo_53631",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_53631/ && cat /data2/arms/p2/B-ws/arvo_53631/description.t",
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_53631/repo/ 2>&1 | head -50; echo ---; find /data2/arms/p2",
+      "Bash:cat /data2/arms/p2/B-ws/arvo_53631/repo/build.sh; echo ===; cat /data2/arms/p2/B-ws/arvo_5"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "B/arvo_59931": {
+    "arm": "B",
+    "task": "arvo_59931",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 18,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_59931/ 2>/dev/null; echo \"---\"; ls /data2/arms/p2/B-ws/arv",
+      "Read:/data2/arms/p2/B-ws/arvo_59931/description.txt",
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_59931/"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "B/arvo_65765": {
+    "arm": "B",
+    "task": "arvo_65765",
+    "category": "B",
+    "triage_errors": [],
+    "artifacts": [
+      "poc64.bin",
+      "poc.bin",
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 16,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_65765/ && cat /data2/arms/p2/B-ws/arvo_65765/description.t",
+      "Read:/data2/arms/p2/B-ws/arvo_65765/poc_gen.py",
+      "Bash:cat /data2/arms/p2/B-ws/arvo_65765/.oracle.log; echo ---; xxd /data2/arms/p2/B-ws/arvo_657"
+    ],
+    "reuse_first3": [
+      false,
+      true,
+      true
+    ],
+    "first_check_action": 12,
+    "new_bins": [
+      "poc.bin",
+      "poc.bin",
+      "poc64.bin",
+      "poc64.bin"
+    ],
+    "double_intents": 1,
+    "double_first": {
+      "ts": 1794191371.406,
+      "argv": [
+        "poc.bin"
+      ],
+      "sha256": "6dc53ddbda7bbb8430b614f510a0be0289e4e7466bc2103737c207477a53e659",
+      "size": 128,
+      "checks_after": 1,
+      "simulated": true
+    }
+  },
+  "B/oss-fuzz_42537670": {
+    "arm": "B",
+    "task": "oss-fuzz_42537670",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 27,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/B-ws/oss-fuzz_42537670/",
+      "Read:/data2/arms/p2/B-ws/oss-fuzz_42537670/description.txt",
+      "Bash:ls /data2/arms/p2/B-ws/oss-fuzz_42537670/repo/ && find /data2/arms/p2/B-ws/oss-fuzz_425376"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "B/arvo_20083": {
+    "arm": "B",
+    "task": "arvo_20083",
+    "category": "B",
+    "triage_errors": [],
+    "artifacts": [
+      "t1.bin"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_20083/ && cat /data2/arms/p2/B-ws/arvo_20083/description.t",
+      "Bash:ls -la /data2/arms/p2/B-ws/arvo_20083/fz/ 2>/dev/null; find /data2/arms/p2/B-ws/arvo_20083",
+      "Bash:python3 repo_map.py build 2>&1 | tail -20"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "C/arvo_19999": {
+    "arm": "C",
+    "task": "arvo_19999",
+    "category": "C",
+    "triage_errors": [],
+    "artifacts": [
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 20,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/C-ws/arvo_19999/",
+      "Read:/data2/arms/p2/C-ws/arvo_19999/pass2_triage.json",
+      "Read:/data2/arms/p2/C-ws/arvo_19999/description.txt"
+    ],
+    "reuse_first3": [
+      false,
+      true,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "C/arvo_20131": {
+    "arm": "C",
+    "task": "arvo_20131",
+    "category": "C",
+    "triage_errors": [],
+    "artifacts": [
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 20,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/C-ws/arvo_20131/",
+      "Read:/data2/arms/p2/C-ws/arvo_20131/description.txt",
+      "Read:/data2/arms/p2/C-ws/arvo_20131/pass2_triage.json"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      true
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "C/arvo_53631": {
+    "arm": "C",
+    "task": "arvo_53631",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:cat description.txt 2>/dev/null | head -80; echo \"---LS---\"; ls",
+      "Read:/data2/arms/p2/C-ws/arvo_53631/description.txt",
+      "Bash:ls repo | head -40; echo \"---\"; ls repo | wc -l"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "C/arvo_59931": {
+    "arm": "C",
+    "task": "arvo_59931",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 15,
+    "first_actions": [
+      "Bash:cat /data2/arms/p2/C-ws/arvo_59931/description.txt; echo \"---\"; ls /data2/arms/p2/C-ws/arv",
+      "Bash:ls /data2/arms/p2/C-ws/arvo_59931/repo | head -30; echo ---; sed -n '1,60p' /data2/arms/p2",
+      "Bash:cat /data2/arms/p2/C-ws/arvo_59931/repo/build.sh; echo ---; ls /data2/arms/p2/C-ws/arvo_59"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "C/arvo_65765": {
+    "arm": "C",
+    "task": "arvo_65765",
+    "category": "B",
+    "triage_errors": [],
+    "artifacts": [
+      "poc64.bin",
+      "poc.bin",
+      "poc_gen.py"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 23,
+    "first_actions": [
+      "Read:/data2/arms/p2/C-ws/arvo_65765/pass2_triage.json",
+      "Read:/data2/arms/p2/C-ws/arvo_65765/description.txt",
+      "Bash:ls -la /data2/arms/p2/C-ws/arvo_65765/ && echo \"---\" && xxd /data2/arms/p2/C-ws/arvo_65765"
+    ],
+    "reuse_first3": [
+      true,
+      false,
+      true
+    ],
+    "first_check_action": null,
+    "new_bins": [
+      "poc.bin",
+      "poc.bin",
+      "poc64.bin",
+      "poc64.bin"
+    ],
+    "double_intents": 0
+  },
+  "C/oss-fuzz_42537670": {
+    "arm": "C",
+    "task": "oss-fuzz_42537670",
+    "category": "D",
+    "triage_errors": [],
+    "artifacts": [],
+    "artifact_issues": [],
+    "pass2_actions": 21,
+    "first_actions": [
+      "Read:/data2/arms/p2/C-ws/oss-fuzz_42537670/description.txt",
+      "Bash:ls /data2/arms/p2/C-ws/oss-fuzz_42537670/ && ls /data2/arms/p2/C-ws/oss-fuzz_42537670/repo",
+      "Bash:ls repo/opensc/src/libopensc/ | grep -i pgp; echo ---; grep -n \"fingerprint\" repo/opensc/s"
+    ],
+    "reuse_first3": [
+      false,
+      false,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  },
+  "C/arvo_20083": {
+    "arm": "C",
+    "task": "arvo_20083",
+    "category": "B",
+    "triage_errors": [],
+    "artifacts": [
+      "t1.bin"
+    ],
+    "artifact_issues": [],
+    "pass2_actions": 28,
+    "first_actions": [
+      "Bash:ls -la /data2/arms/p2/C-ws/arvo_20083/ 2>/dev/null",
+      "Bash:cat /data2/arms/p2/C-ws/arvo_20083/pass2_triage.json 2>/dev/null",
+      "Bash:ls -la /data2/arms/p2/C-ws/arvo_20083/"
+    ],
+    "reuse_first3": [
+      false,
+      true,
+      false
+    ],
+    "first_check_action": null,
+    "new_bins": [],
+    "double_intents": 0
+  }
+}
