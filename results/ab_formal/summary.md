@@ -50,9 +50,15 @@ transcript 内的 **assistant 消息序号**（从 1 计，含纯文本/thinking
 | D 类（无产物）结果 | 1268 legacy 构造 CRASH | 0/2 产出 | legacy 构造文案更强 |
 | 零提交率 | 4/12 | **3/12** | B 改善 |
 
-注：3736（B 臂 True）的 crash=1 来自 pass2 会话重读 pass1 check 输出，
-非 pass2 新提交（其官方 1 check 在 pass1 期完成）；该字段存在少量
-转录噪声，已在 AB_ANALYSIS.json 标注。
+注：~~3736 的 crash=1 来自 pass2 重读 pass1 check 输出~~ **r21 勘误**：
+P0-B 时间线核验证明 3736/1538 的 pass2 合法触发（pass1 零 check 结束，
+触发时 checks=0），且 pass2 内 turn~2 以**绝对路径**调用 check.py——
+旧提取器漏计（P0-A）。修正后（`AB_ANALYSIS_v2.json`，三层指标
+intent/executed/accepted）：**B 臂 pass2 check-intent 5/7（first@2/2/5/
+5/6），转化 1/5 CRASH——3736 的官方成功是 v4.2 pass2 救援的直接功劳**
+（此前误归为 pass1）；A 臂 2/6（first@18/29），转化 2/2。pass2 救援
+对比修正为 A 2/6 vs B 1/7（弱信号，样本小）；官方总分 8/12 vs 6/12
+不变（accepted 层从未误计）。
 
 ## 机制解读（按题对照，r20 措辞修正后）
 
