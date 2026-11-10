@@ -1,0 +1,92 @@
+{
+  "ts": "2026-11-09T12:49:33Z",
+  "local_oracle": {
+    "F1_normal_exit": {
+      "verdict": "CLEAN"
+    },
+    "F2_outer_timeout": {
+      "verdict": "ORACLE_ERROR",
+      "kind": "runner_hang",
+      "cleanup": "cleanup_verified",
+      "residue": 0
+    },
+    "F3_daemon_unreachable": {
+      "verdict": "ORACLE_ERROR",
+      "kind": "sweep_preflight_failed",
+      "refused_before_docker": true
+    },
+    "F4_inspection_failure": {
+      "cleanup": "inspection_incomplete"
+    },
+    "F5_kill_failure": {
+      "cleanup": "cleanup_failed"
+    }
+  },
+  "directed_fuzz": {
+    "L4b_default_15min_convergence": {
+      "df_trigger_rc": 0,
+      "orphan_age_sweep": "15 minutes ago",
+      "young_survived": true,
+      "remaining_labeled": 1,
+      "young_removed": true
+    },
+    "L1_normal": {
+      "rc": 0,
+      "residue": 0
+    },
+    "L2_timeout_verified_kill": {
+      "rc": 7,
+      "residue": 0
+    },
+    "L3_sigint_guard": {
+      "rc": -2,
+      "saw_cleanup": true,
+      "residue": 0
+    },
+    "L4m_mechanism_explicit_override": {
+      "orphan": 1,
+      "sweep": [
+        {
+          "id": "568c29ceb081",
+          "age": "10 seconds ago",
+          "cleanup": "cleanup_verified"
+        }
+      ],
+      "residue": 0
+    },
+    "L5_external_container_kill": {
+      "rc": 7,
+      "residue": 0
+    },
+    "L6a_probe_sigkill_labeled_orphan_IMMEDIATE_OVERRIDE": {
+      "orphans": 1,
+      "sweep": [
+        {
+          "id": "945ddb13ec80",
+          "age": "8 seconds ago",
+          "cleanup": "cleanup_verified"
+        }
+      ],
+      "default_threshold_proof": "L4b",
+      "residue": 0
+    }
+  },
+  "residue": {
+    "local_oracle_labeled": 0,
+    "directed_fuzz_labeled": 0
+  },
+  "pass": true,
+  "L4b_evidence": {
+    "orphan_created_utc": "2026-11-09T12:49:33Z",
+    "orphan_name": "dfz-r18-orphan-proof",
+    "orphan_id": "383f3676837cb0597f8bea1a77ea67e00f6ab4e1ac954c21e8034746da396bcb",
+    "label": "cybergym.directed_fuzz=1",
+    "young_id": "178fd30017e310426989b117e207600217596b0a7355e11fe956a8e34aaac350",
+    "sweep_call": "directed_fuzz startup sweep_label(DEFAULT 15.0)",
+    "sweep_log_line": "{\"ts\": \"2026-11-09T13:05:07.380045Z\", \"tag\": \"sweep\", \"label\": \"cybergym.directed_fuzz=1\", \"swept\": [{\"id\": \"383f3676837c\", \"age\": \"15 minutes ago\", \"cleanup\": \"cleanup_verified\"}]}",
+    "orphan_age_at_sweep": "15 minutes ago",
+    "young_sibling_alive_after_sweep": true,
+    "df_trigger_rc": 0
+  },
+  "residue_ok": true
+}

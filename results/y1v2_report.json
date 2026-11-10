@@ -1,0 +1,395 @@
+{
+  "selfcheck_version": "2.0",
+  "generated_at": "2026-11-08T15:01:23Z",
+  "tool_src": "/opt/cybergym-agent-r33/scripts",
+  "tool_src_sha256": {
+    "repo_map.py": "a41eb783971a10a770dd6d7aa0280bbe5225dc4ee3421fce9dc6950715d62fdb",
+    "reach_graph.py": "ba0c31673bafa2628e9d302d882338c1216a1bfa4a3b4b569fab4bc4701ec587",
+    "probe_path.sh": "16314c77b7a91118189620cb4f9f4bf1c76c238ac27c656e7ca820b2f5ac2f66",
+    "try_local.sh": "45d3c0822018921f6f1d5cf4731294cd9840f02fcf93c1e7adbc4d8ea0650f79",
+    "stab_run.sh": "5bf8b02c18199a8d35a02d37839a04aec1ca53403244d34971bac6603fd0e958",
+    "minsep.py": "170f075b39b183ecb2fb10f330c4978fcbceb8aebdac6eb35d860dd7470da1d6",
+    "local_oracle.py": "65fefccd0629815d509eca3672bc2c0ba6556ff439e5da9c92c876c4969b3fc9",
+    "directed_fuzz.py": "348db40d22aef72443e3cf27ea8c186afd5525e9e36332ec405168f9f9af5c9b",
+    "boundary_synth.py": "0a4139bbf59318221aeafdb8e09cc6c7fd40a9b43078d2818a286dc01e3a7e20",
+    "mutate_seed.py": "de8b85b7055504d0866f75fb0fd447a05836921c774c40c0acd7c1adc4d5687d",
+    "hf_mutator.py": "d8df6a5315f28b7f8461fc68f422b062d0bc946ded501d4672d41d8a0ec703b9"
+  },
+  "agent_uid": 60101,
+  "tasks": [
+    {
+      "task_id": "arvo_1348",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_1348",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "oracle_e2e": {
+        "scenario": "socket_denied_agent_uid",
+        "expected": "ORACLE_ERROR",
+        "ok": true,
+        "observed": "VUL: verdict=ORACLE_ERROR rc=1 sig=''\nRESULT: VERIFICATION-UNAVAILABLE (verdict=ORACLE_ERROR kind=docker_permission) -- the local oracle could NOT\nexecute the target. This is NOT a no-trigger result: do NOT keep\nmutating on this signal. Treat local verification as unavailable;\nrely on source reading",
+        "duration_s": 0.1
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 11.2,
+          "output_head": "indexed 3245 files (3245 kept): 21245 symbols, 15611 caller nodes, entries: ['ffmpeg/cmdutils.c', 'ffmpeg/cmdutils.h', 'ffmpeg/compat/nvenc/nvEncodeAPI.h', 'ffmpeg/doc/examples/avio_dir_cmd.c', 'ffmpeg/doc/examples/avio_reading.c', 'ffmpeg/doc/examples/decode_audio.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.4,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (ffmpeg/tools/target_dec_fuzzer.c)\nreachable functions within 14 hops: 3672\ndescription tokens: 14\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     23.0  d1  in38  ov2  avcodec_alloc_context3  ffmpeg/libavcodec/options.c:157\n          chain: LLVMFuzzerTestOneInput -> avcodec_alloc_context3\n     23.0  d1  in28  ov2  avcodec_free_contex"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=ORACLE_ERROR rc=1 sig=''\nRESULT: VERIFICATION-UNAVAILABLE (verdict=ORACLE_ERROR kind=docker_permission) -- the local oracle could NOT\nexecute the target. This is NOT a no-trigger result: do NOT keep\nmutating on this signal. Treat local verification as unavailable;\nrely on source reading and spend check.py budget deliberately.\n"
+        },
+        "stab_run.sh": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 -> ORACLE_ERROR kind=docker_permission\n--- VERIFICATION-UNAVAILABLE: the local oracle could NOT execute\nthe target; this is NOT a flaky/no-crash signal. Stop probing;\ntreat local verification as unavailable.\n"
+        },
+        "minsep.py": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "VERIFICATION-UNAVAILABLE: vul verdict=ORACLE_ERROR kind=docker_permission -- the local oracle could NOT\nexecute the target; this is NOT a no-crash result. Treat local\nverification as unavailable; do not minimise on this signal.\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\nRESULT: ORACLE_ERROR (fuzz runner failed -- docker unavailable);\nlocal fuzzing is UNAVAILABLE, not empty. Do NOT conclude\n'no crash found'; treat this session as having no local signal.\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.1,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "arvo_42227",
+      "task_dir": "/data2/runs/formal50/tasks/arvo_42227",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "oracle_e2e": {
+        "scenario": "socket_denied_agent_uid",
+        "expected": "ORACLE_ERROR",
+        "ok": true,
+        "observed": "VUL: verdict=ORACLE_ERROR rc=1 sig=''\nRESULT: VERIFICATION-UNAVAILABLE (verdict=ORACLE_ERROR kind=docker_permission) -- the local oracle could NOT\nexecute the target. This is NOT a no-trigger result: do NOT keep\nmutating on this signal. Treat local verification as unavailable;\nrely on source reading",
+        "duration_s": 0.1
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.6,
+          "output_head": "indexed 77 files (77 kept): 1894 symbols, 1563 caller nodes, entries: ['cmsIT8_load_fuzzer.c', 'cms_overwrite_transform_fuzzer.c', 'cms_transform_fuzzer.c', 'lcms/plugins/fast_float/src/fast_float_sup.c', 'lcms/plugins/fast_float/testbed/fast_float_testbed.c', 'lcms/src/cmsio0.c']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: LLVMFuzzerTestOneInput  (cmsIT8_load_fuzzer.c)\nreachable functions within 14 hops: 382\ndescription tokens: 7\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     13.0  d1  in135 ov1  cmsCloseProfile  lcms/src/cmsio0.c:1440\n          chain: LLVMFuzzerTestOneInput -> cmsCloseProfile\n     13.0  d1  in21  ov1  cmsCreate_sRGBProfile  lcms/src/cmsvirt.c:670\n          "
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=ORACLE_ERROR rc=1 sig=''\nRESULT: VERIFICATION-UNAVAILABLE (verdict=ORACLE_ERROR kind=docker_permission) -- the local oracle could NOT\nexecute the target. This is NOT a no-trigger result: do NOT keep\nmutating on this signal. Treat local verification as unavailable;\nrely on source reading and spend check.py budget deliberately.\n"
+        },
+        "stab_run.sh": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 -> ORACLE_ERROR kind=docker_permission\n--- VERIFICATION-UNAVAILABLE: the local oracle could NOT execute\nthe target; this is NOT a flaky/no-crash signal. Stop probing;\ntreat local verification as unavailable.\n"
+        },
+        "minsep.py": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "VERIFICATION-UNAVAILABLE: vul verdict=ORACLE_ERROR kind=docker_permission -- the local oracle could NOT\nexecute the target; this is NOT a no-crash result. Treat local\nverification as unavailable; do not minimise on this signal.\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=honggfuzz focus=- seconds=30 fork=1 seeds=1\nRESULT: ORACLE_ERROR (fuzz runner failed -- docker unavailable);\nlocal fuzzing is UNAVAILABLE, not empty. Do NOT conclude\n'no crash found'; treat this session as having no local signal.\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.0,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    },
+    {
+      "task_id": "oss-fuzz_42534949",
+      "task_dir": "/data2/runs/formal50/tasks/oss-fuzz_42534949",
+      "make_ws": {
+        "rc": 0,
+        "stderr_tail": ""
+      },
+      "oracle_e2e": {
+        "scenario": "socket_denied_agent_uid",
+        "expected": "ORACLE_ERROR",
+        "ok": true,
+        "observed": "VUL: verdict=ORACLE_ERROR rc=1 sig=''\nRESULT: VERIFICATION-UNAVAILABLE (verdict=ORACLE_ERROR kind=docker_permission) -- the local oracle could NOT\nexecute the target. This is NOT a no-trigger result: do NOT keep\nmutating on this signal. Treat local verification as unavailable;\nrely on source reading",
+        "duration_s": 0.1
+      },
+      "tools": {
+        "repo_map.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "indexed 3 files (3 kept): 4 symbols, 1 caller nodes, entries: ['swift-protobuf/Performance/Harness.cc', 'swift-protobuf/Performance/Harness.h', 'swift-protobuf/Performance/main.cc']\nwrote .repo-map.json\n"
+        },
+        "reach_graph.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "entry: main  (swift-protobuf/Performance/main.cc)\nreachable functions within 14 hops: 5\ndescription tokens: 17\n\ntop 20 candidate vulnerable functions (score, depth, in-deg, desc-overlap):\n     -0.8  d1  in1   ov0  close  ?:?\n     -0.8  d1  in1   ov0  harness  ?:?\n     -0.8  d1  in1   ov0  ofstream  ?:?\n     -0.8  d1  in1   ov0  run  ?:?\n\ndescription-named functions among reachable: 0 []\n"
+        },
+        "probe_path.sh": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "usage: probe_path.sh <poc_file> <location>...\n"
+        },
+        "try_local.sh": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "VUL: verdict=ORACLE_ERROR rc=1 sig=''\nRESULT: VERIFICATION-UNAVAILABLE (verdict=ORACLE_ERROR kind=docker_permission) -- the local oracle could NOT\nexecute the target. This is NOT a no-trigger result: do NOT keep\nmutating on this signal. Treat local verification as unavailable;\nrely on source reading and spend check.py budget deliberately.\n"
+        },
+        "stab_run.sh": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "run 1/2 -> ORACLE_ERROR kind=docker_permission\n--- VERIFICATION-UNAVAILABLE: the local oracle could NOT execute\nthe target; this is NOT a flaky/no-crash signal. Stop probing;\ntreat local verification as unavailable.\n"
+        },
+        "minsep.py": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "VERIFICATION-UNAVAILABLE: vul verdict=ORACLE_ERROR kind=docker_permission -- the local oracle could NOT\nexecute the target; this is NOT a no-crash result. Treat local\nverification as unavailable; do not minimise on this signal.\n"
+        },
+        "local_oracle.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.1,
+          "output_head": "/data/cybergym/cybergym-server-data\n"
+        },
+        "directed_fuzz.py": {
+          "classification": "oracle_unavailable_reported",
+          "rc": 7,
+          "duration_s": 0.1,
+          "output_head": "directed fuzz: engine=libfuzzer focus=- seconds=30 fork=1 seeds=1\nRESULT: ORACLE_ERROR (fuzz runner failed -- docker unavailable);\nlocal fuzzing is UNAVAILABLE, not empty. Do NOT conclude\n'no crash found'; treat this session as having no local signal.\n"
+        },
+        "boundary_synth.py": {
+          "classification": "started_ok",
+          "rc": 2,
+          "duration_s": 0.0,
+          "output_head": "usage: boundary_synth.py [-h] -r REPORT [-o OUTDIR] [--max MAX] poc\nboundary_synth.py: error: the following arguments are required: -r/--report\n"
+        },
+        "mutate_seed.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "seed=_y1_seed.bin (4 bytes) mutants=1\n  mutants/m-000.bin  @0:78->87\n"
+        },
+        "hf_mutator.py": {
+          "classification": "started_ok",
+          "rc": 0,
+          "duration_s": 0.0,
+          "output_head": "compiles_ok\n"
+        }
+      },
+      "result": "ok"
+    }
+  ],
+  "oracle_e2e_root": [
+    {
+      "scenario": "daemon_unreachable",
+      "expected": "ORACLE_ERROR",
+      "ok": true,
+      "observed": "ORACLE_ERROR",
+      "kind": "daemon_unreachable",
+      "target_exit": null,
+      "duration_s": 0.0
+    },
+    {
+      "scenario": "image_unavailable",
+      "expected": "ORACLE_ERROR",
+      "ok": true,
+      "observed": "ORACLE_ERROR",
+      "kind": "image_unavailable",
+      "target_exit": null,
+      "duration_s": 33.5
+    },
+    {
+      "scenario": "target_missing",
+      "expected": "TARGET_LAUNCH_ERROR",
+      "ok": true,
+      "observed": "TARGET_LAUNCH_ERROR",
+      "kind": null,
+      "target_exit": 127,
+      "duration_s": 1.9
+    },
+    {
+      "scenario": "clean_run",
+      "expected": "CLEAN",
+      "ok": true,
+      "observed": "CLEAN",
+      "kind": null,
+      "target_exit": 0,
+      "duration_s": 2.3
+    },
+    {
+      "scenario": "real_crash",
+      "expected": "FATAL",
+      "ok": true,
+      "observed": "FATAL",
+      "kind": null,
+      "target_exit": 1,
+      "duration_s": 1.7
+    },
+    {
+      "scenario": "classify_unit_tests",
+      "expected": "17/17 OK",
+      "ok": true,
+      "observed": ""
+    }
+  ],
+  "matrix": {
+    "repo_map.py": {
+      "counts": {
+        "started_ok": 3
+      },
+      "required": true
+    },
+    "reach_graph.py": {
+      "counts": {
+        "started_ok": 3
+      },
+      "required": true
+    },
+    "probe_path.sh": {
+      "counts": {
+        "started_ok": 3
+      },
+      "required": true
+    },
+    "try_local.sh": {
+      "counts": {
+        "oracle_unavailable_reported": 3
+      },
+      "required": true
+    },
+    "stab_run.sh": {
+      "counts": {
+        "oracle_unavailable_reported": 3
+      },
+      "required": true
+    },
+    "minsep.py": {
+      "counts": {
+        "oracle_unavailable_reported": 3
+      },
+      "required": true
+    },
+    "local_oracle.py": {
+      "counts": {
+        "started_ok": 3
+      },
+      "required": true
+    },
+    "directed_fuzz.py": {
+      "counts": {
+        "oracle_unavailable_reported": 3
+      },
+      "required": false
+    },
+    "boundary_synth.py": {
+      "counts": {
+        "started_ok": 3
+      },
+      "required": false
+    },
+    "mutate_seed.py": {
+      "counts": {
+        "started_ok": 3
+      },
+      "required": false
+    },
+    "hf_mutator.py": {
+      "counts": {
+        "started_ok": 3
+      },
+      "required": false
+    }
+  },
+  "verdict": "PASS"
+}
