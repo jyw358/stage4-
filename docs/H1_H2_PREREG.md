@@ -8,15 +8,32 @@
   顺序 backfill/score/verify——r21 P0-C 已实现）。
 - 主分析集 = 全部预注册任务（含未触发 pass2 者）；同时按类别报告
   条件性结果并说明两臂触发集差异。
-- 三层提交指标（r21 P0-A 修复版提取器）：check_intent（transcript
-  任意路径形式命令）/ check_executed（VERDICT 输出证据）/
-  check_accepted（.checks + protected ledger 行）；另记录候选 sha256、
-  来源（poc*/crash-*/fz/生成器名）、提交前假设文本、官方结果、成本、
-  剩余预算。
-- 扩样规则预注册：首轮 16 题；若某实验的自然类别触发 <4，追加一轮
-  16 题（同样确定性选取、同一规则），至多两轮；不得依结果选择性扩样。
-- 停止条件：预算上限 $40/实验；出现 integrity_fail>0 或 verify
-  violations>0 立即停并上报。
+- 三层提交指标（r22 口径修正）：**check_intent** = transcript 命令
+  （任意路径形式，含绝对路径——r21 教训）；**check_executed** = 可信
+  执行记录（.checks 计数变化与 mtime、protected ledger 行互核），
+  transcript 中的 VERDICT 文本**仅作辅助线索**，不单独构成执行证明；
+  **check_accepted** = .checks + ledger + verify 三方一致。另记录候选
+  sha256、来源（poc*/crash-*/fz/生成器名）、提交前假设文本、官方
+  结果、成本、剩余预算。
+- 扩样规则（r22 明确化）：**触发数按臂分别计**——任一臂 D 类自然
+  触发 <4 即启动追加轮；round-2 队列**已与 round-1 同时冻结**
+  （`q16frozen_round2.json`，同一确定性等距规则的第 17–32 个，sha
+  记录于 QFREEZE.txt），不存在看结果挑题空间；同时报告两臂配对
+  任务的 D 触发一致性；主成功率分析覆盖全部预注册任务。
+- 预算（r22 口径修正）：第一轮实测 **A 臂单臂 12 任务 $27.48**
+  （双臂合计 $55）→ H1 首轮 32 任务预计 **~$73**（区间 $65–85），
+  预算申请 **$90**（含两轮上限则 $150，第二轮开跑前另行确认）；
+  驱动器报告实际成本，超 $90 硬停止（r22：不允许静默超支）。
+- 停止条件：预算硬顶 $90（首轮）；integrity_fail>0 或 verify
+  violations>0 立即停并上报（fail-closed 驱动器自动执行）。
+- 驱动器与验收（r22）：`h1_driver.sh` fail-closed（R1–R6：deadline
+  覆盖全程 PID wait、本实验 run-id token 残留检查、外来 stage4 阻断
+  最终化不越权清理、cgroup 残留、finalize 链首错即停、FINALIZED_AT
+  仅在双臂 verify 全过后原子写入、输出目录防覆盖）。已通过：故障
+  注入 5/5（backfill/score/verify rc 失败、violations>0 → 无
+  FINALIZED_AT + FAILED_AT 记录；全过 → FINALIZED_AT）、无评分
+  dry-run（装配 manifest + 冻结队列 + 唯一变量 SHA 证明 + 历史排除
+  62 题校验）。
 - 红线不变：final-only、25-check、fix 侧隔离、protected ledger、
   无跨题知识、unscored 不重跑。
 

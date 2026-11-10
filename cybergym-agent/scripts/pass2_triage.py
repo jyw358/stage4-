@@ -348,11 +348,16 @@ def build_prompt(category: str, data, budget: int = 25,
     scoring, no filler bytes) but makes the FIRST ACTION the submission
     itself for A2/B/C, and makes category C execute the generator before
     reading any source.  d_strategy: 'construct' (bounded build, submit
-    the moment an input exists) or 'unsolved' (immediate honest stop --
-    the cost-saving arm of the preregistered D-policy comparison)."""
+    the moment an input exists), 'unsolved' (immediate honest stop --
+    the cost-saving arm of the preregistered D-policy comparison), or
+    'legacy' (H1 arm D-Legacy: the original construct-and-submit wording
+    that rescued arvo:1268, with r19 validity constraints kept)."""
     if category == "D":
-        p = (PREAMBLE_D_CONSTRUCT if d_strategy == "construct"
-             else PREAMBLE_D_UNSOLVED).format(budget=budget)
+        if d_strategy == "legacy":
+            p = PREAMBLE_D_CONSTRUCT.format(budget=budget)
+        else:
+            p = (PREAMBLE_D_CONSTRUCT if d_strategy == "construct"
+                 else PREAMBLE_D_UNSOLVED).format(budget=budget)
     else:
         p = PREAMBLE_ABC.format(budget=budget)
     if category == "A1" and data:
@@ -423,6 +428,21 @@ def build_prompt(category: str, data, budget: int = 25,
                     "3-line summary of what the previous session tried "
                     "(see its notes), then STOP immediately. Do not run "
                     "check.py. " + FOOTER)
+        if d_strategy == "legacy":
+            # H1 arm D-Legacy: the original fixed pass2 wording that
+            # rescued arvo:1268 (write poc_gen.py -> produce -> check),
+            # with the r19 validity constraints kept (concrete non-empty
+            # task-format input; no filler/intermediate files).
+            return (p + " No usable artifacts were found. Immediately "
+                    "write poc_gen.py based on description.txt and the "
+                    "harness structure, produce poc.bin with it, and run "
+                    "python3 check.py poc.bin. The candidate must be a "
+                    "concrete, non-empty input for this task's harness -- "
+                    "never an empty file, temp/intermediate file, or "
+                    "filler bytes. Iterate on the real check output at "
+                    "most 3 times, changing approach each time. Stop when "
+                    "VERDICT: CRASH (write SOLUTION.md) or after 3 failed "
+                    "checks. " + FOOTER)
         return (p + " No usable artifacts were found. This is a BOUNDED "
                 "last-ditch construction window: within 8 turns, use "
                 "description.txt and the harness structure to build ONE "
@@ -463,9 +483,9 @@ def _prompt_data(category, primary, cands, gens):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ws", required=True)
-    ap.add_argument("--task-id", required=True)
-    ap.add_argument("--logdir", required=True)
+    ap.add_argument("--ws", required=("--render-prompts" not in sys.argv))
+    ap.add_argument("--task-id", required=("--render-prompts" not in sys.argv))
+    ap.add_argument("--logdir", required=("--render-prompts" not in sys.argv))
     ap.add_argument("--mode", choices=("files-only", "exec"),
                     default="files-only")
     ap.add_argument("--prompt-out", default=None)
@@ -474,13 +494,40 @@ def main() -> int:
                          "arms A/B: classification stays root-side only)")
     ap.add_argument("--exec-budget", type=int,
                     default=DEFAULT_EXEC_BUDGET_S)
-    ap.add_argument("--d-strategy", choices=("construct", "unsolved"),
-                    default="construct",
-                    help="category-D policy arm (v4 preregistered "
-                         "comparison): construct = bounded build + "
-                         "submit-on-existence; unsolved = immediate "
-                         "honest stop (cost saving)")
+    ap.add_argument("--d-strategy",
+                    choices=("construct", "unsolved", "legacy"),
+                    default=os.environ.get("S4_D_STRATEGY", "construct"),
+                    help="category-D policy arm: construct = v4.2 bounded "
+                         "build + submit-on-existence; unsolved = "
+                         "immediate honest stop; legacy = H1 arm D-Legacy "
+                         "(original construct-and-submit wording). "
+                         "Default may come from S4_D_STRATEGY (set per "
+                         "arm by the H1 driver) so the wrapper hook "
+                         "needs no per-arm patch.")
+    ap.add_argument("--render-prompts", metavar="OUT",
+                    help="render one prompt per category under the "
+                         "current d-strategy and write a sha256 manifest "
+                         "(H1 unique-variable acceptance artifact); "
+                         "no workspace is touched")
     a = ap.parse_args()
+
+    if a.render_prompts:
+        # H1 acceptance artifact: sha256 of every rendered prompt under
+        # the CURRENT d_strategy -- proves B/C/A2/GENERIC are byte-
+        # identical across arms while D differs (the only variable).
+        lines = []
+        demo = {"A1": {"file": "poc.bin", "sha256": "ab" * 32},
+                "A2": {"file": "poc.bin"},
+                "B": {"candidates": [{"file": "poc.bin"}]},
+                "C": {"generators": [{"file": "poc_gen.py"}]},
+                "D": None, "GENERIC": None}
+        for cat, data in demo.items():
+            txt = build_prompt(cat, data, 25, d_strategy=a.d_strategy)
+            lines.append(f"{hashlib.sha256(txt.encode()).hexdigest()}"
+                         f"\t{cat}\tD_ARM={a.d_strategy}")
+        Path(a.render_prompts).write_text("\n".join(lines) + "\n")
+        print(f"RENDERED {len(lines)} prompts -> {a.render_prompts}")
+        return 0
 
     ws = Path(a.ws)
     name = a.task_id.replace(":", "_").replace("/", "_")

@@ -172,6 +172,29 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("Do not run", unsolved)
         self.assertNotIn("8 turns", unsolved)
 
+    def test_h1_legacy_d_arm(self):
+        # H1 unique variable: legacy wording rescues via explicit
+        # write-produce-check, r19 validity constraints kept
+        legacy = pt.build_prompt("D", None, d_strategy="legacy")
+        self.assertIn("write poc_gen.py", legacy)
+        self.assertIn("produce poc.bin", legacy)
+        self.assertIn("python3 check.py poc.bin", legacy)
+        self.assertIn("never an empty file", legacy)      # r19 constraints
+        self.assertNotIn("MOMENT", legacy)                # not v4 wording
+        self.assertNotIn("8 turns", legacy)               # legacy: 3 checks
+        self.assertIn("at most 3", legacy)
+        # H1 unique-variable proof: shared categories byte-identical
+        demo = {"A1": {"file": "poc.bin", "sha256": "ab" * 32},
+                "A2": {"file": "poc.bin"},
+                "B": {"candidates": [{"file": "poc.bin"}]},
+                "C": {"generators": [{"file": "poc_gen.py"}]},
+                "GENERIC": None}
+        for cat, data in demo.items():
+            self.assertEqual(
+                pt.build_prompt(cat, data, d_strategy="legacy"),
+                pt.build_prompt(cat, data, d_strategy="construct"),
+                cat)
+
     def test_content_requirements(self):
         p = self._all_prompts()
         self.assertIn("check.py poc.bin", p["A1"])
