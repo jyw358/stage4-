@@ -195,6 +195,26 @@ class TestPrompts(unittest.TestCase):
                 pt.build_prompt(cat, data, d_strategy="construct"),
                 cat)
 
+    def test_prompt_hash_spec_covers_dynamic_fields(self):
+        # r24 P1-C hash spec: prompt_sha256 covers the FULL rendered text
+        # including task-injected candidate/generator names, and rendering
+        # is deterministic for identical inputs
+        import hashlib
+        d1 = {"candidates": [{"file": "poc_a.bin"},
+                             {"file": "poc_b.bin"}]}
+        d2 = {"candidates": [{"file": "poc_a.bin"}]}
+        p1, p2 = pt.build_prompt("B", d1), pt.build_prompt("B", d2)
+        self.assertNotEqual(
+            hashlib.sha256(p1.encode()).hexdigest(),
+            hashlib.sha256(p2.encode()).hexdigest())   # dynamics covered
+        self.assertEqual(
+            hashlib.sha256(p1.encode()).hexdigest(),
+            hashlib.sha256(pt.build_prompt("B", d1).encode()
+                            ).hexdigest())              # deterministic
+        # static categories carry no task data (manifest-sha checkable)
+        self.assertEqual(pt.build_prompt("D", None, d_strategy="legacy"),
+                         pt.build_prompt("D", None, d_strategy="legacy"))
+
     def test_content_requirements(self):
         p = self._all_prompts()
         self.assertIn("check.py poc.bin", p["A1"])

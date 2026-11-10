@@ -1,22 +1,15 @@
 #!/bin/bash
-# h1_failinject.sh -- r23 fault-injection acceptance.
-# KEY DIFFERENCE from r22 version: no extraction/slicing. Every full
-# case below runs the REAL /tmp/h1_driver.sh unmodified, driving it
-# through documented test hooks only (H1_STUB_DIR, H1_OUTBASE,
-# H1_WALL_DEADLINE_MIN, H1_FINALIZE_TIMEOUT_MIN, H1_BUDGET_STOP_USD,
-# H1_POLL_S) -- so launch, wait, budget, recovery, supervise and
-# finalize paths are exercised as shipped.
+# h1_failinject.sh -- r24 fault-injection acceptance.
+# Every full case runs the REAL /tmp/h1_driver.sh unmodified through
+# documented test hooks (H1_STUB_DIR, H1_OUTBASE, guard overrides,
+# H1_SPENT_CMD) -- launch/wait/budget/recovery/supervision paths are
+# exercised exactly as shipped.
 #
-# Reviewer matrix (r23 section 5) -> cases:
-#   existing-dir assemble refusal        -> case 01
-#   worker started then wall timeout     -> case 02
-#   worker nonzero exit blocks finalize  -> case 03
-#   finalize command hangs               -> case 08 (supervised kill)
-#   budget stop with in-flight workers   -> case 09
-#   dry-run step failure gates PASS      -> case 13
-#   full success path                    -> case 10
-#   runtime prompt audit                 -> cases 11/12
-#   (kept from r22: backfill/score/verify rc + violations) -> 04-07
+# r23 matrix -> cases 01-13; r24 additions:
+#   budget poller fail-closed (corrupt json / missing cost / poller rc)
+#                                          -> cases 14-16
+#   grandchild survives leader exit         -> case 17 (group residue)
+#   audit bidirectional coverage + hash spec poison/tamper -> 11/12/18
 set -u
 BASE=/tmp/h1_failinject
 rm -rf "$BASE"; mkdir -p "$BASE/stubs" "$BASE/markers"
@@ -31,7 +24,6 @@ worker_dead() {  # $1 pidfile -- process fully gone (not zombie)
   ! ps -p "$P" -o stat= >/dev/null 2>&1
 }
 
-# scratch OUTBASE the real driver can run against
 prep_base() {
   rm -rf "$BASE/out"; mkdir -p "$BASE/out/h1-agent"
   echo '{"sha_map_legacy":{"D":"l"},"sha_map_v4":{"D":"v"}}' \
@@ -45,8 +37,6 @@ mk_finalize() {  # $1=backfill_rc  $2=score_rc  $3=verify_rc  $4=violations_line
     printf '#!/bin/bash\necho backfill > %s/markers/backfill\nexit %s\n' \
       "$BASE" "$1" > "$BASE/stubs/backfill.sh"
   else
-    # exec sleep: when the supervisor TERMs the stub, the sleeper dies
-    # with it (no orphaned child outside timeout's reach)
     printf '#!/bin/bash\necho backfill > %s/markers/backfill\nexec sleep %s\n' \
       "$BASE" "$5" > "$BASE/stubs/backfill.sh"
   fi
@@ -58,7 +48,7 @@ mk_finalize() {  # $1=backfill_rc  $2=score_rc  $3=verify_rc  $4=violations_line
     "$BASE" > "$BASE/stubs/audit.py"
   chmod +x "$BASE/stubs"/*
 }
-mk_worker() {  # $1=variant: exit0|exit1|sleep|budget
+mk_worker() {  # $1=variant: exit0|exit1|sleep|budget|grandchild
   cat > "$BASE/stubs/worker.sh" <<EOF
 #!/bin/bash
 ARM=\$1
@@ -71,6 +61,9 @@ case "$1" in
   budget) mkdir -p "\$H1_OUTBASE/\$ARM/rows"
           echo '{"task_id":"arvo:1","cost_usd":99.99}' > "\$H1_OUTBASE/\$ARM/rows/fake.json"
           echo \$\$ > "$BASE/worker-\$ARM.pid"; exec sleep 3600 ;;
+  grandchild) sleep 3600 &
+              echo \$! > "$BASE/grand-\$ARM.pid"
+              exit 0 ;;
 esac
 exit 1
 EOF
@@ -176,47 +169,72 @@ else
   bad 10 "rc=$RC finalized=$([ -e "$BASE/out/FINALIZED_AT" ] && echo Y || echo N) markers=$(markers_state)"
 fi
 
-# ---- 11/12: runtime prompt audit unit (real h1_prompt_audit.py) ----------
+# ---- 11/12/18: audit bidirectional coverage + hash-spec (real audit) -----
 AUD="$BASE/auditcase"; rm -rf "$AUD"; mkdir -p "$AUD/logs/s4-audittest"
 python3 - "$AUD" <<'EOF'
-import hashlib, json, sys, os
-base = sys.argv[1]
-d = os.path.join(base, "logs", "s4-audittest")
+import hashlib, json, os, sys
+base = sys.argv[1]; d = os.path.join(base, "logs", "s4-audittest")
 def w(n, s): open(os.path.join(d, n), "w").write(s)
 def sha(s): return hashlib.sha256(s.encode()).hexdigest()
 pb, dl, dv = "PROMPT_B_SHARED", "PROMPT_D_LEGACY", "PROMPT_D_V4"
-w("t1.triage.json", json.dumps({"category": "B"}))
-w("t1.p2prompt", pb)                      # verified (shared sha)
+w("t1.pass2.json", "{}")                       # session ran (launch event)
+w("t1.triage.json", json.dumps(
+    {"category": "B", "prompt_sha256": sha(pb)}))
+w("t1.p2prompt", pb)                           # dynamic: matches record
+w("t2.pass2.json", "{}")
 w("t2.triage.json", json.dumps({"category": "D"}))
 w("t2.triage.stdout", "H1_WARN: triage failed; falling back\n")  # fallback
+w("t6.triage.json", json.dumps({"category": "B"}))  # no session -> warning
 json.dump({"sha_map_legacy": {"B": sha(pb), "D": sha(dl), "GENERIC": sha("g")},
-           "sha_map_v4": {"B": sha(pb), "D": sha(dv), "GENERIC": sha("g")}},
+           "sha_map_v4":     {"B": sha(pb), "D": sha(dv), "GENERIC": sha("g")}},
           open(os.path.join(base, "manifest.json"), "w"))
 EOF
-python3 /tmp/h1_prompt_audit.py --manifest "$AUD/manifest.json" \
+run_audit() { python3 /tmp/h1_prompt_audit.py --manifest "$AUD/manifest.json" \
   --logroot "$AUD/logs" --arm "A:legacy:s4-audittest" \
-  --arm "B:construct:s4-audittest" --out "$AUD/audit.json" > "$AUD/run1.out" 2>&1
-RC1=$?
-V=$(python3 -c "import json;a=json.load(open('$AUD/audit.json'));print(len(a['arms']['A']['verified']),len(a['arms']['A']['fallback']),len(a['arms']['A']['violations']))" 2>/dev/null)
-if [ "$RC1" = 0 ] && [ "$V" = "1 1 0" ] \
-   && grep -q "violations=0" "$AUD/run1.out"; then
-  ok 11 "audit: verified=1 fallback=1 violations=0"
+  --arm "B:construct:s4-audittest" --out "$AUD/audit.json" > "$AUD/run.out" 2>&1; }
+run_audit; RC=$?
+V=$(python3 -c "import json;a=json.load(open('$AUD/audit.json'))['arms']['A'];print(a.get('sessions'),len(a['verified']),len(a['fallback']),len(a['violations']),len(a['warnings']))" 2>/dev/null)
+if [ "$RC" = 0 ] && [ "$V" = "2 1 1 0 1" ] \
+   && grep -q "violations=0" "$AUD/run.out"; then
+  ok 11 "sessions=2 verified=1 fallback=1 violations=0 warnings=1"
 else
-  bad 11 "rc=$RC1 v=$V out=$(tail -1 "$AUD/run1.out" 2>/dev/null)"
+  bad 11 "rc=$RC v=$V out=$(tail -1 "$AUD/run.out" 2>/dev/null)"
 fi
-# poison: a B-category prompt whose sha is in NO allowed set
-cp "$AUD/logs/s4-audittest/t1.p2prompt" "$AUD/.bak"
-echo "EVIL_PROMPT_NOT_IN_ANY_SET" > "$AUD/logs/s4-audittest/t1.p2prompt"
-python3 /tmp/h1_prompt_audit.py --manifest "$AUD/manifest.json" \
-  --logroot "$AUD/logs" --arm "A:legacy:s4-audittest" \
-  --out "$AUD/audit2.json" > "$AUD/run2.out" 2>&1
-RC2=$?
-grep -q "prompt_sha_mismatch" "$AUD/audit2.json" && MM=1 || MM=0
-mv "$AUD/.bak" "$AUD/logs/s4-audittest/t1.p2prompt"
-if [ "$RC2" != 0 ] && [ "$MM" = 1 ]; then
-  ok 12 "audit: poisoned prompt -> rc!=0 + violation recorded"
+# 12: poisoned STATIC category (D prompt not in arm manifest)
+D2="$AUD/logs/s4-audittest"
+w2() { printf '%s' "$2" > "$D2/$1"; }
+w2 t3.pass2.json '{}'
+w2 t3.triage.json '{"category": "D"}'
+w2 t3.p2prompt 'EVIL_PROMPT_NOT_IN_ANY_SET'
+run_audit; RC=$?
+grep -q "prompt_sha_mismatch" "$AUD/audit.json" && MM=1 || MM=0
+rm -f "$D2"/t3.*
+if [ "$RC" != 0 ] && [ "$MM" = 1 ]; then
+  ok 12 "poisoned static-D prompt -> rc!=0 + mismatch recorded"
 else
-  bad 12 "rc=$RC2 mismatch_recorded=$MM"
+  bad 12 "rc=$RC mismatch_recorded=$MM"
+fi
+# 18: (a) coverage gap: session without triage; (b) dynamic-record tamper
+w2 t4.pass2.json '{}'
+run_audit; RC=$?
+grep -q "pass2_without_triage_record" "$AUD/audit.json" && GA=1 || GA=0
+rm -f "$D2"/t4.pass2.json
+w2 t5.pass2.json '{}'
+python3 - "$AUD" <<'EOF'
+import hashlib, json, os, sys
+d = os.path.join(sys.argv[1], "logs", "s4-audittest")
+json.dump({"category": "B", "prompt_sha256": hashlib.sha256(
+    b"REAL_PROMPT").hexdigest()},
+    open(os.path.join(d, "t5.triage.json"), "w"))
+open(os.path.join(d, "t5.p2prompt"), "w").write("TAMPERED_PROMPT")
+EOF
+run_audit; RC2=$?
+grep -q "prompt_sha_mismatch" "$AUD/audit.json" && TA=1 || TA=0
+rm -f "$D2"/t5.*
+if [ "$RC" != 0 ] && [ "$GA" = 1 ] && [ "$RC2" != 0 ] && [ "$TA" = 1 ]; then
+  ok 18 "coverage gap + dynamic-record tamper both refused"
+else
+  bad 18 "gap_rc=$RC gap=$GA tamper_rc=$RC2 tamper=$TA"
 fi
 
 # ---- 13: a failing dry-run step gates H1_DRYRUN_PASS ---------------------
@@ -229,6 +247,57 @@ if [ "$RC" != 0 ] && grep -q "DRYRUN_FAIL" "$DRA/out.log" \
   ok 13 "dry-run failure -> nonzero rc, no PASS marker"
 else
   bad 13 "rc=$RC log=$(tail -1 "$DRA/out.log" 2>/dev/null)"
+fi
+
+# ---- 14: corrupt row JSON -> BUDGET_UNKNOWN, never $0 --------------------
+prep_base; mk_worker sleep; mk_finalize 0 0 0 "violations=0" 0
+mkdir -p "$BASE/out/zzrows/rows"
+printf '{"task_id": "x",' > "$BASE/out/zzrows/rows/bad.json"
+run_driver; RC=$?
+if [ "$RC" != 0 ] && grep -q "stage=budget_inspection" "$BASE/out/FAILED_AT" \
+   && grep -q "BUDGET_UNKNOWN" "$BASE/out/FAILED_AT" \
+   && [ ! -e "$BASE/out/FINALIZED_AT" ] \
+   && worker_dead "$BASE/worker-DLegacy.pid"; then
+  ok 14 "corrupt row -> budget_inspection, workers recovered"
+else
+  bad 14 "rc=$RC $(cat "$BASE/out/FAILED_AT" 2>/dev/null)"
+fi
+
+# ---- 15: completed row missing cost_usd -> BUDGET_UNKNOWN ----------------
+prep_base; mk_worker sleep; mk_finalize 0 0 0 "violations=0" 0
+mkdir -p "$BASE/out/zzrows/rows"
+printf '{"task_id": "x", "status": "no_submission"}' > "$BASE/out/zzrows/rows/nocost.json"
+run_driver; RC=$?
+if [ "$RC" != 0 ] && grep -q "stage=budget_inspection" "$BASE/out/FAILED_AT" \
+   && grep -q "BUDGET_UNKNOWN" "$BASE/out/FAILED_AT" \
+   && [ ! -e "$BASE/out/FINALIZED_AT" ]; then
+  ok 15 "row without cost_usd -> budget_inspection"
+else
+  bad 15 "rc=$RC $(cat "$BASE/out/FAILED_AT" 2>/dev/null)"
+fi
+
+# ---- 16: cost poller itself fails -> budget_inspection -------------------
+prep_base; mk_worker sleep; mk_finalize 0 0 0 "violations=0" 0
+H1_SPENT_CMD="echo boom >&2; exit 3" run_driver; RC=$?
+if [ "$RC" != 0 ] && grep -q "stage=budget_inspection" "$BASE/out/FAILED_AT" \
+   && grep -q "poller rc=3" "$BASE/out/FAILED_AT" \
+   && [ ! -e "$BASE/out/FINALIZED_AT" ]; then
+  ok 16 "poller failure -> budget_inspection (no echo-0 fallback)"
+else
+  bad 16 "rc=$RC $(cat "$BASE/out/FAILED_AT" 2>/dev/null)"
+fi
+
+# ---- 17: grandchild survives leader exit -> residue, group recovered ----
+prep_base; mk_worker grandchild; mk_finalize 0 0 0 "violations=0" 0
+run_driver; RC=$?
+if [ "$RC" != 0 ] && grep -q "stage=residue" "$BASE/out/FAILED_AT" \
+   && grep -q "cleanup=verified" "$BASE/out/FAILED_AT" \
+   && [ ! -e "$BASE/out/FINALIZED_AT" ] \
+   && worker_dead "$BASE/grand-DLegacy.pid" \
+   && worker_dead "$BASE/grand-DV4.pid"; then
+  ok 17 "grandchild residue detected + process group recovered"
+else
+  bad 17 "rc=$RC $(cat "$BASE/out/FAILED_AT" 2>/dev/null)"
 fi
 
 echo "passed=$PASS failed=$FAIL"

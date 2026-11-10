@@ -606,6 +606,15 @@ def main() -> int:
     budget = int(os.environ.get("CG_CHECKS_BUDGET", "25"))
     prompt = build_prompt(rec["category"], data, budget,
                           d_strategy=a.d_strategy)
+    # r24 P1-C: hash the EXACT delivered prompt text into the root-owned
+    # authoritative record, so the runtime audit can prove which bytes
+    # the session actually received. Hash spec: full rendered prompt
+    # (task-injected candidate/generator names and budget digit included).
+    # Dynamic categories (A1/A2/B/C) are checked against this record;
+    # static categories (D/GENERIC) are additionally checked against the
+    # per-arm manifest sha_map.
+    rec["prompt_sha256"] = hashlib.sha256(
+        prompt.encode("utf-8")).hexdigest()
 
     logdir = Path(a.logdir)
     logdir.mkdir(parents=True, exist_ok=True)

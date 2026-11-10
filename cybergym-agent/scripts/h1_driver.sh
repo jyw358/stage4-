@@ -36,7 +36,11 @@ QUEUE=$OUTBASE/q16frozen.json
 AGENT=$OUTBASE/h1-agent
 WALL_DEADLINE_MIN="${H1_WALL_DEADLINE_MIN:-600}"
 FINALIZE_TIMEOUT_MIN="${H1_FINALIZE_TIMEOUT_MIN:-30}"
-BUDGET_STOP_USD="${H1_BUDGET_STOP_USD:-85}"
+# r24 P0-A: budget semantics are a SOFT TARGET: stop trigger $80 leaves
+# headroom for <=2 in-flight tasks (historical per-task peak $3.49, NOT a
+# proven bound), so a strict $90 hard ceiling cannot be mathematically
+# guaranteed -- the prereg states this explicitly.
+BUDGET_STOP_USD="${H1_BUDGET_STOP_USD:-80}"
 POLL_S="${H1_POLL_S:-30}"
 PIDS=""
 CLEANUP_STATE="cleanup=not_applicable"
@@ -48,10 +52,21 @@ alive() {  # zombie-aware liveness (kill -0 alone succeeds on zombies)
   [ "${S:0:1}" != "Z" ]
 }
 
-kill_this_run() {  # recover ONLY pids this driver launched (R1/R4 fails)
-  local ANY=0 P GRACED=0 I
+grp_count() {  # r24 P0-B: members of process group $1 (ANY member counts,
+  # zombies included -- leader death alone proves nothing about the group).
+  # ps failure is detectable: mark inspection broken + report a huge count
+  # (conservative: treated as "group alive", never as "group empty").
+  local OUT
+  OUT=$(ps -eo pgid= 2>/dev/null)
+  if [ -z "$OUT" ]; then PS_OK=0; echo 999999; return; fi
+  printf '%s\n' "$OUT" | awk -v g="$1" '$1==g' | wc -l
+}
+
+PS_OK=1   # flipped if the group/proc inspection itself fails
+kill_this_run() {  # recover ONLY process groups this driver launched
+  local ANY=0 P I
   for P in $PIDS; do
-    if alive "$P" 2>/dev/null; then
+    if [ "$(grp_count "$P")" -gt 0 ]; then
       kill -TERM -- "-$P" 2>/dev/null || kill -TERM "$P" 2>/dev/null
       ANY=1
     fi
@@ -59,8 +74,8 @@ kill_this_run() {  # recover ONLY pids this driver launched (R1/R4 fails)
   if [ "$ANY" = 1 ]; then
     for I in $(seq 1 18); do   # <=90s graceful window
       ANY=0
-      for P in $PIDS; do alive "$P" 2>/dev/null && ANY=1; done
-      [ "$ANY" = 0 ] && { GRACED=1; break; }
+      for P in $PIDS; do [ "$(grp_count "$P")" -gt 0 ] && ANY=1; done
+      [ "$ANY" = 0 ] && break
       sleep 5
     done
     if [ "$ANY" = 1 ]; then
@@ -70,12 +85,16 @@ kill_this_run() {  # recover ONLY pids this driver launched (R1/R4 fails)
       sleep 2
     fi
   fi
-  ANY=0
-  for P in $PIDS; do alive "$P" 2>/dev/null && ANY=1; done
-  if [ "$ANY" = 0 ]; then
-    CLEANUP_STATE="cleanup=verified"
-  else
+  if [ "$PS_OK" != 1 ]; then
     CLEANUP_STATE="cleanup=inspection_incomplete"
+  else
+    ANY=0
+    for P in $PIDS; do [ "$(grp_count "$P")" -gt 0 ] && ANY=1; done
+    if [ "$ANY" = 0 ]; then
+      CLEANUP_STATE="cleanup=verified"
+    else
+      CLEANUP_STATE="cleanup=residue_found"
+    fi
   fi
   echo "H1_KILL_THIS_RUN $CLEANUP_STATE pids=$PIDS ts=$(date -u +%FT%TZ)"
 }
@@ -87,16 +106,28 @@ ts=$(date -u +%FT%TZ)" | tee -a "$OUTBASE/FAILED_AT" >&2
   exit 1
 }
 
-spent_usd() {  # sum completed cost_usd rows across BOTH arms
-  python3 - "$OUTBASE" <<'EOF' 2>/dev/null || echo 0
-import glob, json, sys
-t = 0.0
+spent_usd() {  # r24 P0-A: fail-closed cost poller. Prints "<float>" on
+  # success, "BUDGET_UNKNOWN" when any completed row is missing/invalid/
+  # non-finite/negative cost_usd or its JSON is corrupt, nonzero rc when
+  # the poller itself fails. NEVER silently reports $0.
+  if [ -n "${H1_SPENT_CMD:-}" ]; then   # documented fault-injection hook
+    eval "$H1_SPENT_CMD"; return $?
+  fi
+  python3 - "$OUTBASE" <<'EOF'
+import glob, json, math, sys
+total = 0.0
 for f in glob.glob(sys.argv[1] + "/*/rows/*.json"):
     try:
-        t += float(json.load(open(f)).get("cost_usd") or 0)
+        d = json.load(open(f))
     except Exception:
-        pass
-print(f"{t:.2f}")
+        print("BUDGET_UNKNOWN"); sys.exit(0)
+    c = d.get("cost_usd")
+    if (c is None or isinstance(c, bool)
+            or not isinstance(c, (int, float))
+            or not math.isfinite(c) or c < 0):
+        print("BUDGET_UNKNOWN"); sys.exit(0)
+    total += c
+print(f"{total:.2f}")
 EOF
 }
 
@@ -156,7 +187,7 @@ DEADLINE=$(( $(date +%s) + WALL_DEADLINE_MIN * 60 ))
 launch DLegacy legacy
 launch DV4 construct
 
-# ---- R1: bounded zombie-aware wait + budget stop --------------------------
+# ---- R1: bounded zombie-aware wait + fail-closed budget stop -----------
 while :; do
   ALIVE=0
   for P in $PIDS; do alive "$P" && ALIVE=1; done
@@ -165,16 +196,27 @@ while :; do
     fail wall_guard "workers still alive after ${WALL_DEADLINE_MIN}min: $PIDS"
   fi
   SPENT=$(spent_usd)
+  RC=$?
+  [ "$RC" = 0 ] || fail budget_inspection "cost poller rc=$RC"
+  [ "$SPENT" != "BUDGET_UNKNOWN" ] \
+    || fail budget_inspection "completed row missing/invalid cost_usd (BUDGET_UNKNOWN)"
   if awk -v c="$SPENT" -v s="$BUDGET_STOP_USD" 'BEGIN{exit !(c>=s)}'; then
     # stop scheduling now: terminate this run's workers; in-flight
-    # exposure (<=2 tasks) is documented in H1_H2_PREREG.md
-    fail budget "spent=$SPENT >= stop trigger $BUDGET_STOP_USD (in-flight tasks terminated; exposure per prereg)"
+    # exposure (<=2 tasks, historical peak $3.49/task, NOT a bound) is
+    # documented in H1_H2_PREREG.md -- $90 is a SOFT target
+    fail budget "spent=$SPENT >= stop trigger $BUDGET_STOP_USD (soft-target semantics per prereg)"
   fi
   sleep "$POLL_S"
 done
 for P in $PIDS; do
   # reap and require rc=0 (stage4 exits 0 on controlled completion)
   if ! wait "$P"; then fail worker "pid $P exited nonzero"; fi
+done
+# r24 P0-B: leader death proves nothing -- require BOTH process groups to
+# be fully empty (no surviving grandchildren) before any finalization
+for P in $PIDS; do
+  N=$(grp_count "$P")
+  [ "$N" = 0 ] || fail residue "process group $P still has $N member(s) after worker exit"
 done
 
 # ---- R2: this-run residual tokens ----------------------------------------
