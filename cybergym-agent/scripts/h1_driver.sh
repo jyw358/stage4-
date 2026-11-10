@@ -1,39 +1,110 @@
 #!/bin/bash
-# h1_driver.sh -- r22 fail-closed H1 driver.
-# Hard rules (violating any => NO FINALIZED_AT, FAILED_AT written, exit!=0):
-#   R1 deadline covers the WHOLE wait (set before launch; poll kill -0,
-#      never a bare blocking wait)
-#   R2 this-run workers identified by run-id recorded at launch; residual
-#      /proc environ tokens for these run-ids => refuse
-#   R3 foreign stage4 instances on the host => block finalization, record,
-#      never kill
+# h1_driver.sh -- r23 fail-closed H1 driver.
+# Hard rules (violating any => NO FINALIZED_AT, FAILED_AT written,
+# this run's workers recovered via trusted control, exit != 0):
+#   R1 wall deadline is set BEFORE launch and covers the WHOLE wait
+#      (zombie-aware kill -0 polling, never a bare blocking wait);
+#      budget stop trigger checked in the same loop ($85 default,
+#      $90 ceiling documented with in-flight exposure in the prereg)
+#   R2 this-run workers identified by run-id; residual /proc environ
+#      tokens for these run-ids => refuse
+#   R2.5 runtime prompt audit: every delivered .p2prompt must match the
+#      manifest sha for its category+arm; triage fallbacks recorded
+#      (never counted as arm application); mismatch => refuse
+#   R3 foreign stage4 instances on the host => block finalization,
+#      record, NEVER kill
 #   R4 worker nonzero exit / backfill / score / verify / RUN_ID missing
-#      => stop the chain immediately
+#      => stop the chain immediately; each finalize command runs under
+#      `timeout` so a HUNG command is actually killed (supervised
+#      execution, not a post-hoc timestamp check)
 #   R5 FINALIZED_AT written atomically (tmp+mv) ONLY after both arms pass
 #   R6 output tree must not pre-exist; queue must be the H1 frozen file
-set -u
-OUTBASE=/data2/arms/h1
+# Failure containment: on ANY failure this driver terminates ONLY the
+# worker process groups IT launched (TERM -> <=90s grace -> KILL,
+# verify, then record cleanup=verified|inspection_incomplete in
+# FAILED_AT). Foreign processes are never touched.
+#
+# Documented TEST hooks (production = unset):
+#   H1_STUB_DIR           use $DIR/{worker.sh,backfill.sh,score.py,
+#                         verify.py,audit.py} instead of real binaries
+#   H1_OUTBASE            scratch output base (default /data2/arms/h1)
+#   H1_WALL_DEADLINE_MIN / H1_FINALIZE_TIMEOUT_MIN /
+#   H1_BUDGET_STOP_USD / H1_POLL_S   guard overrides
+set -u -o pipefail
+OUTBASE="${H1_OUTBASE:-/data2/arms/h1}"
 QUEUE=$OUTBASE/q16frozen.json
 AGENT=$OUTBASE/h1-agent
-WALL_DEADLINE_MIN=600          # whole-experiment wall guard (2 arms x ~3h)
-FINALIZE_TIMEOUT_MIN=30
+WALL_DEADLINE_MIN="${H1_WALL_DEADLINE_MIN:-600}"
+FINALIZE_TIMEOUT_MIN="${H1_FINALIZE_TIMEOUT_MIN:-30}"
+BUDGET_STOP_USD="${H1_BUDGET_STOP_USD:-85}"
+POLL_S="${H1_POLL_S:-30}"
 PIDS=""
+CLEANUP_STATE="cleanup=not_applicable"
 declare -A ARM_PID ARM_RUNID
 
-fail() {  # $1 stage, $2 detail
-  echo "H1_DRIVER_FAILED stage=$1 detail=$2 ts=$(date -u +%FT%TZ)" \
-    | tee -a "$OUTBASE/FAILED_AT" >&2
+alive() {  # zombie-aware liveness (kill -0 alone succeeds on zombies)
+  local S
+  S=$(ps -o stat= -p "$1" 2>/dev/null) || return 1
+  [ "${S:0:1}" != "Z" ]
+}
+
+kill_this_run() {  # recover ONLY pids this driver launched (R1/R4 fails)
+  local ANY=0 P GRACED=0 I
+  for P in $PIDS; do
+    if alive "$P" 2>/dev/null; then
+      kill -TERM -- "-$P" 2>/dev/null || kill -TERM "$P" 2>/dev/null
+      ANY=1
+    fi
+  done
+  if [ "$ANY" = 1 ]; then
+    for I in $(seq 1 18); do   # <=90s graceful window
+      ANY=0
+      for P in $PIDS; do alive "$P" 2>/dev/null && ANY=1; done
+      [ "$ANY" = 0 ] && { GRACED=1; break; }
+      sleep 5
+    done
+    if [ "$ANY" = 1 ]; then
+      for P in $PIDS; do
+        kill -KILL -- "-$P" 2>/dev/null; kill -KILL "$P" 2>/dev/null
+      done
+      sleep 2
+    fi
+  fi
+  ANY=0
+  for P in $PIDS; do alive "$P" 2>/dev/null && ANY=1; done
+  if [ "$ANY" = 0 ]; then
+    CLEANUP_STATE="cleanup=verified"
+  else
+    CLEANUP_STATE="cleanup=inspection_incomplete"
+  fi
+  echo "H1_KILL_THIS_RUN $CLEANUP_STATE pids=$PIDS ts=$(date -u +%FT%TZ)"
+}
+
+fail() {  # $1 stage, $2 detail -- contains this run, then marks failure
+  if [ -n "$PIDS" ]; then kill_this_run; fi
+  echo "H1_DRIVER_FAILED stage=$1 detail=$2 $CLEANUP_STATE \
+ts=$(date -u +%FT%TZ)" | tee -a "$OUTBASE/FAILED_AT" >&2
   exit 1
 }
 
+spent_usd() {  # sum completed cost_usd rows across BOTH arms
+  python3 - "$OUTBASE" <<'EOF' 2>/dev/null || echo 0
+import glob, json, sys
+t = 0.0
+for f in glob.glob(sys.argv[1] + "/*/rows/*.json"):
+    try:
+        t += float(json.load(open(f)).get("cost_usd") or 0)
+    except Exception:
+        pass
+print(f"{t:.2f}")
+EOF
+}
+
 # ---- R6 pre-flight --------------------------------------------------------
-# OUTBASE itself may pre-exist (dry-run assembles the tree first); what
-# must NOT exist: the agent tree, arm outputs, or any prior terminal
-# marker -- refuse-to-overwrite is about RESULT state, not the directory.
 mkdir -p "$OUTBASE"
 if [ -e "$AGENT" ]; then
   # dry-run already assembled: accept ONLY with an intact manifest and
-  # no arm outputs (i.e. it was preparation, not a prior experiment run)
+  # no arm outputs (preparation, not a prior experiment run)
   [ -s "$AGENT/H1_MANIFEST.json" ] || {
     echo "REFUSE: $AGENT exists without H1_MANIFEST.json" >&2; exit 1; }
   echo "note: reusing dry-run-assembled tree (manifest present)"
@@ -44,10 +115,10 @@ fi
 for ARM in DLegacy DV4; do
   [ -e "$OUTBASE/$ARM" ] && { echo "REFUSE: $OUTBASE/$ARM exists" >&2; exit 1; }
 done
-[ -e "$OUTBASE/FINALIZED_AT" ] || [ -e "$OUTBASE/FAILED_AT" ] && {
-  echo "REFUSE: prior terminal marker present" >&2; exit 1; }
+if [ -e "$OUTBASE/FINALIZED_AT" ] || [ -e "$OUTBASE/FAILED_AT" ]; then
+  echo "REFUSE: prior terminal marker present" >&2; exit 1
+fi
 if [ -s "$QUEUE" ]; then
-  # frozen by dry-run: lock its hash into the run record
   { echo "=== reusing dry-run frozen queue $(date -u +%FT%TZ) ==="
     sha256sum "$QUEUE" | awk '{print "sha256:", substr($1,1,16)}'
   } >> "$OUTBASE/freeze.log"
@@ -58,33 +129,48 @@ fi
 [ -s "$QUEUE" ] || fail freeze "queue file missing"
 grep -q "sha256:" "$OUTBASE/freeze.log" || fail freeze "no sha recorded"
 
-# ---- launch (arm, triage, d-strategy) ------------------------------------
+# ---- launch (arm, d-strategy) --------------------------------------------
+# setsid => each worker owns a process group == its pid, so recovery
+# can target exactly this run's tree (kill -- -PID), never foreigners.
 launch() {  # $1 arm  $2 d-strategy
   local ARM=$1 DS=$2
   local OUT=$OUTBASE/$ARM
   mkdir -p "$OUT/tasks"
-  S4_AGENT_HOME=$AGENT S4_PASS2_TRIAGE=1 S4_D_STRATEGY=$DS \
-  nohup python3 "$AGENT/scripts/stage4.py" \
-    --queue "$QUEUE" --task-base "$OUT/tasks" \
-    --ws-root "$OUTBASE/${ARM}-ws" --out "$OUT" --workers 1 \
-    > "$OUT/run.log" 2>&1 &
+  if [ -n "${H1_STUB_DIR:-}" ]; then
+    setsid nohup bash "$H1_STUB_DIR/worker.sh" "$ARM" \
+      > "$OUT/run.log" 2>&1 &
+  else
+    S4_AGENT_HOME=$AGENT S4_PASS2_TRIAGE=1 S4_D_STRATEGY=$DS \
+    setsid nohup python3 "$AGENT/scripts/stage4.py" \
+      --queue "$QUEUE" --task-base "$OUT/tasks" \
+      --ws-root "$OUTBASE/${ARM}-ws" --out "$OUT" --workers 1 \
+      > "$OUT/run.log" 2>&1 &
+  fi
   ARM_PID[$ARM]=$!
   PIDS="$PIDS ${ARM_PID[$ARM]}"
-  echo "arm $ARM pid=${ARM_PID[$ARM]} d=$DS"
+  echo "arm $ARM pid=${ARM_PID[$ARM]} pgid=${ARM_PID[$ARM]} d=$DS"
 }
+
+# R1: deadline covers launch + the whole wait (set BEFORE launch)
+DEADLINE=$(( $(date +%s) + WALL_DEADLINE_MIN * 60 ))
 launch DLegacy legacy
 launch DV4 construct
 
-# ---- R1: bounded wait over the WHOLE process set -------------------------
-DEADLINE=$(( $(date +%s) + WALL_DEADLINE_MIN * 60 ))
+# ---- R1: bounded zombie-aware wait + budget stop --------------------------
 while :; do
   ALIVE=0
-  for P in $PIDS; do kill -0 "$P" 2>/dev/null && ALIVE=1; done
+  for P in $PIDS; do alive "$P" && ALIVE=1; done
   [ "$ALIVE" = 0 ] && break
   if [ "$(date +%s)" -ge "$DEADLINE" ]; then
     fail wall_guard "workers still alive after ${WALL_DEADLINE_MIN}min: $PIDS"
   fi
-  sleep 30
+  SPENT=$(spent_usd)
+  if awk -v c="$SPENT" -v s="$BUDGET_STOP_USD" 'BEGIN{exit !(c>=s)}'; then
+    # stop scheduling now: terminate this run's workers; in-flight
+    # exposure (<=2 tasks) is documented in H1_H2_PREREG.md
+    fail budget "spent=$SPENT >= stop trigger $BUDGET_STOP_USD (in-flight tasks terminated; exposure per prereg)"
+  fi
+  sleep "$POLL_S"
 done
 for P in $PIDS; do
   # reap and require rc=0 (stage4 exits 0 on controlled completion)
@@ -114,36 +200,43 @@ for ARM in DLegacy DV4; do
   [ -z "$LEFT" ] || fail cgroup "residue for $R: $LEFT"
 done
 
-# ---- R4: sequential finalize chain, first failure stops ------------------
-# H1_STUB_DIR: EXPLICIT test hook for fault-injection acceptance (r22).
-# When unset (production) the real production commands run.
+# ---- R2.5: runtime unique-variable prompt audit ---------------------------
 STUB="${H1_STUB_DIR:-}"
+AUDIT="${STUB:+$STUB/audit.py}"
+[ -n "$STUB" ] || AUDIT="$AGENT/scripts/h1_prompt_audit.py"
+python3 "$AUDIT" --manifest "$AGENT/H1_MANIFEST.json" \
+  --arm "DLegacy:legacy:${ARM_RUNID[DLegacy]}" \
+  --arm "DV4:construct:${ARM_RUNID[DV4]}" \
+  --out "$OUTBASE/H1_RUNTIME_PROMPT_AUDIT.json" \
+  >> "$OUTBASE/prompt_audit.log" 2>&1 \
+  || fail prompt_audit "runtime prompt audit rc=$? (see prompt_audit.log)"
+
+# ---- R4: supervised finalize chain, first failure stops ------------------
+# Each command runs under `timeout`: a HUNG command is actually
+# terminated (TERM at FINALIZE_TIMEOUT_MIN, KILL +30s), rc=124 => fail.
 BACKFILL="${STUB:+$STUB/backfill.sh}"; [ -n "$STUB" ] || BACKFILL=/root/backfill_fix_side.sh
 SCORER="${STUB:+$STUB/score.py}";      [ -n "$STUB" ] || SCORER="$AGENT/scripts/score_all.py"
 VERIFIER="${STUB:+$STUB/verify.py}";   [ -n "$STUB" ] || VERIFIER="$AGENT/scripts/verify_stage4.py"
-FDEADLINE=$(( $(date +%s) + FINALIZE_TIMEOUT_MIN * 60 ))
+FDEADLINE=$(( $(date +%s) + FINALIZE_TIMEOUT_MIN * 60 * 4 ))
 for ARM in DLegacy DV4; do
   R=${ARM_RUNID[$ARM]}
-  bash "$BACKFILL" >> "$OUTBASE/$ARM/finalize.log" 2>&1
-  RC=$?; [ "$RC" = 0 ] || fail backfill "$ARM rc=$RC"
-  python3 "$SCORER" --out "$OUTBASE/$ARM" \
+  timeout -k 30 "${FINALIZE_TIMEOUT_MIN}m" bash "$BACKFILL" \
+    >> "$OUTBASE/$ARM/finalize.log" 2>&1
+  RC=$?; [ "$RC" = 0 ] || fail backfill "$ARM rc=$RC (124/137=hung-killed)"
+  timeout -k 30 "${FINALIZE_TIMEOUT_MIN}m" python3 "$SCORER" --out "$OUTBASE/$ARM" \
       --task-base "$OUTBASE/$ARM/tasks" --ws-root "$OUTBASE/${ARM}-ws" \
       --run-id "$R" >> "$OUTBASE/$ARM/finalize.log" 2>&1
-  RC=$?; [ "$RC" = 0 ] || fail score "$ARM rc=$RC"
-  python3 "$VERIFIER" --out "$OUTBASE/$ARM" \
+  RC=$?; [ "$RC" = 0 ] || fail score "$ARM rc=$RC (124/137=hung-killed)"
+  timeout -k 30 "${FINALIZE_TIMEOUT_MIN}m" python3 "$VERIFIER" --out "$OUTBASE/$ARM" \
       --queue "$QUEUE" --ws-root "$OUTBASE/${ARM}-ws" \
       >> "$OUTBASE/$ARM/finalize.log" 2>&1
-  RC=$?; [ "$RC" = 0 ] || fail verify "$ARM rc=$RC"
+  RC=$?; [ "$RC" = 0 ] || fail verify "$ARM rc=$RC (124/137=hung-killed)"
   grep -q "violations=0" "$OUTBASE/$ARM/finalize.log" \
     || fail verify "$ARM violations>0 or missing"
   [ "$(date +%s)" -lt "$FDEADLINE" ] || fail finalize_timeout "$ARM"
 done
 
-# ---- R5: atomic completion marker + prompt-SHA acceptance artifact -------
-for ARM in DLegacy DV4; do
-  cat /root/agent_logs/*/arvo_*.p2prompt 2>/dev/null | sha256sum \
-    > /dev/null   # placeholder; per-prompt shas already in H1_MANIFEST
-done
+# ---- R5: atomic completion marker -----------------------------------------
 echo "H1_DRIVER_OK arms=DLegacy,DV4 queue=$(sha256sum "$QUEUE" | cut -c1-16) \
 ts=$(date -u +%FT%TZ)" > "$OUTBASE/.finalized.tmp" \
   && mv "$OUTBASE/.finalized.tmp" "$OUTBASE/FINALIZED_AT"

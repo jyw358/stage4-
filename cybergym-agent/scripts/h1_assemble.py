@@ -1,25 +1,35 @@
 #!/usr/bin/env python3
-"""h1_assemble.py -- build the H1 experiment tree (r22-approved design).
+"""h1_assemble.py -- build the H1 experiment tree (r22 design, r23 hardening).
 
 H1 unique variable = category-D prompt ONLY:
-  arm DLegacy: S4_D_STRATEGY=legacy  (triage reads env; wrapper hook
-             unchanged from the ab patch -- env inheritance carries it)
+  arm DLegacy: S4_D_STRATEGY=legacy
   arm DV4:     S4_D_STRATEGY=construct
 Both arms run files-only triage with identical v4.2 B/C/A2/GENERIC
 prompts. Patch = same two anchors as ab (verified against stock sha),
-REFUSE on any mismatch; output tree refuses to overwrite.
+REFUSE on any mismatch.
+
+r23 P0 fix (destructive refuse): assembly now happens in a PRIVATE
+temp dir (.h1-agent.tmp.<pid>, assembler-owned namespace). A
+pre-existing DST is refused WITHOUT ANY modification or deletion;
+only the temp dir this process created is ever cleaned up. Success
+promotes the temp dir to DST with an atomic same-filesystem rename.
+
+Test hooks (documented, default = production paths):
+  H1_SRC / H1_DST / H1_STAGE environment overrides.
 """
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-SRC = Path("/data2/arms/pair/b-agent")
-DST = Path("/data2/arms/h1/h1-agent")
-STAGE = Path("/tmp/h1_deploy")
+SRC = Path(os.environ.get("H1_SRC", "/data2/arms/pair/b-agent"))
+DST = Path(os.environ.get("H1_DST", "/data2/arms/h1/h1-agent"))
+STAGE = Path(os.environ.get("H1_STAGE", "/tmp/h1_deploy"))
 STOCK_SHA = "be8f9b8a"
+STAGED_FILES = ("pass2_triage.py", "h1_prompt_audit.py")
 
 PASS2_OLD = (
     '  PASS2_PROMPT="A previous session on this task ended without ever '
@@ -53,21 +63,33 @@ HOOK_NEW = HOOK_ANCHOR + '\n' + (
     '    fi\n'
     '  fi')
 
+TMP = None          # assembler-owned temp dir (set once created)
+
 
 def refuse(msg):
+    """Fail loud. NEVER touches DST; cleans only the temp dir this
+    process created (.h1-agent.tmp.<pid> namespace is ours alone)."""
     print(f"REFUSE(h1_assemble): {msg}", file=sys.stderr)
-    shutil.rmtree(DST, ignore_errors=True)
+    if TMP is not None:
+        shutil.rmtree(TMP, ignore_errors=True)
     sys.exit(1)
 
 
 def main():
+    global TMP
     if DST.exists():
-        refuse(f"{DST} exists")
-    for f in ("pass2_triage.py",):
+        # r23 P0: existing tree (experiment results!) -- refuse and leave
+        # every byte untouched.
+        refuse(f"{DST} exists (refusing to overwrite or delete)")
+    for f in STAGED_FILES:
         if not (STAGE / f).is_file():
             refuse(f"missing staged {f}")
-    shutil.copytree(SRC, DST)
-    w = DST / "scripts" / "run_agent_task.sh"
+    DST.parent.mkdir(parents=True, exist_ok=True)
+    TMP = DST.parent / f".h1-agent.tmp.{os.getpid()}"
+    if TMP.exists():
+        shutil.rmtree(TMP, ignore_errors=True)
+    shutil.copytree(SRC, TMP)
+    w = TMP / "scripts" / "run_agent_task.sh"
     if hashlib.sha256(w.read_bytes()).hexdigest()[:8] != STOCK_SHA:
         refuse("wrapper sha mismatch")
     text = w.read_text()
@@ -80,56 +102,59 @@ def main():
     w.write_text(text)
     if subprocess.run(["bash", "-n", str(w)]).returncode != 0:
         refuse("patched wrapper fails bash -n")
-    shutil.copyfile(STAGE / "pass2_triage.py",
-                    DST / "scripts" / "pass2_triage.py")
+    for f in ("pass2_triage.py", "h1_prompt_audit.py"):
+        shutil.copyfile(STAGE / f, TMP / "scripts" / f)
     if subprocess.run(["python3", "-m", "py_compile",
-                       str(DST / "scripts" / "pass2_triage.py")
+                       str(TMP / "scripts" / "pass2_triage.py")
                        ]).returncode != 0:
         refuse("triage py_compile")
+    if subprocess.run(["python3", "-m", "py_compile",
+                       str(TMP / "scripts" / "h1_prompt_audit.py")
+                       ]).returncode != 0:
+        refuse("audit py_compile")
     # prompt-SHA manifest: render one prompt per (category, d-arm) and
     # hash -- proves B/C/A2/GENERIC identical across arms, D differs.
-    import os
-    os.environ["S4_D_STRATEGY"] = "legacy"
-    r = subprocess.run(["python3", str(DST / "scripts" / "pass2_triage.py"),
-                        "--render-prompts",
-                        str(STAGE / "h1_prompts_DLegacy.sha256")],
-                       capture_output=True, text=True, env=os.environ)
-    if r.returncode != 0:
-        refuse(f"render legacy failed: {r.stderr[-200:]}")
-    os.environ["S4_D_STRATEGY"] = "construct"
-    r = subprocess.run(["python3", str(DST / "scripts" / "pass2_triage.py"),
-                        "--render-prompts",
-                        str(STAGE / "h1_prompts_DV4.sha256")],
-                       capture_output=True, text=True, env=os.environ)
-    if r.returncode != 0:
-        refuse(f"render v4 failed: {r.stderr[-200:]}")
-    la = (STAGE / "h1_prompts_DLegacy.sha256").read_text().splitlines()
-    va = (STAGE / "h1_prompts_DV4.sha256").read_text().splitlines()
-
-    def pairs(lines):
-        d = {}
-        for l in lines:
-            sha, cat, _arm = l.split("\t")
-            d[cat] = sha
-        return d
-    pl, pv = pairs(la), pairs(va)
+    sha_maps = {}
+    for arm, env_ds in (("DLegacy", "legacy"), ("DV4", "construct")):
+        env = dict(os.environ, S4_D_STRATEGY=env_ds)
+        r = subprocess.run(
+            ["python3", str(TMP / "scripts" / "pass2_triage.py"),
+             "--render-prompts", str(STAGE / f"h1_prompts_{arm}.sha256")],
+            capture_output=True, text=True, env=env)
+        if r.returncode != 0:
+            refuse(f"render {env_ds} failed: {r.stderr[-200:]}")
+        m = {}
+        for line in (STAGE / f"h1_prompts_{arm}.sha256").read_text().splitlines():
+            sha, cat, _arm = line.split("\t")
+            m[cat] = sha
+        sha_maps[env_ds] = m
+    pl, pv = sha_maps["legacy"], sha_maps["construct"]
     same = [c for c in pl if c != "D" and pl[c] == pv[c]]
     diff = [c for c in pl if pl[c] != pv[c]]
     if sorted(same) != ["A1", "A2", "B", "C", "GENERIC"]:
         refuse(f"shared prompts differ across arms: {pl} vs {pv}")
     if sorted(diff) != ["D"]:
         refuse(f"more than D differs across arms: {diff}")
-    d_l = [f"{pl['D']}\tD"]
-    d_v = [f"{pv['D']}\tD"]
     manifest = {
         "run_agent_task.sh": hashlib.sha256(
             w.read_bytes()).hexdigest()[:16],
         "pass2_triage.py": hashlib.sha256(
-            (DST / "scripts" / "pass2_triage.py").read_bytes()
+            (TMP / "scripts" / "pass2_triage.py").read_bytes()
         ).hexdigest()[:16],
-        "shared_prompts": same, "d_legacy": d_l, "d_v4": d_v,
+        "h1_prompt_audit.py": hashlib.sha256(
+            (TMP / "scripts" / "h1_prompt_audit.py").read_bytes()
+        ).hexdigest()[:16],
+        "shared_prompts": same,
+        "d_legacy": [f"{pl['D']}\tD"], "d_v4": [f"{pv['D']}\tD"],
+        "sha_map_legacy": pl, "sha_map_v4": pv,
         "source": str(SRC), "stock_sha": STOCK_SHA}
-    (DST / "H1_MANIFEST.json").write_text(json.dumps(manifest, indent=2))
+    (TMP / "H1_MANIFEST.json").write_text(json.dumps(manifest, indent=2))
+    # atomic promote: same filesystem, DST verified absent at entry;
+    # os.rename fails loudly if a concurrent process created it meanwhile.
+    try:
+        os.rename(TMP, DST)
+    except OSError as e:
+        refuse(f"atomic promote failed ({e}); temp dir cleaned, DST untouched")
     print("H1_ASSEMBLE_OK", json.dumps(manifest)[:400])
 
 

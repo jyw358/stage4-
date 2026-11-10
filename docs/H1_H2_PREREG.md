@@ -20,20 +20,35 @@
   （`q16frozen_round2.json`，同一确定性等距规则的第 17–32 个，sha
   记录于 QFREEZE.txt），不存在看结果挑题空间；同时报告两臂配对
   任务的 D 触发一致性；主成功率分析覆盖全部预注册任务。
-- 预算（r22 口径修正）：第一轮实测 **A 臂单臂 12 任务 $27.48**
-  （双臂合计 $55）→ H1 首轮 32 任务预计 **~$73**（区间 $65–85），
-  预算申请 **$90**（含两轮上限则 $150，第二轮开跑前另行确认）；
-  驱动器报告实际成本，超 $90 硬停止（r22：不允许静默超支）。
-- 停止条件：预算硬顶 $90（首轮）；integrity_fail>0 或 verify
+- 预算（r23 实装）：第一轮实测 **A 臂单臂 12 任务 $27.48**（双臂合计
+  $55）→ H1 首轮 32 任务预计 **~$73**（区间 $65–85），预算申请 **$90**
+  （含两轮上限则 $150，第二轮开跑前另行确认）。**驱动器内嵌预算门**：
+  轮询两臂已完成 rows 的 `cost_usd` 累计，**≥$85 即触发停止**（终止本
+  实验 worker、写 FAILED_AT、不最终化）；在途暴露 ≤2 任务（每臂各 1，
+  实测单任务最高 $3.49）→ 绝对最坏 ≈$93，仍在 $90 量级内且不会静默
+  超支（失败显式上报）。
+- 停止条件：预算触发 $85/硬顶 $90（首轮）；integrity_fail>0 或 verify
   violations>0 立即停并上报（fail-closed 驱动器自动执行）。
-- 驱动器与验收（r22）：`h1_driver.sh` fail-closed（R1–R6：deadline
-  覆盖全程 PID wait、本实验 run-id token 残留检查、外来 stage4 阻断
-  最终化不越权清理、cgroup 残留、finalize 链首错即停、FINALIZED_AT
-  仅在双臂 verify 全过后原子写入、输出目录防覆盖）。已通过：故障
-  注入 5/5（backfill/score/verify rc 失败、violations>0 → 无
-  FINALIZED_AT + FAILED_AT 记录；全过 → FINALIZED_AT）、无评分
-  dry-run（装配 manifest + 冻结队列 + 唯一变量 SHA 证明 + 历史排除
-  62 题校验）。
+- 驱动器与验收（r23 加固）：`h1_driver.sh` fail-closed（R1–R6：deadline
+  **在 launch 之前设定**并覆盖全程（zombie 感知轮询，无裸 wait）；预算
+  门在轮询循环内实装；本实验 run-id token 残留检查；外来 stage4 阻断
+  最终化不越权清理；cgroup 残留；**R2.5 运行时提示词审计**（每个实际
+  交付的 .p2prompt 必须命中本臂 manifest sha；triage 失败回退 legacy
+  提示词的任务记为 fallback、**不计入实验臂成功应用**，入统计报告）；
+  finalize 链每条命令置于 `timeout` 监督下（卡死命令被真实终止，
+  rc=124/137 → fail）而非事后时间戳检查；首错即停、FINALIZED_AT 仅在
+  双臂 verify 全过后原子写入、输出目录防覆盖；**任何失败只回收本驱动
+  启动的 worker 进程组（TERM→≤90s→KILL→核验，cleanup=verified /
+  inspection_incomplete 落盘），绝不触碰外来进程**。装配器在任何失败
+  下绝不删除既有目录（tmp 装配 + 原子改名）。已通过：故障注入 v2
+  **13/13**（真实驱动器全文运行：装配拒覆盖+哨兵、wall 超时回收、
+  worker 非零阻断 finalize、backfill/score/verify rc、violations>0、
+  卡死监督终止、预算停止+在途回收、全成功路径、运行时提示词审计
+  正/毒样本、dry-run 门控）、无评分 dry-run（pipefail 逐步 rc 门控）。
+- triage 回退口径（r23）：pass2 会话若因 triage 失败回退 wrapper 内联
+  legacy 提示词（H1_WARN 记录于 *.triage.stdout），该任务在两臂统计中
+  均标注 fallback，不作为实验臂策略的成功应用参与机制分析；主成功率
+  仍按官方评分计入（实验完整性记录在 H1_RUNTIME_PROMPT_AUDIT.json）。
 - 红线不变：final-only、25-check、fix 侧隔离、protected ledger、
   无跨题知识、unscored 不重跑。
 
@@ -68,7 +83,12 @@
 - 指标：有效提交转化率（accepted CRASH / accepted）、首 check turn、
   官方成功率、oracle 有效执行率、成本。
 
-## 资源矩阵（两实验）
+## 资源矩阵（分实验，r23 统一口径）
 
-每任务 pass1 45 turns + pass2 15 turns；16 题 × 2 臂 ≈ 32 任务/
-实验；按第一轮 $27.5/12 题计 ≈ $35/实验（上限 $40）。
+每任务 pass1 45 turns + pass2 15 turns；16 题 × 2 臂 = 32 任务/实验。
+
+| 实验 | 预计成本 | 触发/硬顶 | 状态 |
+|---|---|---|---|
+| H1 首轮 | ~$73（$65–85；单臂单任务实测 $2.29 均值/$3.49 峰值） | $85 触发 / $90 硬顶（驱动器内嵌） | 待外审放行 |
+| H1 二轮（仅当扩样触发） | ~$73 | 另行申请（两轮合计上限 $150） | 未开跑 |
+| H2 | ~$73（同规模估算，待 1B 后复核） | 开跑前单独申请 | HOLD（依赖 1B） |
