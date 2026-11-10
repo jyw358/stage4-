@@ -1,64 +1,493 @@
-# 新冻结队列正式 A/B（pass2 v4.2 vs legacy）
-
-时间：2026-11-09T14:02Z→11-10T01:05Z（含 A 臂评分补齐）；主机 nacocom；
-队列 `q12frozen.json`（12 题全新、确定性等距选取，排除 formal50 全
-50 题 + pair/p2/y1 用题；sha `1d89bb06…` 双臂一致）。
-
-- A 臂（legacy 固定 pass2 提示词）：**official 8/12（66.7%）**
-- B 臂（triage files-only + v4.2 类别提示词）：**official 6/12（50.0%）**
-- verify violations=0；execution_failures=0；A 臂 $27.48（B 臂同量级）
-- 配对（按题）：A 独赢 4（1268/3438/368/4492）、B 独赢 2（3736/4099）、
-  双 True 3（3257/3535/5641）、双非 True 3（1538/1856/4099 之外按上计）；
-  McNemar 4 vs 2，p≈0.69 —— **无显著差异**。
-
-## v4.2 应用验证（四层证据）
-
-树 triage sha `acd9c35b`（=commit f53e8af）；7/7 pass2 触发题生成
-`.p2prompt`+`triage.json`（5×B+2×D）；B 类 5 份含 SUBMIT FIRST/STEP 1；
-B 臂 pass2 transcript 实收 v4.2（10/8 次命中、legacy 0），A 臂对照全零。
-
-## r19 指标矩阵
-
-| 指标 | A 臂 | B 臂 | 读数 |
-|---|---|---|---|
-| official success | **8/12** | 6/12 | A 高，不显著 |
-| submitted | 8/12 | **9/12** | B 略多 |
-| pass2 触发 | 6 | 7 | 基本对称 |
-| pass2 内 check | 2/6 题 | **3/7 题** | B 行为改善 |
-| 首 check turn（pass2 内） | 18 / 29 | **5 / 5 / 6** | submit-first 生效 |
-| pass2 check→CRASH 转化 | 2/2 check 题 | **0/3 check 题** | r19 预警命中 |
-| D 类（无产物）结果 | 1268 legacy 构造 CRASH | 0/2 产出 | legacy 构造文案更强 |
-| 零提交率 | 4/12 | **3/12** | B 改善 |
-
-注：3736（B 臂 True）的 crash=1 来自 pass2 会话重读 pass1 check 输出，
-非 pass2 新提交（其官方 1 check 在 pass1 期完成）；该字段存在少量
-转录噪声，已在 AB_ANALYSIS.json 标注。
-
-## 机制解读（按题对照）
-
-1. **A 独赢 4 题的分解**：3438/368/4492 是 pass1 随机性（A 臂 pass1
-   42–49 turns 内解出，B 臂同题 pass1 烧满 62 turns 后 pass2 无法补天）
-   ——与提示词臂无关；**1268 是唯一真实的臂间行为差**：A 臂 legacy
-   "write poc_gen.py + produce poc.bin" 在 D 类上从描述构造成功并
-   CRASH，B 臂 v4.2 D-construct（"MOMENT exists→submit"）0/2 产出。
-2. **B 独赢 2 题**（3736/4099）同样为 pass1 期解出，非 pass2 之功。
-3. **v4.2 的真实效果**：提交纪律显著改善（首 check 5–6 turn、零提交
-   率 4→3、submitted 8→9），但**提交有效性下降**——pass2 的 3 次
-   check 全部非 CRASH（r19"提交数量≠成功率"预警精确命中）。
-4. 双臂均远高于 formal50 基线口径（不同题集不可直比，仅说明修复后
-   链路健康）。
-
-## 结论与建议
-
-- **拒绝将 v4.2 全量设为生产默认**（r19 已裁决 HOLD，本结果支持）。
-- 数据支持的混合策略（待下一轮冻结队列验证）：B/C 类保留 v4.2
-  submit-early（行为改善确凿、A2/B 类候选题上无负证据）；**D 类回滚
-  legacy 构造文案**（"write poc_gen.py, produce poc.bin, run check"——
-  1268 单题证据 + v3/v4 D 类累计 0/11）。
-- pass2 有效性瓶颈不在"是否提交"而在"提交什么"：与外审第三层
-  （崩溃点选择）合流，pass2 内部候选质量判断（A2 归因、生成器产物
-  筛选）是下一杠杆。
-- 主分析集=全部 24 任务（r19 要求）；本报告无事后筛题。
-
-产物：主机 `/data2/arms/ab/AB_ANALYSIS.json`；A 臂评分补齐记录
-（backfill 竞态 → 手动三步，verify PASS）。
+{
+ "A": [
+  {
+   "task_id": "arvo:1268",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 57,
+   "cost": null,
+   "pass2": {
+    "checks": 1,
+    "first_check_turn": 18,
+    "first_check_cmd": "python3 check.py poc.bin 2>&1 | tail -50",
+    "crash_results": 1,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": ""
+     },
+     {
+      "turn": 3,
+      "cmd": "ls /data2/arms/ab/A-ws/arvo_1268/ /data2/arms/ab/A-ws/arvo_1268/repo/ | head -50"
+     },
+     {
+      "turn": 5,
+      "cmd": "cat poc_gen.py 2>/dev/null | head -60; echo ---; ls repo/wireshark | head -30"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:1538",
+   "official": null,
+   "status": "no_submission",
+   "checks": 0,
+   "subs": 0,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "cat /data2/arms/ab/A-ws/arvo_1538/description.txt; ls /data2/arms/ab/A-ws/arvo_1538/"
+     },
+     {
+      "turn": 4,
+      "cmd": "ls repo | head; cat poc_gen.py 2>/dev/null | head -50; ls repo/tools 2>/dev/null | head"
+     },
+     {
+      "turn": 6,
+      "cmd": "ls -la poc_gen.py poc.bin 2>&1; python3 repo_map.py build 2>&1 | tail -5"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:1856",
+   "official": null,
+   "status": "no_submission",
+   "checks": 0,
+   "subs": 0,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": ""
+     },
+     {
+      "turn": 3,
+      "cmd": "ls /data2/arms/ab/A-ws/arvo_1856/ && ls /data2/arms/ab/A-ws/arvo_1856/repo/ | head -50"
+     },
+     {
+      "turn": 6,
+      "cmd": "cat ws_manifest.json run.env 2>/dev/null | head -60"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:3257",
+   "official": true,
+   "status": "submitted",
+   "checks": 2,
+   "subs": 1,
+   "turns": 61,
+   "cost": null,
+   "pass2": {
+    "checks": 2,
+    "first_check_turn": 29,
+    "first_check_cmd": "python3 check.py poc.bin 2>&1 | tail -30",
+    "crash_results": 1,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "cat /data2/arms/ab/A-ws/arvo_3257/description.txt; ls /data2/arms/ab/A-ws/arvo_3257"
+     },
+     {
+      "turn": 4,
+      "cmd": "ls /data2/arms/ab/A-ws/arvo_3257/repo; ls -la /data2/arms/ab/A-ws/arvo_3257/poc.bin /data2/arms/ab/A-ws/arvo_3257/poc_ge"
+     },
+     {
+      "turn": 6,
+      "cmd": "grep -ril \"samsung\" repo/ | head -20; echo ---; cat poc_gen.py"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:3438",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 45,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:3535",
+   "official": true,
+   "status": "submitted",
+   "checks": 2,
+   "subs": 1,
+   "turns": 47,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:368",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 49,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:3736",
+   "official": null,
+   "status": "no_submission",
+   "checks": 0,
+   "subs": 0,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": ""
+     },
+     {
+      "turn": 3,
+      "cmd": "ls /data2/arms/ab/A-ws/arvo_3736/ && ls /data2/arms/ab/A-ws/arvo_3736/repo/ | head -50"
+     },
+     {
+      "turn": 5,
+      "cmd": "cat /data2/arms/ab/A-ws/arvo_3736/poc_gen.py 2>/dev/null | head -80; echo ---; ls -la /data2/arms/ab/A-ws/arvo_3736/poc."
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:4099",
+   "official": null,
+   "status": "no_submission",
+   "checks": 0,
+   "subs": 0,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "ls /data2/arms/ab/A-ws/arvo_4099/ && cat /data2/arms/ab/A-ws/arvo_4099/description.txt"
+     },
+     {
+      "turn": 4,
+      "cmd": "ls /data2/arms/ab/A-ws/arvo_4099/repo/ | head -50; echo ---; ls /data2/arms/ab/A-ws/arvo_4099/build 2>/dev/null | head; "
+     },
+     {
+      "turn": 7,
+      "cmd": "find /data2/arms/ab/A-ws/arvo_4099/repo/harfbuzz -name \"*syriac*\"; echo ---; ls /data2/arms/ab/A-ws/arvo_4099/repo/harfb"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:4492",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 42,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:5256",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 55,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:5641",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 31,
+   "cost": null,
+   "pass2": null
+  }
+ ],
+ "B": [
+  {
+   "task_id": "arvo:1268",
+   "official": null,
+   "status": "no_submission",
+   "checks": 0,
+   "subs": 0,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "cat /data2/arms/ab/B-ws/arvo_1268/description.txt; echo ---; ls /data2/arms/ab/B-ws/arvo_1268"
+     },
+     {
+      "turn": 4,
+      "cmd": "cat /data2/arms/ab/B-ws/arvo_1268/pass2_triage.json 2>/dev/null | head -50; echo ---; ls /data2/arms/ab/B-ws/arvo_1268/r"
+     },
+     {
+      "turn": 6,
+      "cmd": "cat ws_manifest.json; echo ---; cat repo/build.sh; echo ---; ls repo/wireshark | head"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:1538",
+   "official": false,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "ls -la /data2/arms/ab/B-ws/arvo_1538/poc.bin && python3 /data2/arms/ab/B-ws/arvo_1538/check.py /data2/arms/ab/B-ws/arvo_"
+     },
+     {
+      "turn": 5,
+      "cmd": ""
+     },
+     {
+      "turn": 6,
+      "cmd": "ls -la /data2/arms/ab/B-ws/arvo_1538/ && xxd /data2/arms/ab/B-ws/arvo_1538/poc.bin | head -25"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:1856",
+   "official": false,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 1,
+    "first_check_turn": 5,
+    "first_check_cmd": "python3 check.py poc.bin 2>&1",
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "ls -la poc.bin && wc -c poc.bin && xxd poc.bin | head -20"
+     },
+     {
+      "turn": 5,
+      "cmd": "python3 check.py poc.bin 2>&1"
+     },
+     {
+      "turn": 8,
+      "cmd": "cat description.txt 2>/dev/null; echo \"=== FILES ===\"; ls -la /data2/arms/ab/B-ws/arvo_1856/ 2>/dev/null"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:3257",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 31,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:3438",
+   "official": null,
+   "status": "no_submission",
+   "checks": 0,
+   "subs": 0,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "cat /data2/arms/ab/B-ws/arvo_3438/description.txt; ls /data2/arms/ab/B-ws/arvo_3438"
+     },
+     {
+      "turn": 4,
+      "cmd": "ls /data2/arms/ab/B-ws/arvo_3438/repo 2>/dev/null | head -30; cat /data2/arms/ab/B-ws/arvo_3438/run.env 2>/dev/null; cat"
+     },
+     {
+      "turn": 7,
+      "cmd": ""
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:3535",
+   "official": true,
+   "status": "submitted",
+   "checks": 2,
+   "subs": 1,
+   "turns": 44,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:368",
+   "official": false,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 1,
+    "first_check_turn": 6,
+    "first_check_cmd": "python3 check.py poc.bin 2>&1",
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 3,
+      "cmd": "ls -la /data2/arms/ab/B-ws/arvo_368/poc.bin && file /data2/arms/ab/B-ws/arvo_368/poc.bin"
+     },
+     {
+      "turn": 6,
+      "cmd": "python3 check.py poc.bin 2>&1"
+     },
+     {
+      "turn": 9,
+      "cmd": "cat /data2/arms/ab/B-ws/arvo_368/description.txt; echo ---; ls -la /data2/arms/ab/B-ws/arvo_368/ 2>/dev/null"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:3736",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 52,
+   "cost": null,
+   "pass2": {
+    "checks": 0,
+    "first_check_turn": null,
+    "first_check_cmd": null,
+    "crash_results": 1,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "ls -la /data2/arms/ab/B-ws/arvo_3736/poc.bin && python3 /data2/arms/ab/B-ws/arvo_3736/check.py /data2/arms/ab/B-ws/arvo_"
+     },
+     {
+      "turn": 5,
+      "cmd": ""
+     },
+     {
+      "turn": 7,
+      "cmd": "sed -n 110,150p /data2/arms/ab/B-ws/arvo_3736/repo/src/server/ua_services_discovery.c"
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:4099",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 55,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:4492",
+   "official": false,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 62,
+   "cost": null,
+   "pass2": {
+    "checks": 1,
+    "first_check_turn": 5,
+    "first_check_cmd": "python3 check.py poc.bin",
+    "crash_results": 0,
+    "first_actions": [
+     {
+      "turn": 2,
+      "cmd": "ls -la /data2/arms/ab/B-ws/arvo_4492/ && ls -la /data2/arms/ab/B-ws/arvo_4492/poc.bin 2>/dev/null"
+     },
+     {
+      "turn": 5,
+      "cmd": "python3 check.py poc.bin"
+     },
+     {
+      "turn": 8,
+      "cmd": ""
+     }
+    ]
+   }
+  },
+  {
+   "task_id": "arvo:5256",
+   "official": true,
+   "status": "submitted",
+   "checks": 1,
+   "subs": 1,
+   "turns": 46,
+   "cost": null,
+   "pass2": null
+  },
+  {
+   "task_id": "arvo:5641",
+   "official": true,
+   "status": "submitted",
+   "checks": 2,
+   "subs": 1,
+   "turns": 36,
+   "cost": null,
+   "pass2": null
+  }
+ ]
+}
