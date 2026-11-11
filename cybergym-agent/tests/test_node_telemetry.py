@@ -150,6 +150,27 @@ class TestTaskNodes(unittest.TestCase):
         self.assertEqual(n["k3"]["legacy_unverified"], 0)
         self.assertEqual(n["k3"]["state"], "not_attempted")
 
+    def test_oracle_error_without_sentinel_is_a_failed_attempt(self):
+        # Found in the first real K7 run: the sweep-preflight failure record
+        # has verdict=ORACLE_ERROR but no runner_started key, so it was filed
+        # as legacy_unverified and the 0% valid rate vanished (rate=null).
+        ws = scratch_dir()
+        self.addCleanup(cleanup, ws)
+        _write_jsonl(ws / ".oracle.log", [
+            {"ts": "2026-11-11T10:00:00Z", "tag": "sweep",
+             "label": "cybergym.local_oracle=1", "swept": []},
+            {"ts": "2026-11-11T10:00:01Z", "tag": "try_local_vul",
+             "side": "vul", "target": "t", "files": 1, "timeout": 10,
+             "verdict": "ORACLE_ERROR",
+             "runner_error_kind": "sweep_preflight_failed"},
+        ])
+        n = nt.build_task_nodes(ws)
+        self.assertEqual(n["k3"]["validation_attempts"], 1)
+        self.assertEqual(n["k3"]["oracle_errors"], 1)
+        self.assertEqual(n["k3"]["legacy_unverified"], 0)
+        self.assertEqual(n["k3"]["attempt_valid_rate"], 0.0)
+        self.assertEqual(n["k3"]["state"], "oracle_error")
+
     def test_absolute_path_check_counts_as_intent(self):
         # P2: `python3 /data/ws/check.py poc.bin` is a real check invocation.
         tr_dir = self.ws / ".claude-config" / "projects" / "p1"

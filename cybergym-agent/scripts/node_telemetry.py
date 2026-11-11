@@ -309,7 +309,13 @@ def oracle_metrics(ws: Path) -> dict:
             st["input_errors"] += 1
             st["oracle_errors"] += 1
             continue
-        if d.get("schema") == 2 or "runner_started" in d:
+        # An explicit ORACLE_ERROR is a real attempt that failed before the
+        # sentinel existed (sweep preflight, docker missing).  Those records
+        # carry no runner_started, so without this branch a systematically
+        # broken local oracle would be filed as "legacy, unverifiable" and the
+        # failed tries would disappear from attempt_valid_rate -- the P0-6
+        # lesson again, one layer up.
+        if d.get("schema") == 2 or "runner_started" in d or v == "ORACLE_ERROR":
             st["validation_attempts"] += 1
             if (d.get("runner_started") and d.get("target_started")
                     and v in ("CLEAN", "FATAL", "NONFATAL", "TIMEOUT")):

@@ -565,6 +565,7 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
                          "target": target, "files": len(mounted),
                          "timeout": timeout, "verdict": "ORACLE_ERROR",
                          "runner_error_kind": "sweep_preflight_failed",
+                         "runner_started": None, "target_started": None,
                          "swept": sw_entries})
             return {"schema": 2, "verdict": "ORACLE_ERROR",
                     "runner_started": None, "target_started": None,
