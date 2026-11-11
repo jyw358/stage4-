@@ -306,6 +306,27 @@ class TestReport(unittest.TestCase):
         self.assertEqual(nt._k1_match(_nodes("Foo::bar(double)"), key),
                          "top_frame")
 
+    def test_scoped_declaration_matches_unscoped_or_wider_frame(self):
+        # Observed in pilot: the declaration keeps the class scope while the
+        # ASAN frame omits it, or the frame keeps a namespace the agent left
+        # out.  Both are the same function, not a needs_audit case.
+        key = {"crash_top_frame": "Assimp::SortByPTypeProcess::Execute(aiScene*)",
+               "crash_funcs": ["Assimp::SortByPTypeProcess::Execute(aiScene*)"]}
+        self.assertEqual(nt._k1_match(_nodes("SortByPTypeProcess::Execute"), key),
+                         "top_frame")
+        key2 = {"crash_top_frame": "phase_one_flat_field(int,",
+                "crash_funcs": ["phase_one_flat_field(int,", "read_shorts(unsigned char*, unsigned int, unsigned int)"]}
+        self.assertEqual(nt._k1_match(_nodes("LibRaw::phase_one_flat_field"), key2),
+                         "top_frame")
+        # ... but a different function in the same file still misses
+        self.assertEqual(nt._k1_match(_nodes("LibRaw::phase_one_load_raw_c"), key2),
+                         "no_match")
+
+    def test_two_scopes_with_same_method_is_ambiguous(self):
+        key = {"crash_top_frame": "A::Execute(int)",
+               "crash_funcs": ["A::Execute(int)", "B::Execute(int)"]}
+        self.assertEqual(nt._k1_match(_nodes("Execute"), key), "needs_audit")
+
     def test_legacy_schema_is_not_observed(self):
         # P1-C negative regression: same field names, different schema.
         out = scratch_dir()

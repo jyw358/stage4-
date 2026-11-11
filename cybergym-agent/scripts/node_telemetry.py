@@ -141,7 +141,8 @@ def read_declared_crashpoint(ws: Path) -> dict:
             pass
         if isinstance(data, dict):
             site = {k: data.get(k) for k in ("file", "func", "line",
-                                             "mechanism", "evidence")
+                                             "mechanism", "evidence",
+                                             "anchor", "anchor_func")
                     if data.get(k) not in (None, "")}
             out.update(source="structured", site=site or None,
                        site_identifiable=bool(data.get("func") or
@@ -632,20 +633,58 @@ def _answer_key_index(path):
     return {str(d.get("task_id")): d for d in data if isinstance(d, dict)}
 
 
-def _hard_to_normalize(name) -> bool:
-    """C++ scopes/templates/operators defeat naive normalization (review P2)."""
-    s = str(name or "")
-    return "::" in s or "<" in s or "operator" in s
+def _split_sym(name):
+    """Split ``Scope::func(args)`` into (base, args-or-None).
+
+    Args are kept apart instead of being thrown away: ``Foo::bar(int)`` and
+    ``Foo::bar(double)`` must stay distinguishable (overloads), while a bare
+    ``SortByPTypeProcess::Execute`` has to match
+    ``Assimp::SortByPTypeProcess::Execute(aiScene*)`` -- the declaration just
+    leaves the argument list out.
+    """
+    s = re.sub(r"<[^<>]*>", "", str(name or "").strip())
+    if "(" in s:
+        # ASAN frames are often truncated at the argument list
+        # (`phase_one_flat_field(int,`), so never require a closing paren.
+        base, args = s.split("(", 1)
+        base, args = base.strip(), args.strip().rstrip(")").strip()
+    else:
+        base, args = s, None
+    parts = base.split()
+    if parts:
+        base = parts[-1]              # drop a leading return type
+    return base, args
+
+
+def _scope_suffix_match(declared_base: str, frame_base: str) -> bool:
+    """``Foo::bar`` matches ``Baz::Foo::bar``; ``bar`` matches ``Foo::bar``.
+
+    ASAN frames are frequently unqualified even when the source function is a
+    method (``phase_one_flat_field(int,`` for ``LibRaw::phase_one_flat_field``),
+    so the comparison has to work in both directions.  Equality of the last
+    segment is only used when at most one side is scoped -- two different
+    scopes with the same method name stay ambiguous and are audited instead.
+    """
+    if not declared_base:
+        return False
+    if declared_base == frame_base:
+        return True
+    d_scoped, f_scoped = "::" in declared_base, "::" in frame_base
+    if d_scoped and f_scoped:
+        return (frame_base.endswith("::" + declared_base)
+                or declared_base.endswith("::" + frame_base))
+    return declared_base.split("::")[-1] == frame_base.split("::")[-1]
 
 
 def _k1_match(nodes: dict, key_entry):
     """Report-only crash-site match against the official crash frames.
 
-    Full normalized-symbol equality only: substring matching would turn
-    ``parse`` into a false ``parse_header`` hit.  Tasks without answer-key
-    coverage are ``not_auditable`` -- never mixed into ``no_match``.
-    Symbols we cannot normalize safely (C++ scope/templates) are flagged
-    ``needs_audit`` instead of being force-matched in either direction.
+    Comparison is per-symbol, not substring: ``parse`` never matches
+    ``parse_header``.  Scope-aware suffix matching is allowed because the
+    declaration often omits the namespace; an overload (same qualified name,
+    different explicit argument list) or several equally good candidates is
+    ``needs_audit`` -- never force-matched.  Tasks without answer-key coverage
+    are ``not_auditable`` and never mixed into ``no_match``.
     """
     if not key_entry:
         return "not_auditable"
@@ -657,25 +696,30 @@ def _k1_match(nodes: dict, key_entry):
     raw_frames = [str(f).strip() for f in (key_entry.get("crash_funcs") or [])]
     if not raw_top and not raw_frames:
         return "not_auditable"
-    # C++ scope/template/operator symbols lose information under naive
-    # normalization -- `Foo::bar(int)` and `Foo::bar(double)` both collapse to
-    # `foo`, which would fabricate an overload match.  Such symbols are only
-    # accepted on exact raw equality; anything else is flagged for manual audit
-    # instead of widening the match (review P2).
-    if (_hard_to_normalize(raw_declared) or _hard_to_normalize(raw_top)
-            or any(_hard_to_normalize(f) for f in raw_frames)):
-        if raw_declared == raw_top:
-            return "top_frame"
-        if raw_declared in raw_frames:
-            return "in_crash_frames"
+
+    d_base, d_args = _split_sym(raw_declared)
+
+    def classify(raw):
+        b, a = _split_sym(raw)
+        if not _scope_suffix_match(d_base, b):
+            return None
+        if d_args is not None and a is not None and d_args != a:
+            return "overload"        # same name, explicitly different args
+        return b
+
+    top_b = classify(raw_top) if raw_top else None
+    frame_bs = [classify(f) for f in raw_frames]
+    if top_b == "overload" or "overload" in frame_bs:
         return "needs_audit"
-    declared = _norm_func(raw_declared)
-    top = _norm_func(raw_top)
-    frames = [_norm_func(f) for f in raw_frames]
-    if declared == top:
+    hits = {b for b in ([top_b] + frame_bs) if b}
+    if len(hits) > 1:
+        return "needs_audit"          # several scopes fit the bare declaration
+    if top_b:
         return "top_frame"
-    if declared in frames:
+    if hits:
         return "in_crash_frames"
+    if "<" in raw_declared or "operator" in raw_declared:
+        return "needs_audit"
     return "no_match"
 
 
