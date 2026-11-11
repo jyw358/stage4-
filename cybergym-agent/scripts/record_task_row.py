@@ -153,6 +153,15 @@ def main() -> int:
         row["ledger_path"] = str(ledger_path)
     row["needs_second_pass"] = bool(checks == 0 and not entries and not args.second_pass)
 
+    # K1-K7 observables (docs/SEVEN_NODE_MODEL.md).  Measurement only: a
+    # telemetry failure must never block or alter row recording.
+    try:
+        from scripts import node_telemetry
+        row["nodes"] = node_telemetry.build_task_nodes(ws, row)
+    except Exception as exc:                      # noqa: BLE001 - diagnostic
+        print(f"[row] WARN: node telemetry failed: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+
     if args.stage == "error":
         # the caller may name a SPECIFIC infrastructure status (evidence_error
         # from promote_or_fail); the generic default was worker_error, which

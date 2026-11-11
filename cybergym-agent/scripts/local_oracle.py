@@ -40,6 +40,7 @@ TARGET_LAUNCH_ERROR / UNKNOWN -- NEVER CLEAN. Docker stderr text only fills
 the diagnostic runner_error_kind.
 """
 import datetime
+import hashlib
 import json
 import os
 import pathlib
@@ -503,12 +504,21 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
                          "runner_error_kind": "too_many_inputs"})
             return {"verdict": "INPUT_ERROR", "rc": -1, "sig": "",
                     "tail": f"{len(files)} inputs given; oracle accepts at most 8 -- refusing instead of truncating"}
-        mounted, input_errors = [], []
+        mounted, input_errors, input_hashes = [], [], []
         for i, f in enumerate(files):
             dst = tmp / f"in{i}"
             ok, reason = _copy_input(f, dst)
             if ok:
                 mounted.append(f"/poc/in{i}")
+                # K2/K3 telemetry: which exact bytes did the oracle run?
+                try:
+                    h = hashlib.sha256()
+                    with open(dst, "rb") as fh:
+                        for chunk in iter(lambda: fh.read(65536), b""):
+                            h.update(chunk)
+                    input_hashes.append(h.hexdigest())
+                except OSError:
+                    pass
             else:
                 input_errors.append({"file": str(f), "reason": reason})
         if input_errors:
@@ -652,7 +662,8 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
              "rc": rc, "sig": signature(out_text), "tail": out_text[-1500:]}
         _oracle_log({"tag": tag or "run_side", "side": str(bin_dir),
                      "target": target, "files": len(mounted), "perturb": perturb,
-                     "timeout": timeout, **{k: v[k] for k in
+                     "timeout": timeout, "input_sha256": input_hashes,
+                     **{k: v[k] for k in
                      ("verdict", "runner_started", "target_started",
                       "runner_exit_code", "target_exit_code",
                       "runner_error_kind", "sanitizer_detected")}})

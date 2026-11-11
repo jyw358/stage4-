@@ -83,6 +83,24 @@ if old.get("stages"):
     patch["stages"] = {**old["stages"], **patch["stages"]}
 patch["second_pass"] = bool(old.get("second_pass")) or stage == "pass2"
 patch["retried"] = bool(old.get("retried")) or stage == "retry"
+# K5/K6/K7 need the server final record, which only exists after scoring.
+# Measurement only -- never feeds back into success/final.
+try:
+    from scripts import node_telemetry
+    base = old.get("nodes") or {}
+    if not base and Path(ws).is_dir():
+        base = node_telemetry.build_task_nodes(
+            ws, {"final": result.get("final"),
+                 "score_status": result.get("status"),
+                 "score_reason": result.get("reason")})
+    else:
+        base = node_telemetry.merge_score_nodes(
+            base, result.get("final"), result.get("status"),
+            result.get("reason"))
+    patch["nodes"] = base
+except Exception as exc:                          # noqa: BLE001 - diagnostic
+    print(f"[score:{stage}] WARN: node telemetry failed: "
+          f"{type(exc).__name__}: {exc}", file=sys.stderr)
 results_store.merge_row(out_dir, tid, patch)
 print(f"[score:{stage}] {tid}: success={success} status={result.get('status')} "
       f"checks={checks} final={((result.get('final') or {}).get('poc_id'))}")
