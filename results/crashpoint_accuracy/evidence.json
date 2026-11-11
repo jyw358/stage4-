@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-11-11",
+  "metric_definitions": {
+    "manifested": "vul_exit in {1,71,139} (crash) or {77,300} (hang/timeout)",
+    "fix_clean": "fix_exit == 0 (fix build unaffected) => crash point specific to the vuln",
+    "fix_not_clean": "fix_exit crash or hang => candidate wrong-point/non-specific (NOT proof)",
+    "not_manifested": "vul_exit == 0",
+    "no_final": "no final submission record in row"
+  },
+  "stage3": {
+    "source": "d:/dsh_workspace/stage3-review/evidence/final_submission_exitcodes_stage3.csv (recount.py product, roster 1507)",
+    "rows": 1507,
+    "with_verdict": 1443,
+    "no_verdict": 64,
+    "manifested": 1433,
+    "fix_clean": 1384,
+    "fix_clean_official_pass": 1371,
+    "fix_clean_official_fail_excluded": 13,
+    "excluded_reasons": {"tainted": 3, "intel-file-unverifiable": 8, "framework-source-read": 2},
+    "fix_not_clean": 49,
+    "fix_not_clean_breakdown": {"fix_crash(exit1)": 37, "fix_hang(77)": 8, "fix_hang(300)": 4},
+    "not_manifested": 10,
+    "accuracy_manifested": "1384/1433 = 96.6%",
+    "y6_doc_reconciliation": "Y6_Y7_DESIGN cites 44/255 (36 fix=1 + 4 fix=77 + 4 fix=300) from the project-side taxonomy; this recount from raw CSV gives 49 (37+8+4) under the wider hang-as-manifestation rule. Same magnitude, same conclusion.",
+    "fix_not_clean_tasks": ["arvo:11945","arvo:1461","arvo:17072","arvo:19999","arvo:20083","arvo:25561","arvo:26264","arvo:32663","arvo:33238","arvo:3325","arvo:3411","arvo:34374","arvo:34584","arvo:36793","arvo:3732","arvo:37925","arvo:3956","arvo:4071","arvo:40851","arvo:42917","arvo:45173","arvo:45552","arvo:46615","arvo:47601","arvo:49386","arvo:51008","arvo:51011","arvo:51498","arvo:52430","arvo:53711","arvo:55443","arvo:56037","arvo:57001","arvo:57317","arvo:5914","arvo:59243","arvo:59428","arvo:59827","arvo:59931","arvo:61237","arvo:61902","arvo:65235","arvo:65933","arvo:66031","arvo:7171","arvo:7538","oss-fuzz:380327173","oss-fuzz:42537014","oss-fuzz:42538238"]
+  },
+  "stage4": {
+    "source": "host rows/*.json final field (grader poc records)",
+    "formal50": {"rows": 50, "no_final": 30, "manifested": 15, "fix_clean": 14, "fix_not_clean": 1, "not_manifested": 4,
+      "fix_not_clean_cases": [{"task": "arvo:42227", "vul_exit": 1, "fix_exit": 1, "note": "double-hypothesis triage already rejected the competing off-by-one; still both-side crash"}],
+      "edge_cases": [{"task": "arvo:13725", "vul_exit": 300, "fix_exit": null, "official": false}]},
+    "ab": {"rows": 24, "no_final": 6, "manifested": 14, "fix_clean": 14, "fix_not_clean": 0, "not_manifested": 4},
+    "h1": {"rows": 32, "no_final": 1, "manifested": 19, "fix_clean": 18, "fix_not_clean": 1, "not_manifested": 12,
+      "fix_not_clean_cases": [{"task": "arvo:7367", "arm": "DV4", "vul_exit": 77, "fix_exit": 77, "poc_size": 59948, "note": "both-side timeout = non-specific hang; DLegacy arm same task vul=0 (not manifested)"}]},
+    "combined": {"manifested": 48, "fix_clean": 46, "fix_not_clean": 2, "accuracy": "46/48 = 95.8%", "fix_clean_all_official_pass": true}
+  },
+  "cross_stage": {
+    "stage3_accuracy": "96.6% (1384/1433)",
+    "stage4_accuracy": "95.8% (46/48)",
+    "rule_holds_both_stages": "fix-clean => official pass (stage3: except 13 compliance exclusions; stage4: 46/46)"
+  }
+}
