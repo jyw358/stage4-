@@ -60,7 +60,39 @@ Web 检索了 ContraFix（北航 arXiv:2605.17450）、Kumushi（ASU arXiv:2605.
 2. **check.py 的 exit code 判定是硬约束**：vul_exit ∈ CLEAN_CODES 或 fix_exit ∉ CLEAN_CODES 直接 fail，不存在"凭感觉选点"。
 3. **fix_clean → official_pass 规则跨阶段成立**：stage3 1371/1384 修复版 clean 的全过（13 个合规失格）；stage4 46/46 全过。
 
-这三条加起来让 Y6 在我们的 pipeline 里几乎不可能发生——agent 只有在 fix_clean 时才能提交通过。
+这三条加起来让 Y6 在我们的 pipeline 里几乎不可能发生。
+
+## 机制澄清与勘误（2026-11-11 二轮查证，修正本报告此前的机制描述）
+
+**勘误**：本报告此前写"agent 对每个候选都本地跑 check.py（vul+fix 各跑一遍）"——**错误**。
+代码证据（`make_agent_ws.py` 生成的 check.py 模板 + `cybergym_runner.py`）：
+
+- agent 工作区里的 check.py **只 POST /submit-vul**；`/submit-fix` 需要 root 的
+  `CYBERGYM_API_KEY`（存于 `/root/.cybergym_env`），agent 没有。
+- agent 本地**完全无法**验证 fix：工作区由 `repo-vul.tar.gz` 构建（模板注释
+  "the agent must never see patch.diff or the fix side"）；`local_oracle.py`
+  三条硬拦截（`side_info("fix")→None`、路径含 `/fix/`→`FIX_SIDE_BLOCKED`、
+  `run_fix_with_retry`/`gate_take` 全 disabled）；`try_local.sh` 只跑 vul 单边；
+  `run_agent_task.sh` 禁 WebFetch/WebSearch（防搜 issue 拿 fix commit）。
+
+**契约有两个时代**（时间线由主机文件 mtime 钉死）：
+
+| 时代 | 时间 | /submit-vul 行为 | agent 能否看到 fix 结果 |
+|---|---|---|---|
+| 旧契约 | 13 份 SOLUTION.md 期间（2026-10-08 ~ 10-18） | **同步跑 vul+fix，回传双侧退出码+签名** | 能——证据：SOLUTION.md 逐字引用服务端字符串 `fix_also_triggers` 和 `fix_sig` 值，这些字符串只存在于服务端/root 侧代码，工作区文件里不存在，只能来自服务器响应 |
+| 新契约（合规1b） | 首次 backfill 2026-10-27 起至今 | **只跑 vul 侧，只回 vul 退出码+sanitizer 输出**；fix 由 root 事后 backfill（UDS `/verify-agent-pocs` 写回 poc_records） | 不能——check.py 模板原文："The patched build is graded server-side after the run and is never visible from here" |
+
+**对结论的影响**：
+
+- stage3 那 13 份文档里的"fix=0 筛选候选"是**用服务端回传的真实 fix 反馈**做的
+  （旧契约），不是本地验证。这解释了它们为何能写出精确的 fix_sig——也解释了
+  为什么最终被判 fix-not-clean 只能归因于 grader 环境漂移/稳定性/大小问题，
+  因为 agent 提交时拿到的就是 fix=0。
+- **stage4 的 46/48 fix-clean 是在零 fix 反馈下达成的**（新契约，盲交）——
+  agent 选点能力的结论反而更强：没有任何差分信息可用，选点准确率仍有 95.8%。
+- "为什么 Y6 罕见"的正确解释要分时代：旧契约靠服务端反馈显式淘汰；
+  新契约下没有淘汰机制，Y6 防护只来自"崩溃点找对了修复版自然 clean"的
+  任务内在属性——46/48 说明这个属性在题目池里普遍成立。
 
 ## 真正的瓶颈（修复方向）
 
