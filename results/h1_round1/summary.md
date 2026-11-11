@@ -71,6 +71,9 @@ McNemar exact: n=4 k=0 p=0.0625
 ## 状态
 
 - H1 round1 数据完整（补救后 verify violations=0 双臂）、审计通过。
-- round2 扩样：条件已触发，待外审单独确认后执行（driver 需先修
-  `--no-backfill --skip-verify` 缺陷 + 增补该竞态故障注入用例）。
+- **round2 裁决（用户，2026-11-11）：暂不跑**；H1 新旧文案问题挂起，
+  后续回头解决。转向"崩溃点选择准确率"分析（可复用 stage3 taxonomy
+  数据与 failure_taxonomy 分析链）。
+- driver `--no-backfill --skip-verify` 缺陷修复 + 竞态故障注入用例：
+  挂起至 H1 系列恢复时一并处理。
 - HOLD 不变：H2（1B）、X5、v4.2 生产默认、历史重跑。
