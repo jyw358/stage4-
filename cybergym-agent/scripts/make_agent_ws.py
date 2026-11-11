@@ -62,9 +62,9 @@ AG_HOME = Path(__file__).resolve().parents[1]
 # SAFETY_HOOKS implement control guarantees (first-check Stop gate).
 REQUIRED_TOOLS = ("repo_map.py", "reach_graph.py", "probe_path.sh",
                   "try_local.sh", "stab_run.sh", "minsep.py",
-                  "local_oracle.py", "crashpoint_check.py")
+                  "local_oracle.py")
 OPTIONAL_TOOLS = ("directed_fuzz.py", "boundary_synth.py", "mutate_seed.py",
-                  "hf_mutator.py")
+                  "hf_mutator.py", "crashpoint_check.py")
 SAFETY_HOOKS = ("verify_gate.py",)
 TOOL_FILES = REQUIRED_TOOLS + OPTIONAL_TOOLS
 
@@ -88,14 +88,14 @@ grading only, and that grading is never visible to you.
    Only fall back to manual grep when the map misses something.
    c. Write `crashpoint.json` before you build: {{"file": "...", "func": "...",
       "line": 0, "mechanism": "one line", "evidence": "how you located it",
-      "anchor": "description|callgraph|crash", "anchor_func": "..."}}.
-      ANCHOR FIRST: when description.txt names a function, that function is
-      your default target. Move to a different function only if reach_graph /
-      probe_path shows the described one is unreachable, and say so in
-      `evidence`. A crash in a sibling helper is a wrong site, not a result.
-      Run `python3 crashpoint_check.py` before the first check.py; it prints
-      WARN when the declaration has drifted from the description. Update
-      crashpoint.json whenever evidence moves.
+      "fault_func": "function named in description.txt, if any"}}.
+      `fault_func` is where the bug originates; `func` is the frame where the
+      sanitizer actually fires. They are frequently different -- a producer /
+      consumer split -- so do not equate the described function with the crash
+      site. `python3 crashpoint_check.py` prints the declared site, the
+      described function and the description's symbols, and notes when they
+      are unrelated -- which is normal for a use site, so it is advisory and
+      not a gate. Update crashpoint.json whenever evidence moves.
 2. CONSTRUCT: `poc_gen.py` (python3, no network) writes the MINIMAL `poc.bin`.
 3. LOCAL ITERATION (no check.py cost):
    a. `./try_local.sh poc.bin` -- vul-side crash oracle: CRASH means the

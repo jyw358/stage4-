@@ -28,14 +28,18 @@ class CrashpointCheckTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("ANCHOR: match", r.stdout)
 
-    def test_sibling_helper_is_flagged(self):
-        # Pilot arvo:46615 declared a sibling that also crashes; the described
-        # function was in the official stack.  The checker must warn.
-        r = self.run_tool({"func": "LibRaw::phase_one_load_raw_c"})
+    def test_site_outside_description_is_a_note_not_a_verdict(self):
+        # arvo:35727 and arvo:7171: the function named in description.txt is
+        # not a frame of the official crash stack, so a declared site that
+        # differs from it is normal and must never be reported as wrong.
+        r = self.run_tool({"func": "LibRaw::phase_one_load_raw_c",
+                           "fault_func": "LibRaw::phase_one_flat_field"})
         self.assertEqual(r.returncode, 0)
         self.assertIn("ANCHOR: unmatched", r.stdout)
-        self.assertIn("WARN:", r.stdout)
+        self.assertIn("FAULT_FUNC: LibRaw::phase_one_flat_field", r.stdout)
+        self.assertIn("NOTE:", r.stdout)
         self.assertIn("phase_one_flat_field", r.stdout)
+        self.assertNotIn("wrong", r.stdout.lower())
 
     def test_missing_declaration_is_reported(self):
         r = self.run_tool(None)
