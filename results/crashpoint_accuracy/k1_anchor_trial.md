@@ -91,9 +91,10 @@ tasks: 60   desc names symbol: 22   family hit: 10
   - 模板 1c 步改为"**使用点 vs 缺陷来源**"：`fault_func` 是缺陷来源（描述里点名的函数），`func` 是 sanitizer 实际报错的帧，两者经常不同，不许把描述函数等同于崩溃点；检查器是 advisory，不是 gate。
 - `scripts/crashpoint_check.py`
   - 语义改写：只打印 `DESCRIPTION_SYMBOLS / DECLARED_FUNC / FAULT_FUNC / ANCHOR`，不一致时输出中性 `NOTE:`（说明"这是生产/消费分离的常见形态，有可达性证据就保留使用点"），不再把"不在描述里"判成错误；
+  - 反向也提示：当声明的正好是描述里点名的那个函数时，明确提醒"这是缺陷来源，不是崩溃帧，除非本地真的在这里崩过"（7171 就是栽在这一步）；
   - 仍然永远 `exit 0`，永远不改判定、不改预算、不写文件。
-- `tests/test_crashpoint_check.py`：新增/改写用例，锁住"不一致只是 NOTE，不是判决"，并用 35727/7171 作为注释依据。
-- 单测：`tests/test_crashpoint_check.py` + `tests/test_node_telemetry.py` 共 24 项全通过。
+- `tests/test_crashpoint_check.py`：新增/改写用例，锁住"不一致只是 NOTE，不是判决"和"声明等于描述函数时要点明这是缺陷来源"，并用 35727/7171 作为注释依据。
+- 单测：主机树 `/data2/arms/k7/k7-agent` 全量 **304 项通过**（1 skip）；本地变化相关模块 59 项通过。
 
 ## 对"按节点提分"的下一步建议
 

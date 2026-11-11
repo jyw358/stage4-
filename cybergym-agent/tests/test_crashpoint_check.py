@@ -41,6 +41,15 @@ class CrashpointCheckTest(unittest.TestCase):
         self.assertIn("phase_one_flat_field", r.stdout)
         self.assertNotIn("wrong", r.stdout.lower())
 
+    def test_matching_the_described_function_is_called_out(self):
+        # arvo:7171: the agent declared exactly the described function, which
+        # is where the bug starts, while the sanitizer fired elsewhere.
+        r = self.run_tool({"func": "LibRaw::phase_one_flat_field",
+                           "fault_func": "LibRaw::phase_one_flat_field"})
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("ANCHOR: match", r.stdout)
+        self.assertIn("where the bug originates", r.stdout)
+
     def test_missing_declaration_is_reported(self):
         r = self.run_tool(None)
         self.assertEqual(r.returncode, 0)

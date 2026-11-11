@@ -101,6 +101,12 @@ def main():
         status = "match"
         note = ("the declared site is named in description.txt -- consistent "
                 "with the sanitizer firing inside the described function.")
+        if fault and same_family(d_base, split_sym(fault)[0]):
+            note = ("the declared site is the function named in description.txt, "
+                    "which is where the bug originates. The sanitizer often "
+                    "fires in a consumer of it instead, so keep this only if "
+                    "you have a local crash there (try_local.sh / stab_run.sh); "
+                    "otherwise look for the frame that reads the bad buffer.")
     else:
         named = ", ".join(syms[:4])
         status = "unmatched"
