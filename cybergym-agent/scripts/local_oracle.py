@@ -85,7 +85,7 @@ _ERR_KIND_RES = (
     (re.compile(r"permission denied", re.I), "docker_permission"),
     (re.compile(r"cannot connect to the docker daemon|is the docker daemon running",
                 re.I), "daemon_unreachable"),
-    (re.compile(r"unable to find image|manifest unknown|pull access denied",
+    (re.compile(r"unable to find image|no such image|manifest unknown|pull access denied",
                 re.I), "image_unavailable"),
     (re.compile(r"no such file or directory.*docker\.sock|cannot find.*docker\.sock",
                 re.I), "socket_missing"),
@@ -478,7 +478,7 @@ def sweep_preflight(label: str):
     return (not bad), entries
 
 
-def run_side(info, files, timeout: int = None, perturb=None, tag=""):
+def _run_side_direct(info, files, timeout: int = None, perturb=None, tag=""):
     """Run inputs once against the vul side; returns a schema-2 dict (see
     module docstring). Every request -- including input errors and fix-side
     refusals -- is appended to ./.oracle.log (r14 D1 request accounting)."""
@@ -671,6 +671,148 @@ def run_side(info, files, timeout: int = None, perturb=None, tag=""):
         return v
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _broker_failure(kind, detail, files, timeout, tag):
+    """Fail closed when no trustworthy broker evidence can be obtained."""
+    v = {"schema": 2, "verdict": "ORACLE_ERROR",
+         "runner_started": None, "target_started": None,
+         "runner_exit_code": None, "target_exit_code": None,
+         "runner_error_kind": kind, "sanitizer_detected": False,
+         "rc": -1, "sig": "", "tail": str(detail)[:1500]}
+    _oracle_log({"tag": tag or "run_side", "side": "broker:vul",
+                 "files": len(files or []), "timeout": timeout or TIMEOUT,
+                 **{k: v[k] for k in
+                    ("verdict", "runner_started", "target_started",
+                     "runner_error_kind")}})
+    return v
+
+
+def _broker_response_error(value, input_count, task_id):
+    """Return a protocol error string, or None for a usable schema-2 response."""
+    if not isinstance(value, dict) or value.get("schema") != 2:
+        return "invalid broker schema"
+    if not isinstance(value.get("verdict"), str) or not value["verdict"]:
+        return "missing verdict"
+    if not isinstance(value.get("request_id"), str) or not value["request_id"]:
+        return "missing request_id"
+    if not isinstance(value.get("broker_version"), str) or not value["broker_version"]:
+        return "missing broker_version"
+    if "task_id" in value and value["task_id"] != task_id:
+        return "broker response task_id mismatch"
+    for key in ("runner_started", "target_started"):
+        if value.get(key) is not None and type(value.get(key)) is not bool:
+            return f"invalid {key}"
+    for key in ("runner_exit_code", "target_exit_code"):
+        if value.get(key) is not None and type(value.get(key)) is not int:
+            return f"invalid {key}"
+    if value.get("runner_error_kind") is not None and not isinstance(
+            value.get("runner_error_kind"), str):
+        return "invalid runner_error_kind"
+    if type(value.get("sanitizer_detected")) is not bool:
+        return "invalid sanitizer_detected"
+    hashes = value.get("input_sha256")
+    if (not isinstance(hashes, list) or len(hashes) > input_count or
+            any(not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{64}", item)
+                for item in hashes)):
+        return "invalid input_sha256"
+    if type(value.get("rc")) is not int or not isinstance(value.get("sig"), str):
+        return "invalid result fields"
+    if not isinstance(value.get("tail"), str):
+        return "invalid output tail"
+    if value["verdict"] in {"CLEAN", "FATAL", "NONFATAL", "TIMEOUT", "UNKNOWN",
+                            "TARGET_LAUNCH_ERROR"}:
+        if not (value.get("runner_started") is True and
+                value.get("target_started") is True and
+                value.get("runner_exit_code") == 0 and
+                value.get("target_exit_code") is not None):
+            return "execution verdict lacks trustworthy execution proof"
+        if len(hashes) != input_count:
+            return "execution verdict lacks one hash per input"
+        if value["verdict"] == "CLEAN" and value.get("target_exit_code") != 0:
+            return "CLEAN has a non-zero target exit"
+        if value["verdict"] in {"FATAL", "NONFATAL"} and value.get("target_exit_code") == 0:
+            return "crash verdict has a zero target exit"
+    return None
+
+
+def _run_side_broker(info, files, timeout=None, perturb=None, tag=""):
+    """Thin client: the root broker re-resolves the task and ignores ``info``.
+
+    There is deliberately no direct-docker fallback.  Losing the broker means
+    verification is unavailable, never permission to enlarge agent access.
+    """
+    files = list(files or [])
+    # Existing tools pass MALLOC_PERTURB_ as decimal strings.  Normalise that
+    # legacy public-input form locally; the root protocol still admits only an
+    # integer in 0..255 and rejects every other string/type.
+    if isinstance(perturb, str) and re.fullmatch(r"[0-9]{1,3}", perturb):
+        perturb = int(perturb)
+    tid = os.environ.get("CG_TASK_ID", "")
+    if not tid:
+        return _broker_failure("broker_client_error", "CG_TASK_ID is not set",
+                               files, timeout, tag)
+    try:
+        from oracle_broker import call
+        cwd = pathlib.Path.cwd().absolute()
+        inputs = []
+        for f in files:
+            p = pathlib.Path(f)
+            if not p.is_absolute():
+                p = cwd / p
+            inputs.append(os.path.relpath(str(p), str(cwd)).replace(os.sep, "/"))
+        req = {"op": "run_vul_candidate", "task_id": tid, "inputs": inputs,
+               "timeout": TIMEOUT if timeout is None else timeout,
+               "perturb": perturb, "tag": tag or "run_side"}
+        sock = os.environ.get("CG_ORACLE_SOCKET",
+                              "/run/cybergym-oracle/broker.sock")
+        # Execution may take timeout + container startup/cleanup.  This is a
+        # transport deadline only; the broker has its own independent kill.
+        wait = max(20, min(30, int(req["timeout"])) + 20)
+        v = call(req, sock, wait)
+    except Exception as exc:                 # transport/protocol failure
+        return _broker_failure("broker_unavailable",
+                               f"{type(exc).__name__}: {exc}", files, timeout, tag)
+    protocol_error = _broker_response_error(v, len(files), tid)
+    if protocol_error:
+        return _broker_failure("broker_protocol_error", protocol_error,
+                               files, timeout, tag)
+    _oracle_log({"tag": tag or "run_side", "side": "broker:vul",
+                 "target": v.get("target"), "files": len(files),
+                 "perturb": perturb, "timeout": timeout or TIMEOUT,
+                 "request_id": v.get("request_id"),
+                 "broker_version": v.get("broker_version"),
+                 "input_sha256": v.get("input_sha256") or [],
+                 **{k: v.get(k) for k in
+                    ("verdict", "runner_started", "target_started",
+                     "runner_exit_code", "target_exit_code",
+                     "runner_error_kind", "sanitizer_detected", "cleanup")}})
+    return v
+
+
+def run_side(info, files, timeout: int = None, perturb=None, tag=""):
+    """Public signature is unchanged; execution defaults to the root broker."""
+    _bd = str(info[0]) if isinstance(info, (tuple, list)) and info else str(info)
+    if not vul_path_ok(_bd):
+        _oracle_log({"tag": tag or "run_side", "side": "blocked",
+                     "files": len(files or []), "timeout": timeout or TIMEOUT,
+                     "verdict": "FIX_SIDE_BLOCKED"})
+        return {"verdict": "FIX_SIDE_BLOCKED", "rc": -1, "sig": "",
+                "tail": "fix-side local runs disabled (stage3 contract)"}
+    mode = os.environ.get("CG_ORACLE_MODE", "broker").strip().lower()
+    if mode == "direct":
+        # Direct docker is a ROOT-ONLY diagnostic path.  An agent can set its
+        # own environment, so euid -- not the variable -- is the authority.
+        if os.name == "posix" and hasattr(os, "geteuid") and os.geteuid() == 0:
+            return _run_side_direct(info, files, timeout, perturb, tag)
+        return _broker_failure("direct_not_permitted",
+                               "direct docker execution is root-only",
+                               files, timeout, tag)
+    if mode != "broker":
+        return _broker_failure("broker_client_error",
+                               f"unknown CG_ORACLE_MODE={mode!r}",
+                               files, timeout, tag)
+    return _run_side_broker(info, files, timeout, perturb, tag)
 
 
 def run_fix_with_retry(info, files):

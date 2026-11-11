@@ -1,0 +1,33 @@
+[Unit]
+Description=CyberGym K3 root-side vulnerability Oracle Broker (k8 non-scoring)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+RuntimeDirectory=cybergym-oracle
+RuntimeDirectoryMode=0711
+RuntimeDirectoryPreserve=no
+StateDirectory=cybergym-oracle
+StateDirectoryMode=0700
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=ORACLE_BROKER_SOCKET=/run/cybergym-oracle/broker.sock
+Environment=ORACLE_BROKER_RUN_ROOTS=/data2/arms/k8/out
+Environment=ORACLE_BROKER_AUDIT=/var/lib/cybergym-oracle/audit.jsonl
+Environment=ORACLE_BROKER_INSTANCE=k8
+Environment=ORACLE_RUNNER=cybergym/oss-fuzz-base-runner:latest
+# This audit is outside the imported tree and imports none of its code.
+# A symlink, non-root owner, group/other write bit, or __pycache__ is fatal.
+ExecStartPre=/usr/bin/python3 -B /data2/arms/k8/root_code/assert_code_tree.py --base /data2/arms/k8/cybergym-agent --untrusted-users s4agent,naco
+# Isolated mode ignores PYTHONPATH and user-site paths; -B prevents root bytecode.
+ExecStart=/usr/bin/python3 -I -B /data2/arms/k8/cybergym-agent/scripts/oracle_broker.py
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=20
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

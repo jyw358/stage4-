@@ -46,9 +46,10 @@ class TestStateFirstClassification(unittest.TestCase):
         self.assertEqual(lo.runner_error_kind(out), "daemon_unreachable")
 
     def test_image_missing(self):
-        out = "Unable to find image 'cybergym/nope:latest' locally"
-        self.assertEqual(lo.classify_exec(False, None, out, 125), "ORACLE_ERROR")
-        self.assertEqual(lo.runner_error_kind(out), "image_unavailable")
+        for out in ("Unable to find image 'cybergym/nope:latest' locally",
+                    "docker: Error response from daemon: No such image: cybergym/nope:latest"):
+            self.assertEqual(lo.classify_exec(False, None, out, 125), "ORACLE_ERROR")
+            self.assertEqual(lo.runner_error_kind(out), "image_unavailable")
 
     def test_foreign_language_error_still_oracle_error(self):
         self.assertEqual(
@@ -463,7 +464,7 @@ class TestSweepPreflight(unittest.TestCase):
                 return_value=[{"id": "z", "age": "2 hours",
                                "cleanup": "inspection_incomplete"}]), \
              mock.patch.object(lo.subprocess, "run", side_effect=no_docker):
-            r = lo.run_side(info, [str(seed)], tag="r18_preflight")
+            r = lo._run_side_direct(info, [str(seed)], tag="r18_preflight")
         self.assertEqual(r["verdict"], "ORACLE_ERROR")
         self.assertEqual(r["runner_error_kind"], "sweep_preflight_failed")
         self.assertEqual(docker_calls, [])
@@ -545,6 +546,110 @@ class TestContainerGoneMatching(unittest.TestCase):
                 return_value=types.SimpleNamespace(returncode=1,
                                                    stdout="")):
             self.assertIsNone(lo._container_gone("x", tries=1))
+
+
+class TestBrokerClient(unittest.TestCase):
+    def setUp(self):
+        import hashlib
+        self.hash = hashlib.sha256(b"poc").hexdigest()
+        self.clean = {
+            "schema": 2, "verdict": "CLEAN", "request_id": "req-1",
+            "broker_version": "k3-oracle-broker/1", "task_id": "arvo:123",
+            "runner_started": True, "target_started": True,
+            "runner_exit_code": 0, "target_exit_code": 0,
+            "runner_error_kind": None, "sanitizer_detected": False,
+            "input_sha256": [self.hash], "rc": 0, "sig": "", "tail": "",
+            "cleanup": None,
+        }
+
+    def invoke(self, response=None, error=None, public=False):
+        import sys
+        import types
+        from unittest import mock
+
+        def fake_call(*_args, **_kwargs):
+            if error is not None:
+                raise error
+            return response
+
+        module = types.SimpleNamespace(call=fake_call)
+        info = (Path("/data/arvo/123/vul"), "target", "detect_leaks=0", "arvo")
+        with mock.patch.dict(sys.modules, {"oracle_broker": module}), \
+                mock.patch.dict(os.environ, {"CG_TASK_ID": "arvo:123"}, clear=False), \
+                mock.patch.object(lo, "_oracle_log") as log, \
+                mock.patch.object(lo, "_run_side_direct") as direct:
+            if public:
+                os.environ.pop("CG_ORACLE_MODE", None)
+                result = lo.run_side(info, ["poc"], tag="client")
+            else:
+                result = lo._run_side_broker(info, ["poc"], tag="client")
+        direct.assert_not_called()
+        return result, log
+
+    def test_clean_response_requires_and_preserves_execution_proof(self):
+        result, log = self.invoke(dict(self.clean))
+        self.assertEqual(result["verdict"], "CLEAN")
+        row = log.call_args.args[0]
+        self.assertEqual(row["request_id"], "req-1")
+        self.assertEqual(row["input_sha256"], [self.hash])
+        self.assertTrue(row["runner_started"])
+        self.assertTrue(row["target_started"])
+
+    def test_transport_failure_never_falls_back_to_direct_docker(self):
+        result, _log = self.invoke(error=OSError("socket absent"), public=True)
+        self.assertEqual(result["verdict"], "ORACLE_ERROR")
+        self.assertEqual(result["runner_error_kind"], "broker_unavailable")
+
+    def test_broker_refusal_is_returned_not_relabelled_unavailable(self):
+        refused = dict(self.clean, verdict="ORACLE_ERROR", runner_started=None,
+                       target_started=None, runner_exit_code=None,
+                       target_exit_code=None, runner_error_kind="broker_refused",
+                       refusal_reason="unknown_field", input_sha256=[], rc=-1)
+        result, _log = self.invoke(refused)
+        self.assertEqual(result["runner_error_kind"], "broker_refused")
+        self.assertEqual(result["refusal_reason"], "unknown_field")
+
+    def test_legacy_decimal_perturb_is_normalised_before_rpc(self):
+        import sys
+        import types
+        from unittest import mock
+
+        captured = {}
+
+        def fake_call(request, *_args, **_kwargs):
+            captured.update(request)
+            return dict(self.clean)
+
+        module = types.SimpleNamespace(call=fake_call)
+        info = (Path("/data/arvo/123/vul"), "target", "detect_leaks=0", "arvo")
+        with mock.patch.dict(sys.modules, {"oracle_broker": module}), \
+                mock.patch.dict(os.environ, {"CG_TASK_ID": "arvo:123"}, clear=False), \
+                mock.patch.object(lo, "_oracle_log"):
+            result = lo._run_side_broker(info, ["poc"], perturb="85", tag="client")
+        self.assertEqual(result["verdict"], "CLEAN")
+        self.assertEqual(captured["perturb"], 85)
+
+    def test_incomplete_or_forged_clean_is_a_protocol_error(self):
+        variants = []
+        missing = dict(self.clean)
+        del missing["runner_started"]
+        variants.append(missing)
+        variants.append(dict(self.clean, target_started=False))
+        variants.append(dict(self.clean, runner_exit_code=137))
+        variants.append(dict(self.clean, target_exit_code=1))
+        variants.append(dict(self.clean, input_sha256=["not-a-hash"]))
+        variants.append(dict(self.clean, request_id=None))
+        for response in variants:
+            with self.subTest(response=response):
+                result, _log = self.invoke(response)
+                self.assertEqual(result["verdict"], "ORACLE_ERROR")
+                self.assertEqual(result["runner_error_kind"], "broker_protocol_error")
+
+    def test_non_dict_and_wrong_schema_are_protocol_errors(self):
+        for response in (None, [], {"schema": 1}, {"schema": 2}):
+            with self.subTest(response=response):
+                result, _log = self.invoke(response)
+                self.assertEqual(result["runner_error_kind"], "broker_protocol_error")
 
 
 if __name__ == "__main__":

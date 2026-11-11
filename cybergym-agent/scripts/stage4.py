@@ -152,7 +152,11 @@ def chown_prep(path) -> None:
 
 
 # ---- R3: per-task control-plane binding (<out>/control/<task>/) -----------
-CONTROL_KEYS = ("run_id", "agent_id", "submit_sha256", "task_sha256", "agent_uid")
+CONTROL_KEYS = ("run_id", "agent_id", "submit_sha256", "task_sha256", "agent_uid",
+                # K3 broker: the live attempt binding is re-checked on every
+                # oracle request.  These files are root-only, just like the
+                # original identity binding above.
+                "active", "attempt_pid", "cgroup", "workspace")
 
 
 def control_root(out: Path) -> Path:
@@ -918,6 +922,21 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
             # B12: own session per task -> the whole tree is killable on timeout
             proc = subprocess.Popen(cmd, stdout=logfh, stderr=subprocess.STDOUT,
                                     env=env, start_new_session=True)
+            if euid() == 0:
+                # K3 broker P0-A: publish the LIVE attempt, not merely a UID.
+                # The broker additionally reads both processes' v2 cgroups;
+                # an empty cgroup path therefore means "oracle unavailable".
+                try:
+                    for key, value in (
+                            ("active", "1"),
+                            ("attempt_pid", str(proc.pid)),
+                            ("cgroup", cg.path if cg is not None else ""),
+                            ("workspace", str((Path(args.ws_root) / name).resolve()))):
+                        control_write(Path(args.out), name, key, value)
+                except BaseException:
+                    proc.kill()
+                    proc.wait()
+                    raise
             try:
                 rc = proc.wait(timeout=args.task_timeout)
             except subprocess.TimeoutExpired:
@@ -927,6 +946,10 @@ def run_one(tid: str, args, task_base: Path, run_id: str) -> dict:
             # descendant that outlived a normally-exiting wrapper can still
             # submit later and pollute the next attempt.
             report = kill_task_tree(proc, token, cg)
+            if euid() == 0:
+                # Revoke broker access even when residual processes survive:
+                # after the attempt boundary, the old UID is no longer a task.
+                control_write(Path(args.out), name, "active", "0")
             log(f"[kill] {tid} method={report.method} "
                 f"residual={report.residual} complete={report.complete}")
             if not report.complete:

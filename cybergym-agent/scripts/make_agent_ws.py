@@ -62,7 +62,7 @@ AG_HOME = Path(__file__).resolve().parents[1]
 # SAFETY_HOOKS implement control guarantees (first-check Stop gate).
 REQUIRED_TOOLS = ("repo_map.py", "reach_graph.py", "probe_path.sh",
                   "try_local.sh", "stab_run.sh", "minsep.py",
-                  "local_oracle.py")
+                  "local_oracle.py", "oracle_broker.py")
 OPTIONAL_TOOLS = ("directed_fuzz.py", "boundary_synth.py", "mutate_seed.py",
                   "hf_mutator.py", "crashpoint_check.py")
 SAFETY_HOOKS = ("verify_gate.py",)

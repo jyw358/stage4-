@@ -1,0 +1,12 @@
+{
+  "run_id": "k3acc-20261111T155956-f3b6ca0b",
+  "status": "PASS",
+  "checks": 61,
+  "failed_checks": [],
+  "normal_metrics": {
+    "validation_attempts": 20,
+    "execution_confirmed": 20,
+    "rate": 1.0
+  },
+  "remaining_broker_containers": []
+}

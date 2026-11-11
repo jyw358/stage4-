@@ -1,0 +1,2291 @@
+{
+  "audit_crosscheck": {
+    "agent_request_ids": 22,
+    "mismatches": []
+  },
+  "checks": [
+    {
+      "details": {
+        "active": "activating",
+        "audit_output": "assert_code_tree: 1 violation(s) in /data2/arms/k8/cybergym-agent:\n  scripts/local_oracle.py: group/other-writable (root-run code must be go-w free)\n",
+        "audit_rc": 1,
+        "start_rc": 1
+      },
+      "name": "root_code_integrity_rejects_agent_writable_tree",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "op": "version",
+        "request_id": "1fc05c72c9b340258f96bccceb20476e",
+        "version": "k3-oracle-broker/1"
+      },
+      "name": "broker_version_and_socket",
+      "passed": true
+    },
+    {
+      "details": "/usr/bin/python3 -I -B /data2/arms/k8/cybergym-agent/scripts/oracle_broker.py ",
+      "name": "root_interpreter_isolated_no_bytecode",
+      "passed": true
+    },
+    {
+      "details": [],
+      "name": "no_initial_broker_containers",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+            ],
+            "perturb": null,
+            "request_id": "57c0ec9218e441a0adc3aaaaa54b6fa1",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": false,
+            "side": "broker:vul",
+            "tag": "try_local_vul",
+            "target": null,
+            "target_exit_code": 0,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:00.218460Z",
+            "verdict": "CLEAN"
+          }
+        ],
+        "rc": 0,
+        "stderr": "",
+        "stdout": "VUL: verdict=CLEAN rc=0 sig=''\nRESULT: NO_TRIGGER -- adjust fields (mutate_seed.py / boundary_synth.py)\n"
+      },
+      "name": "try_local_clean_tool",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+            ],
+            "perturb": null,
+            "request_id": "dcf6b4f23a9c476db409046c86525aab",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": true,
+            "side": "broker:vul",
+            "tag": "try_local_vul",
+            "target": null,
+            "target_exit_code": 1,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:01.459618Z",
+            "verdict": "FATAL"
+          }
+        ],
+        "rc": 1,
+        "stderr": "",
+        "stdout": "VUL: verdict=FATAL rc=0 sig='ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp '\nRESULT: CRASH on the VULNERABLE build -- candidate worth check.py;\nthe official fix_exit from check.py is the only differential\n"
+      },
+      "name": "try_local_fatal_tool",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+            ],
+            "perturb": null,
+            "request_id": "83be05cee41d4ea389857f5757fbb7f5",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": false,
+            "side": "broker:vul",
+            "tag": "stab",
+            "target": null,
+            "target_exit_code": 0,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:02.694159Z",
+            "verdict": "CLEAN"
+          },
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+            ],
+            "perturb": 85,
+            "request_id": "a18440a7ca364415b7a4dcbb1b463808",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": false,
+            "side": "broker:vul",
+            "tag": "stab",
+            "target": null,
+            "target_exit_code": 0,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:03.781960Z",
+            "verdict": "CLEAN"
+          },
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+            ],
+            "perturb": 170,
+            "request_id": "a7dead5f0e594c149fc2ce882062f8af",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": false,
+            "side": "broker:vul",
+            "tag": "stab",
+            "target": null,
+            "target_exit_code": 0,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:04.927632Z",
+            "verdict": "CLEAN"
+          }
+        ],
+        "rc": 1,
+        "stderr": "",
+        "stdout": "run 1/3 MALLOC_PERTURB_=unset -> CLEAN    rc=0    sig=\nrun 2/3 MALLOC_PERTURB_=   85 -> CLEAN    rc=0    sig=\nrun 3/3 MALLOC_PERTURB_=  170 -> CLEAN    rc=0    sig=\n--- UNSTABLE: 3/3 identical signature (CLEAN) ---\nflaky or silent: vary fields with mutate_seed.py / boundary_synth.py for a deterministic trigger\n"
+      },
+      "name": "stab_run_three_broker_executions",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+            ],
+            "perturb": null,
+            "request_id": "0ea32119a8c84c95a85ff26e61328ff2",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": true,
+            "side": "broker:vul",
+            "tag": "minsep_vul",
+            "target": null,
+            "target_exit_code": 1,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:06.127326Z",
+            "verdict": "FATAL"
+          },
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "8b1f715a5de7d5e8057787eeea90dfb644e72029516bf9c4c68dcaa28ee36a51"
+            ],
+            "perturb": null,
+            "request_id": "e6c638975b6f4db48d1ac7122d0db4cf",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": false,
+            "side": "broker:vul",
+            "tag": "minsep_vul",
+            "target": null,
+            "target_exit_code": 0,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:07.323355Z",
+            "verdict": "CLEAN"
+          },
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+            ],
+            "perturb": null,
+            "request_id": "55eaa9823df74ab1af128d490402b741",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": true,
+            "side": "broker:vul",
+            "tag": "minsep_reverify",
+            "target": null,
+            "target_exit_code": 1,
+            "target_started": true,
+            "timeout": 10,
+            "ts": "2026-11-11T16:00:08.421263Z",
+            "verdict": "FATAL"
+          }
+        ],
+        "rc": 1,
+        "stderr": "",
+        "stdout": "BUDGET-STOP (partial result) MINIMISED 8 -> 8 bytes in 1 oracle calls (sig: ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp )\n wrote fatal.bin.min.bin (final re-verify: FATAL, same signature)\n NOTE: budget_stopped=true -- this is a PARTIAL result, not a fully converged minimisation\nRESULT: MINIMISED-CANDIDATE -- vul crashes with stable signature; submit via check.py (official fix_exit will filter)\n"
+      },
+      "name": "minsep_broker_and_reverify",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-ec6d63a60c304bfb9276bfb7c0bb83d9",
+        "docker_s": 1.125362106016837,
+        "input_sha256": [
+          "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.03838284901576117,
+        "rc": 0,
+        "request_id": "86f1d08fea50437fa9895141989f95c8",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+        "target_exit_code": 0,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "CLEAN"
+      },
+      "name": "normal_clean_86f1d08fea50437fa9895141989f95c8",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-79adeba56e8b47f9ac97bbdea4964020",
+        "docker_s": 0.987339538987726,
+        "input_sha256": [
+          "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.037066584976855665,
+        "rc": 0,
+        "request_id": "371d0ac8f91e4e389ce74b4dbfb28f95",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": true,
+        "schema": 2,
+        "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+        "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+        "target_exit_code": 1,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "FATAL"
+      },
+      "name": "normal_fatal_371d0ac8f91e4e389ce74b4dbfb28f95",
+      "passed": true
+    },
+    {
+      "details": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "name": "fatal_signature_371d0ac8f91e4e389ce74b4dbfb28f95",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-6c2c071fe7054a09856716a5b39598e8",
+        "docker_s": 1.0566095570102334,
+        "input_sha256": [
+          "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.038253771024756134,
+        "rc": 0,
+        "request_id": "6bf23effdc084894afbf59b564c58cd2",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+        "target_exit_code": 0,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "CLEAN"
+      },
+      "name": "normal_clean_6bf23effdc084894afbf59b564c58cd2",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-b607cdddd011454fb8b0848107302c89",
+        "docker_s": 1.0024279539939016,
+        "input_sha256": [
+          "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.03900401497958228,
+        "rc": 0,
+        "request_id": "a782ca612dc74de7840bc5a8b0f26eb0",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": true,
+        "schema": 2,
+        "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+        "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+        "target_exit_code": 1,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "FATAL"
+      },
+      "name": "normal_fatal_a782ca612dc74de7840bc5a8b0f26eb0",
+      "passed": true
+    },
+    {
+      "details": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "name": "fatal_signature_a782ca612dc74de7840bc5a8b0f26eb0",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-f6da8f42bea244858ced04312e29f5ef",
+        "docker_s": 1.0770711859804578,
+        "input_sha256": [
+          "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.03765027300687507,
+        "rc": 0,
+        "request_id": "245f0078341d4ce0a49747939a826209",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+        "target_exit_code": 0,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "CLEAN"
+      },
+      "name": "normal_clean_245f0078341d4ce0a49747939a826209",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-522e1407d66d4c25ab8d56d29079dfd2",
+        "docker_s": 1.0597954989643767,
+        "input_sha256": [
+          "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.039093471015803516,
+        "rc": 0,
+        "request_id": "f28ed8ab24484ce0bb1fea44a46bf364",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": true,
+        "schema": 2,
+        "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+        "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+        "target_exit_code": 1,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "FATAL"
+      },
+      "name": "normal_fatal_f28ed8ab24484ce0bb1fea44a46bf364",
+      "passed": true
+    },
+    {
+      "details": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "name": "fatal_signature_f28ed8ab24484ce0bb1fea44a46bf364",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-ca26c45f776a48d5ba76101a38a833b8",
+        "docker_s": 1.0784074669936672,
+        "input_sha256": [
+          "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.04234618099872023,
+        "rc": 0,
+        "request_id": "12aa3e89697440b3ad7e579dfe2c286e",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+        "target_exit_code": 0,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "CLEAN"
+      },
+      "name": "normal_clean_12aa3e89697440b3ad7e579dfe2c286e",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-cb600ca0c25641e1ba8450c4c0ebdc8c",
+        "docker_s": 0.9876085959840566,
+        "input_sha256": [
+          "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.03913661296246573,
+        "rc": 0,
+        "request_id": "7b4cf6bee255409184fc8a767e55987d",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": true,
+        "schema": 2,
+        "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+        "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+        "target_exit_code": 1,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "FATAL"
+      },
+      "name": "normal_fatal_7b4cf6bee255409184fc8a767e55987d",
+      "passed": true
+    },
+    {
+      "details": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "name": "fatal_signature_7b4cf6bee255409184fc8a767e55987d",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-61d6d9f7d3894d45b9ceafc5324c0ba4",
+        "docker_s": 1.1593803040450439,
+        "input_sha256": [
+          "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.040161849989090115,
+        "rc": 0,
+        "request_id": "da511aa025ff438b89e35cf9c7936f30",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+        "target_exit_code": 0,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "CLEAN"
+      },
+      "name": "normal_clean_da511aa025ff438b89e35cf9c7936f30",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-07319e77719a4c6c9c63d4cb0443815b",
+        "docker_s": 1.1149486750364304,
+        "input_sha256": [
+          "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.04037390899611637,
+        "rc": 0,
+        "request_id": "1d9cb60666d4494e90395095ce38ebe5",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": true,
+        "schema": 2,
+        "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+        "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+        "target_exit_code": 1,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "FATAL"
+      },
+      "name": "normal_fatal_1d9cb60666d4494e90395095ce38ebe5",
+      "passed": true
+    },
+    {
+      "details": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "name": "fatal_signature_1d9cb60666d4494e90395095ce38ebe5",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": "ob-k8-62429c13e33a4387a5714712f8909f61",
+        "docker_s": 2.89192650601035,
+        "input_sha256": [
+          "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+        ],
+        "kill_rc": null,
+        "killed": true,
+        "oom_evidence": false,
+        "prepare_s": 0.0416821840335615,
+        "rc": 0,
+        "request_id": "35cb0d0c6f314213afc676928b1630a4",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": null,
+        "runner_exit_code": 0,
+        "runner_started": true,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__137\n\nbash: line 1:     8 Killed                  env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS=detect_leaks=0 timeout -s SIGKILL 2 /out/k3_fixture /poc/in0\n",
+        "target_exit_code": 137,
+        "target_started": true,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "UNKNOWN"
+      },
+      "name": "hang_is_evidence_based_not_fake_timeout",
+      "passed": true
+    },
+    {
+      "details": [],
+      "name": "hang_has_no_container_residue",
+      "passed": true
+    },
+    {
+      "details": {
+        "rc": -1,
+        "runner_error_kind": "broker_unavailable",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "BrokerError: broker call failed: [Errno 2] No such file or directory",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "stopped_broker_fail_closed",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": "cleanup_verified",
+        "container": "ob-k8-bad-image-e4b0db8e3ef84a029c9b38990762c45d",
+        "docker_s": 0.09939558996120468,
+        "input_sha256": [
+          "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+        ],
+        "kill_rc": null,
+        "killed": false,
+        "oom_evidence": false,
+        "prepare_s": 0.035936878994107246,
+        "rc": 125,
+        "request_id": "4d98b290a5a64f6a8cf417ed84b5d309",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": "image_unavailable",
+        "runner_exit_code": 125,
+        "runner_started": false,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "\ndocker: Error response from daemon: No such image: cybergym/k3-definitely-absent:latest\n\nRun 'docker run --help' for more information\n",
+        "target_exit_code": null,
+        "target_started": false,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "bad_image_fail_closed",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "orphan_cleanup": [
+          {
+            "cleanup": "inspection_incomplete",
+            "id": null,
+            "name": null
+          }
+        ],
+        "rc": -1,
+        "request_id": "75cc86959dd1441ba646e83dd3becec0",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": "sweep_preflight_failed",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "scoped orphan cleanup could not be verified",
+        "target_exit_code": null,
+        "target_started": null,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "cleanup_inspection_incomplete_blocks_start",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "unknown_field",
+        "request_id": "bb416d757b3d4751b3fd73c12fe04f6c",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "unknown request fields: side",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "unknown_fix_field",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "bad_inputs",
+        "request_id": "afa5c3c1f561445bb176bef525f7c711",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "input path contains a forbidden component: ../escape",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "path_escape",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "bad_inputs",
+        "request_id": "5920313c70754535a416e38fc88ec9f9",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "input path is not a safe relative path: /etc/passwd",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "absolute_path",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "bad_inputs",
+        "request_id": "a69aa869cd3a43f58544ab8f8a46c73a",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "inputs must be a list of at most 8 paths",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "too_many_inputs",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "request_id": "0e96d620316b41b08272cd3fe9a470f9",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": "bad_inputs",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "secure input open/read failed for final-link: [Errno 40] Too many levels of symbolic links: 'final-link'",
+        "target_exit_code": null,
+        "target_started": null,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "INPUT_ERROR"
+      },
+      "name": "final_symlink_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "request_id": "65c995e9a5e24ed1be2b103ef034ba18",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": "bad_inputs",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "secure input open/read failed for candidates/in0: [Errno 20] Not a directory: 'candidates'",
+        "target_exit_code": null,
+        "target_started": null,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "INPUT_ERROR"
+      },
+      "name": "intermediate_symlink_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "request_id": "dd9d297f3b7e4229b0f1a859b452bf1c",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "runner_error_kind": "input_too_large",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "input exceeds the size limit: large.bin",
+        "target_exit_code": null,
+        "target_started": null,
+        "task_id": "oss-fuzz:900000001",
+        "verdict": "INPUT_ERROR"
+      },
+      "name": "oversize_input_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": "ob-k8-ac5d91885a484cb9b2c5e8a38ebb844c",
+          "docker_s": 0.9557616859674454,
+          "input_sha256": [
+            "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+          ],
+          "kill_rc": null,
+          "killed": false,
+          "oom_evidence": false,
+          "prepare_s": 0.03326136199757457,
+          "rc": 0,
+          "request_id": "87fc7e7b9cfa4ca9b62408fed5cfee77",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": null,
+          "runner_exit_code": 0,
+          "runner_started": true,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+          "target_exit_code": 0,
+          "target_started": true,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "CLEAN"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": null,
+          "input_sha256": [],
+          "rc": -1,
+          "request_id": "af75f8c9e5364f3198666bd115e27c73",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": "bad_inputs",
+          "runner_exit_code": null,
+          "runner_started": null,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "secure input open/read failed for candidates/in0: [Errno 2] No such file or directory: 'candidates'",
+          "target_exit_code": null,
+          "target_started": null,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "INPUT_ERROR"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": null,
+          "input_sha256": [],
+          "rc": -1,
+          "request_id": "8a31a04e7fc347e6afe6bdd42425da08",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": "bad_inputs",
+          "runner_exit_code": null,
+          "runner_started": null,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "secure input open/read failed for candidates/in0: [Errno 20] Not a directory: 'candidates'",
+          "target_exit_code": null,
+          "target_started": null,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "INPUT_ERROR"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": "ob-k8-c327c8a24f5c41ba9ccdd9d96f915049",
+          "docker_s": 0.9491869779885747,
+          "input_sha256": [
+            "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+          ],
+          "kill_rc": null,
+          "killed": false,
+          "oom_evidence": false,
+          "prepare_s": 0.032395032001659274,
+          "rc": 0,
+          "request_id": "616f8051269f40878d408bbc26edbcf4",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": null,
+          "runner_exit_code": 0,
+          "runner_started": true,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+          "target_exit_code": 0,
+          "target_started": true,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "CLEAN"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": null,
+          "input_sha256": [],
+          "rc": -1,
+          "request_id": "529916b826fb44b6a9123e72b3e04c14",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": "bad_inputs",
+          "runner_exit_code": null,
+          "runner_started": null,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "secure input open/read failed for candidates/in0: [Errno 20] Not a directory: 'candidates'",
+          "target_exit_code": null,
+          "target_started": null,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "INPUT_ERROR"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": null,
+          "input_sha256": [],
+          "rc": -1,
+          "request_id": "000e69c6aa5d48458575e2dd53fd22fd",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": "bad_inputs",
+          "runner_exit_code": null,
+          "runner_started": null,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "secure input open/read failed for candidates/in0: [Errno 20] Not a directory: 'candidates'",
+          "target_exit_code": null,
+          "target_started": null,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "INPUT_ERROR"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": null,
+          "input_sha256": [],
+          "rc": -1,
+          "request_id": "1c9c6b95578c47689ee393f8aa6002f2",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": "bad_inputs",
+          "runner_exit_code": null,
+          "runner_started": null,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "secure input open/read failed for candidates/in0: [Errno 2] No such file or directory: 'candidates'",
+          "target_exit_code": null,
+          "target_started": null,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "INPUT_ERROR"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": null,
+          "input_sha256": [],
+          "rc": -1,
+          "request_id": "fd590e7696f54c66ac3bb9b477cda897",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": "bad_inputs",
+          "runner_exit_code": null,
+          "runner_started": null,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "secure input open/read failed for candidates/in0: [Errno 2] No such file or directory: 'candidates'",
+          "target_exit_code": null,
+          "target_started": null,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "INPUT_ERROR"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": "ob-k8-8bed6d2568b3484f842aec3789a0e494",
+          "docker_s": 0.9574137330055237,
+          "input_sha256": [
+            "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+          ],
+          "kill_rc": null,
+          "killed": false,
+          "oom_evidence": false,
+          "prepare_s": 0.03211963502690196,
+          "rc": 0,
+          "request_id": "22b8b775294b4f4f8042201f512c852d",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": null,
+          "runner_exit_code": 0,
+          "runner_started": true,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+          "target_exit_code": 0,
+          "target_started": true,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "CLEAN"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "race_error": null,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": "ob-k8-30d602dc38ec4a74ab490b1a595ee4e9",
+          "docker_s": 1.047022940008901,
+          "input_sha256": [
+            "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+          ],
+          "kill_rc": null,
+          "killed": false,
+          "oom_evidence": false,
+          "prepare_s": 0.03453181398799643,
+          "rc": 0,
+          "request_id": "52509cd867d84d648c68608830fb12ef",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": null,
+          "runner_exit_code": 0,
+          "runner_started": true,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+          "target_exit_code": 0,
+          "target_started": true,
+          "task_id": "oss-fuzz:900000001",
+          "verdict": "CLEAN"
+        }
+      },
+      "name": "toctou_directory_race_safe",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "task_mismatch",
+        "request_id": "23a390c9d299493ea2b8077d83d19424",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "requested task does not match the UID binding",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "task_binding_mismatch_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "uid_mismatch",
+        "request_id": "8c709b61988e4bd4a1daa5ac5e0a7af5",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "no active binding for this UID",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "unregistered_uid_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "inactive",
+        "request_id": "f9500039d67946bd9c048090608e7323",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "task is not active",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "inactive_or_old_uid_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "cgroup_mismatch",
+        "request_id": "451f160d7aeb4f0ba6a1af29553f240c",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "attempt process cgroup does not exactly match the control binding",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "wrong_cgroup_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "broker_version": "k3-oracle-broker/1",
+        "cleanup": null,
+        "container": null,
+        "input_sha256": [],
+        "rc": -1,
+        "refusal_reason": "duplicate_uid",
+        "request_id": "84e423aad3474875927a421d62db82bd",
+        "runner_error_kind": "broker_refused",
+        "runner_exit_code": null,
+        "runner_started": null,
+        "sanitizer_detected": false,
+        "schema": 2,
+        "sig": "",
+        "tail": "UID has more than one active task binding",
+        "target_exit_code": null,
+        "target_started": null,
+        "verdict": "ORACLE_ERROR"
+      },
+      "name": "duplicate_active_uid_refused",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [],
+        "rc": 1,
+        "stderr": "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock\n",
+        "stdout": ""
+      },
+      "name": "agent_still_has_no_docker_permission",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [],
+        "rc": 5,
+        "stderr": "",
+        "stdout": "RESULT: ORACLE_ERROR (probe runner failed -- docker unavailable);\nlocal reachability probing is UNAVAILABLE, not negative. Do not\ndraw reach conclusions from this run.\n"
+      },
+      "name": "probe_path_remains_fail_closed_out_of_scope",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [
+          {
+            "label": "cybergym.directed_fuzz=1",
+            "swept": [
+              {
+                "cleanup": "inspection_incomplete",
+                "id": null
+              }
+            ],
+            "tag": "sweep",
+            "ts": "2026-11-11T16:00:33.484442Z"
+          },
+          {
+            "runner_error_kind": "sweep_preflight_failed",
+            "side": "vul",
+            "swept": [
+              {
+                "cleanup": "inspection_incomplete",
+                "id": null
+              }
+            ],
+            "tag": "directed_fuzz",
+            "target": "k3_fixture",
+            "ts": "2026-11-11T16:00:33.484546Z",
+            "verdict": "ORACLE_ERROR"
+          }
+        ],
+        "rc": 7,
+        "stderr": "",
+        "stdout": "RESULT: ORACLE_ERROR (sweep preflight failed -- prior orphan cleanup unverified); refusing to start a new fuzz container in an unverifiable lifecycle state.\n"
+      },
+      "name": "directed_fuzz_own_docker_remains_fail_closed",
+      "passed": true
+    },
+    {
+      "details": [
+        "3ace909eeaa1\tob-k8-b67611c2e6da4d578f876e47856cfd9b",
+        "09d09efe412a\tob-k8-0b5cec84687142fcb3d6a0b17590e450"
+      ],
+      "name": "parallel_broker_requests_started",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [],
+        "rc": -9,
+        "stderr": "",
+        "stdout": ""
+      },
+      "name": "killed_agent_process_reaped",
+      "passed": true
+    },
+    {
+      "details": {
+        "cleanup": null,
+        "container": "ob-k8-0b5cec84687142fcb3d6a0b17590e450",
+        "gid": 46001,
+        "input_sha256": [
+          "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+        ],
+        "phase": "result",
+        "pid": 891815,
+        "request_id": "764cc86a9abe4b5094a4b06d682d2f4c",
+        "run_id": "k3acc-20261111T155956-f3b6ca0b",
+        "task_id": "oss-fuzz:900000001",
+        "ts": "2026-11-11T16:00:36.721353+00:00",
+        "uid": 46001,
+        "verdict": "UNKNOWN"
+      },
+      "name": "killed_client_still_has_root_result",
+      "passed": true
+    },
+    {
+      "details": [
+        "3ace909eeaa1\tob-k8-b67611c2e6da4d578f876e47856cfd9b"
+      ],
+      "name": "task_a_failure_does_not_kill_task_b",
+      "passed": true
+    },
+    {
+      "details": {
+        "new_logs": [
+          {
+            "broker_version": "k3-oracle-broker/1",
+            "cleanup": null,
+            "files": 1,
+            "input_sha256": [
+              "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+            ],
+            "perturb": null,
+            "request_id": "bbbe3b7253964aadb5beb4f8b6e43d23",
+            "runner_error_kind": null,
+            "runner_exit_code": 0,
+            "runner_started": true,
+            "sanitizer_detected": false,
+            "side": "broker:vul",
+            "tag": "surviving_b",
+            "target": null,
+            "target_exit_code": 137,
+            "target_started": true,
+            "timeout": 8,
+            "ts": "2026-11-11T16:00:43.114174Z",
+            "verdict": "UNKNOWN"
+          }
+        ],
+        "rc": 0,
+        "response": {
+          "broker_version": "k3-oracle-broker/1",
+          "cleanup": null,
+          "container": "ob-k8-b67611c2e6da4d578f876e47856cfd9b",
+          "docker_s": 9.103754351963289,
+          "input_sha256": [
+            "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+          ],
+          "kill_rc": null,
+          "killed": true,
+          "oom_evidence": false,
+          "prepare_s": 0.043251441966276616,
+          "rc": 0,
+          "request_id": "bbbe3b7253964aadb5beb4f8b6e43d23",
+          "run_id": "k3acc-20261111T155956-f3b6ca0b",
+          "runner_error_kind": null,
+          "runner_exit_code": 0,
+          "runner_started": true,
+          "sanitizer_detected": false,
+          "schema": 2,
+          "sig": "",
+          "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__137\n\nbash: line 1:     7 Killed                  env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS=detect_leaks=0 timeout -s SIGKILL 8 /out/k3_fixture /poc/in0\n",
+          "target_exit_code": 137,
+          "target_started": true,
+          "task_id": "oss-fuzz:900000002",
+          "verdict": "UNKNOWN"
+        },
+        "stderr": "",
+        "stdout": "K3_JSON={\"schema\":2,\"verdict\":\"UNKNOWN\",\"runner_started\":true,\"target_started\":true,\"runner_exit_code\":0,\"target_exit_code\":137,\"runner_error_kind\":null,\"sanitizer_detected\":false,\"killed\":true,\"cleanup\":null,\"kill_rc\":null,\"oom_evidence\":false,\"prepare_s\":0.043251441966276616,\"docker_s\":9.103754351963289,\"rc\":0,\"sig\":\"\",\"tail\":\"__ORACLE_RUNNER_V2__\\n__ORACLE_TARGET_EXIT_V2__137\\n\\nbash: line 1:     7 Killed                  env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS=detect_leaks=0 timeout -s SIGKILL 8 /out/k3_fixture /poc/in0\\n\",\"container\":\"ob-k8-b67611c2e6da4d578f876e47856cfd9b\",\"input_sha256\":[\"08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828\"],\"run_id\":\"k3acc-20261111T155956-f3b6ca0b\",\"task_id\":\"oss-fuzz:900000002\",\"request_id\":\"bbbe3b7253964aadb5beb4f8b6e43d23\",\"broker_version\":\"k3-oracle-broker/1\"}\n"
+      },
+      "name": "task_b_completes_independently",
+      "passed": true
+    },
+    {
+      "details": [],
+      "name": "all_parallel_containers_reaped",
+      "passed": true
+    },
+    {
+      "details": {
+        "execution_confirmed": 20,
+        "rate": 1.0,
+        "validation_attempts": 20
+      },
+      "name": "normal_execution_confirmation_at_least_95_percent",
+      "passed": true
+    },
+    {
+      "details": {
+        "agent_request_ids": 22,
+        "mismatches": []
+      },
+      "name": "agent_root_request_id_audit_crosscheck",
+      "passed": true
+    }
+  ],
+  "finished_at": "2026-11-11T16:00:43.207080+00:00",
+  "fixture_manifest": "/data2/arms/k8/fixture-manifest.json",
+  "normal_metrics": {
+    "execution_confirmed": 20,
+    "rate": 1.0,
+    "validation_attempts": 20
+  },
+  "normal_responses": [
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "perturb": null,
+      "request_id": "57c0ec9218e441a0adc3aaaaa54b6fa1",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "side": "broker:vul",
+      "tag": "try_local_vul",
+      "target": null,
+      "target_exit_code": 0,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:00.218460Z",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "perturb": null,
+      "request_id": "dcf6b4f23a9c476db409046c86525aab",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "side": "broker:vul",
+      "tag": "try_local_vul",
+      "target": null,
+      "target_exit_code": 1,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:01.459618Z",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "perturb": null,
+      "request_id": "83be05cee41d4ea389857f5757fbb7f5",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "side": "broker:vul",
+      "tag": "stab",
+      "target": null,
+      "target_exit_code": 0,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:02.694159Z",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "perturb": 85,
+      "request_id": "a18440a7ca364415b7a4dcbb1b463808",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "side": "broker:vul",
+      "tag": "stab",
+      "target": null,
+      "target_exit_code": 0,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:03.781960Z",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "perturb": 170,
+      "request_id": "a7dead5f0e594c149fc2ce882062f8af",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "side": "broker:vul",
+      "tag": "stab",
+      "target": null,
+      "target_exit_code": 0,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:04.927632Z",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "perturb": null,
+      "request_id": "0ea32119a8c84c95a85ff26e61328ff2",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "side": "broker:vul",
+      "tag": "minsep_vul",
+      "target": null,
+      "target_exit_code": 1,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:06.127326Z",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "8b1f715a5de7d5e8057787eeea90dfb644e72029516bf9c4c68dcaa28ee36a51"
+      ],
+      "perturb": null,
+      "request_id": "e6c638975b6f4db48d1ac7122d0db4cf",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "side": "broker:vul",
+      "tag": "minsep_vul",
+      "target": null,
+      "target_exit_code": 0,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:07.323355Z",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "files": 1,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "perturb": null,
+      "request_id": "55eaa9823df74ab1af128d490402b741",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "side": "broker:vul",
+      "tag": "minsep_reverify",
+      "target": null,
+      "target_exit_code": 1,
+      "target_started": true,
+      "timeout": 10,
+      "ts": "2026-11-11T16:00:08.421263Z",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-ec6d63a60c304bfb9276bfb7c0bb83d9",
+      "docker_s": 1.125362106016837,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.03838284901576117,
+      "rc": 0,
+      "request_id": "86f1d08fea50437fa9895141989f95c8",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-79adeba56e8b47f9ac97bbdea4964020",
+      "docker_s": 0.987339538987726,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.037066584976855665,
+      "rc": 0,
+      "request_id": "371d0ac8f91e4e389ce74b4dbfb28f95",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "schema": 2,
+      "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+      "target_exit_code": 1,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-6c2c071fe7054a09856716a5b39598e8",
+      "docker_s": 1.0566095570102334,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.038253771024756134,
+      "rc": 0,
+      "request_id": "6bf23effdc084894afbf59b564c58cd2",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-b607cdddd011454fb8b0848107302c89",
+      "docker_s": 1.0024279539939016,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.03900401497958228,
+      "rc": 0,
+      "request_id": "a782ca612dc74de7840bc5a8b0f26eb0",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "schema": 2,
+      "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+      "target_exit_code": 1,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-f6da8f42bea244858ced04312e29f5ef",
+      "docker_s": 1.0770711859804578,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.03765027300687507,
+      "rc": 0,
+      "request_id": "245f0078341d4ce0a49747939a826209",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-522e1407d66d4c25ab8d56d29079dfd2",
+      "docker_s": 1.0597954989643767,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.039093471015803516,
+      "rc": 0,
+      "request_id": "f28ed8ab24484ce0bb1fea44a46bf364",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "schema": 2,
+      "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+      "target_exit_code": 1,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-ca26c45f776a48d5ba76101a38a833b8",
+      "docker_s": 1.0784074669936672,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.04234618099872023,
+      "rc": 0,
+      "request_id": "12aa3e89697440b3ad7e579dfe2c286e",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-cb600ca0c25641e1ba8450c4c0ebdc8c",
+      "docker_s": 0.9876085959840566,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.03913661296246573,
+      "rc": 0,
+      "request_id": "7b4cf6bee255409184fc8a767e55987d",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "schema": 2,
+      "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+      "target_exit_code": 1,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-61d6d9f7d3894d45b9ceafc5324c0ba4",
+      "docker_s": 1.1593803040450439,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.040161849989090115,
+      "rc": 0,
+      "request_id": "da511aa025ff438b89e35cf9c7936f30",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-07319e77719a4c6c9c63d4cb0443815b",
+      "docker_s": 1.1149486750364304,
+      "input_sha256": [
+        "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.04037390899611637,
+      "rc": 0,
+      "request_id": "1d9cb60666d4494e90395095ce38ebe5",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": true,
+      "schema": 2,
+      "sig": "ERROR: AddressSanitizer: heap-buffer-overflow on address 0xADDR at pc 0xADDR bp 0xADDR sp 0xADDR",
+      "tail": "er: heap-buffer-overflow /src/target.c:14 in trigger_heap_overflow\nShadow bytes around the buggy address:\n  0x0c047fff7fb0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fc0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fd0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7fe0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n  0x0c047fff7ff0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00\n=>0x0c047fff8000: fa fa[04]fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8010: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8020: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8030: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8040: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\n  0x0c047fff8050: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa\nShadow byte legend (one shadow byte represents 8 application bytes):\n  Addressable:           00\n  Partially addressable: 01 02 03 04 05 06 07 \n  Heap left redzone:       fa\n  Freed heap region:       fd\n  Stack left redzone:      f1\n  Stack mid redzone:       f2\n  Stack right redzone:     f3\n  Stack after return:      f5\n  Stack use after scope:   f8\n  Global redzone:          f9\n  Global init order:       f6\n  Poisoned by user:        f7\n  Container overflow:      fc\n  Array cookie:            ac\n  Intra object redzone:    bb\n  ASan internal:           fe\n  Left alloca redzone:     ca\n  Right alloca redzone:    cb\n  Shadow gap:              cc\n==8==ABORTING\n",
+      "target_exit_code": 1,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "FATAL"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-62429c13e33a4387a5714712f8909f61",
+      "docker_s": 2.89192650601035,
+      "input_sha256": [
+        "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+      ],
+      "kill_rc": null,
+      "killed": true,
+      "oom_evidence": false,
+      "prepare_s": 0.0416821840335615,
+      "rc": 0,
+      "request_id": "35cb0d0c6f314213afc676928b1630a4",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__137\n\nbash: line 1:     8 Killed                  env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS=detect_leaks=0 timeout -s SIGKILL 2 /out/k3_fixture /poc/in0\n",
+      "target_exit_code": 137,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "UNKNOWN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-b67611c2e6da4d578f876e47856cfd9b",
+      "docker_s": 9.103754351963289,
+      "input_sha256": [
+        "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+      ],
+      "kill_rc": null,
+      "killed": true,
+      "oom_evidence": false,
+      "prepare_s": 0.043251441966276616,
+      "rc": 0,
+      "request_id": "bbbe3b7253964aadb5beb4f8b6e43d23",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__137\n\nbash: line 1:     7 Killed                  env LD_LIBRARY_PATH=/out-libs ASAN_OPTIONS=detect_leaks=0 timeout -s SIGKILL 8 /out/k3_fixture /poc/in0\n",
+      "target_exit_code": 137,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000002",
+      "verdict": "UNKNOWN"
+    }
+  ],
+  "purpose": "K3 broker non-scoring acceptance",
+  "remaining_broker_containers": [],
+  "run_id": "k3acc-20261111T155956-f3b6ca0b",
+  "schema": 1,
+  "security_responses": [
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "refusal_reason": "unknown_field",
+      "request_id": "bb416d757b3d4751b3fd73c12fe04f6c",
+      "runner_error_kind": "broker_refused",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "unknown request fields: side",
+      "target_exit_code": null,
+      "target_started": null,
+      "verdict": "ORACLE_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "refusal_reason": "bad_inputs",
+      "request_id": "afa5c3c1f561445bb176bef525f7c711",
+      "runner_error_kind": "broker_refused",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "input path contains a forbidden component: ../escape",
+      "target_exit_code": null,
+      "target_started": null,
+      "verdict": "ORACLE_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "refusal_reason": "bad_inputs",
+      "request_id": "5920313c70754535a416e38fc88ec9f9",
+      "runner_error_kind": "broker_refused",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "input path is not a safe relative path: /etc/passwd",
+      "target_exit_code": null,
+      "target_started": null,
+      "verdict": "ORACLE_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "refusal_reason": "bad_inputs",
+      "request_id": "a69aa869cd3a43f58544ab8f8a46c73a",
+      "runner_error_kind": "broker_refused",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "inputs must be a list of at most 8 paths",
+      "target_exit_code": null,
+      "target_started": null,
+      "verdict": "ORACLE_ERROR"
+    }
+  ],
+  "started_at": "2026-11-11T15:59:56.613694+00:00",
+  "status": "PASS",
+  "toctou_responses": [
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-ac5d91885a484cb9b2c5e8a38ebb844c",
+      "docker_s": 0.9557616859674454,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.03326136199757457,
+      "rc": 0,
+      "request_id": "87fc7e7b9cfa4ca9b62408fed5cfee77",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "request_id": "af75f8c9e5364f3198666bd115e27c73",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": "bad_inputs",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "secure input open/read failed for candidates/in0: [Errno 2] No such file or directory: 'candidates'",
+      "target_exit_code": null,
+      "target_started": null,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "INPUT_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "request_id": "8a31a04e7fc347e6afe6bdd42425da08",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": "bad_inputs",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "secure input open/read failed for candidates/in0: [Errno 20] Not a directory: 'candidates'",
+      "target_exit_code": null,
+      "target_started": null,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "INPUT_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-c327c8a24f5c41ba9ccdd9d96f915049",
+      "docker_s": 0.9491869779885747,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.032395032001659274,
+      "rc": 0,
+      "request_id": "616f8051269f40878d408bbc26edbcf4",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "request_id": "529916b826fb44b6a9123e72b3e04c14",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": "bad_inputs",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "secure input open/read failed for candidates/in0: [Errno 20] Not a directory: 'candidates'",
+      "target_exit_code": null,
+      "target_started": null,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "INPUT_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "request_id": "000e69c6aa5d48458575e2dd53fd22fd",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": "bad_inputs",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "secure input open/read failed for candidates/in0: [Errno 20] Not a directory: 'candidates'",
+      "target_exit_code": null,
+      "target_started": null,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "INPUT_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "request_id": "1c9c6b95578c47689ee393f8aa6002f2",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": "bad_inputs",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "secure input open/read failed for candidates/in0: [Errno 2] No such file or directory: 'candidates'",
+      "target_exit_code": null,
+      "target_started": null,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "INPUT_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": null,
+      "input_sha256": [],
+      "rc": -1,
+      "request_id": "fd590e7696f54c66ac3bb9b477cda897",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": "bad_inputs",
+      "runner_exit_code": null,
+      "runner_started": null,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "secure input open/read failed for candidates/in0: [Errno 2] No such file or directory: 'candidates'",
+      "target_exit_code": null,
+      "target_started": null,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "INPUT_ERROR"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-8bed6d2568b3484f842aec3789a0e494",
+      "docker_s": 0.9574137330055237,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.03211963502690196,
+      "rc": 0,
+      "request_id": "22b8b775294b4f4f8042201f512c852d",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    },
+    {
+      "broker_version": "k3-oracle-broker/1",
+      "cleanup": null,
+      "container": "ob-k8-30d602dc38ec4a74ab490b1a595ee4e9",
+      "docker_s": 1.047022940008901,
+      "input_sha256": [
+        "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667"
+      ],
+      "kill_rc": null,
+      "killed": false,
+      "oom_evidence": false,
+      "prepare_s": 0.03453181398799643,
+      "rc": 0,
+      "request_id": "52509cd867d84d648c68608830fb12ef",
+      "run_id": "k3acc-20261111T155956-f3b6ca0b",
+      "runner_error_kind": null,
+      "runner_exit_code": 0,
+      "runner_started": true,
+      "sanitizer_detected": false,
+      "schema": 2,
+      "sig": "",
+      "tail": "__ORACLE_RUNNER_V2__\n__ORACLE_TARGET_EXIT_V2__0\n\n",
+      "target_exit_code": 0,
+      "target_started": true,
+      "task_id": "oss-fuzz:900000001",
+      "verdict": "CLEAN"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "binary_sha256": "0e5a3697fb71c89aa4dae048bacac8b90a684207328f9fa9df62f6561a5b4a15",
+  "build_method": "pinned-prebuilt-u20",
+  "built_at": "2026-11-11T15:40:17.600784+00:00",
+  "purpose": "non-scoring-k3-oracle-acceptance",
+  "runner": "cybergym/oss-fuzz-base-runner:latest",
+  "source_sha256": "7d64db0e080eadf2e47a8f14ba91f5875fb5af7ff524e71e0874208228088c0e",
+  "tasks": {
+    "A": {
+      "binary_sha256": "0e5a3697fb71c89aa4dae048bacac8b90a684207328f9fa9df62f6561a5b4a15",
+      "inputs": {
+        "clean.bin": "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667",
+        "fatal.bin": "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e",
+        "hang.bin": "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+      },
+      "path": "/data/cybergym/cybergym-server-data/oss-fuzz/900000001/vul",
+      "task_id": "oss-fuzz:900000001"
+    },
+    "B": {
+      "binary_sha256": "0e5a3697fb71c89aa4dae048bacac8b90a684207328f9fa9df62f6561a5b4a15",
+      "inputs": {
+        "clean.bin": "f67edf767080a306a24b53c52f30b3ee883d86db06878c6c75edea00a468d667",
+        "fatal.bin": "98dbd75e08d78a3c596dd4059f67af428005d68319c6c80ef5c850acdf38d24e",
+        "hang.bin": "08f8638c4c729d3f6398994becd76321e9396e43f8c2897bf2f75876683e7828"
+      },
+      "path": "/data/cybergym/cybergym-server-data/oss-fuzz/900000002/vul",
+      "task_id": "oss-fuzz:900000002"
+    }
+  }
+}

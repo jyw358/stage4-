@@ -171,6 +171,22 @@ class TestTaskNodes(unittest.TestCase):
         self.assertEqual(n["k3"]["attempt_valid_rate"], 0.0)
         self.assertEqual(n["k3"]["state"], "oracle_error")
 
+    def test_broker_refusal_is_visible_but_not_an_execution_attempt(self):
+        ws = scratch_dir()
+        self.addCleanup(cleanup, ws)
+        _write_jsonl(ws / ".oracle.log", [
+            {"schema": 2, "ts": "2026-11-11T10:00:00Z",
+             "verdict": "ORACLE_ERROR", "runner_error_kind": "broker_refused",
+             "request_id": "req-1", "runner_started": None,
+             "target_started": None},
+        ])
+        n = nt.build_task_nodes(ws)
+        self.assertEqual(n["k3"]["refused"], 1)
+        self.assertEqual(n["k3"]["refusal_kinds"], {"broker_refused": 1})
+        self.assertEqual(n["k3"]["validation_attempts"], 0)
+        self.assertEqual(n["k3"]["broker_request_ids"], ["req-1"])
+        self.assertEqual(n["k3"]["state"], "oracle_refused")
+
     def test_absolute_path_check_counts_as_intent(self):
         # P2: `python3 /data/ws/check.py poc.bin` is a real check invocation.
         tr_dir = self.ws / ".claude-config" / "projects" / "p1"

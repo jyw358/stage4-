@@ -290,6 +290,7 @@ def oracle_metrics(ws: Path) -> dict:
           "execution_confirmed": 0, "local_crashes_confirmed": 0,
           "clean_confirmed": 0, "oracle_errors": 0, "input_errors": 0,
           "legacy_unverified": 0, "first_crash_ts": None,
+          "refused": 0, "refusal_kinds": {}, "broker_request_ids": [],
           "crashed_input_sha256": [], "distinct_local_inputs": 0,
           "recent_input_sha256": []}
     seen = []
@@ -309,6 +310,15 @@ def oracle_metrics(ws: Path) -> dict:
         if v in ("NO_INPUT", "INPUT_ERROR", "FIX_SIDE_BLOCKED"):
             st["input_errors"] += 1
             st["oracle_errors"] += 1
+            continue
+        kind = d.get("runner_error_kind")
+        if d.get("request_id"):
+            st["broker_request_ids"].append(str(d["request_id"]))
+        if v == "ORACLE_ERROR" and kind in ("broker_refused", "oracle_busy"):
+            # A policy/concurrency refusal is visible, but it is not an
+            # execution-quality sample: no container was ever requested to run.
+            st["refused"] += 1
+            st["refusal_kinds"][kind] = st["refusal_kinds"].get(kind, 0) + 1
             continue
         # An explicit ORACLE_ERROR is a real attempt that failed before the
         # sentinel existed (sweep preflight, docker missing).  Those records
@@ -341,6 +351,7 @@ def oracle_metrics(ws: Path) -> dict:
     st["crashed_input_sha256"] = st["crashed_input_sha256"][-5:]
     st["distinct_local_inputs"] = len(seen)
     st["recent_input_sha256"] = seen[-20:]
+    st["broker_request_ids"] = st["broker_request_ids"][-20:]
     return st
 
 
@@ -424,6 +435,8 @@ def _node_k3(orc: dict, tr: dict) -> dict:
         state = "oracle_error"
     elif orc["legacy_unverified"] > 0:
         state = "execution_unknown"
+    elif orc["refused"] > 0:
+        state = "oracle_refused"
     else:
         state = "not_attempted"
     return {
@@ -440,6 +453,9 @@ def _node_k3(orc: dict, tr: dict) -> dict:
         "oracle_errors": orc["oracle_errors"],
         "input_errors": orc["input_errors"],
         "legacy_unverified": orc["legacy_unverified"],
+        "refused": orc["refused"],
+        "refusal_kinds": orc["refusal_kinds"],
+        "broker_request_ids": orc["broker_request_ids"],
         "attempt_valid_rate": orc["attempt_valid_rate"],
         "first_local_crash_ts": orc["first_crash_ts"],
         "crashed_input_sha256": orc["crashed_input_sha256"],
