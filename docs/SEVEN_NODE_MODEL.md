@@ -30,7 +30,8 @@
 ```
 
 实现：`cybergym-agent/scripts/node_telemetry.py`。`record_task_row.py` 在
-任务结束时写入 K1-K4，`score_task.py` 在评分后补写 K5-K7，全部落在该任务
+任务结束时写入 K1-K4，`score_task.py` / `score_all.py`（根侧 `score_all.sh`
+实际调用的入口）在评分后补写 K5-K7，全部落在该任务
 row 的 `nodes` 字段（`schema: 2`）。只读、只记录，不影响提交、预算和官方判定。
 
 **每个节点都带 `state` / `source` / `observed`，未采到 = 未知，绝不记为失败。**
@@ -296,10 +297,10 @@ IO/CPU/时间成本。进入正式实验前须做小规模非评分性能回归�
 |---|---|---|
 | `scripts/node_telemetry.py` | schema 2：K3 分母修正、K4 三层、K1/K2 分层、K5/K6 诊断化、K7 继承官方结论、报表六元组分母；v2.1：sweep 跳过、`accepted_provisional` 跟随账本、schema 门、`--queue`、`needs_audit` | 统一诊断口径 |
 | `scripts/record_task_row.py` | 写 row 前采集 K1-K4（异常仅告警） | 自动落盘 |
-| `scripts/score_task.py` | 评分后补写 K5-K7（保留官方 success 原计算） | 自动落盘 |
+| `scripts/score_task.py` / `scripts/score_all.py` | 评分后补写 K5-K7（保留官方 success 原计算）；两个入口都要有，根侧实际跑的是 `score_all.py` | 自动落盘 |
 | `scripts/make_agent_ws.py` | check.py 追加 `.check_log.jsonl`（含 `sha_source` 标注）；模板要求 `crashpoint.json`（**行为干预，仅用于新冻结实验**） | 让选点与提交动作可观测 |
 | `scripts/local_oracle.py` | oracle 日志增加 `input_sha256` | 本地崩溃与输入字节对应 |
-| `tests/test_node_telemetry.py` | 18 项单测（含 3 条 P1 负向回归 + 3 条 P2 回归） | 覆盖分母、三层提交、诊断状态、答案键匹配、sweep、schema 门、冻结队列 |
+| `tests/test_node_telemetry.py` | 19 项单测（含 4 条 P1 负向回归 + 3 条 P2 回归） | 覆盖分母、三层提交、诊断状态、答案键匹配、sweep、schema 门、冻结队列、ORACLE_ERROR 计次 |
 
 ## 9. v2.1 复审修复记录（2026-11-11 第二轮）
 

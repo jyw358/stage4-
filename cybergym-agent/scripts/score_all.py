@@ -230,6 +230,18 @@ def main() -> int:
             "ledger_entries": result.get("ledger_entries"),
             "scored_run_id": row.get("run_id"),
         })
+        # K5/K6/K7 only exist after scoring.  score_all.py is the entry the
+        # host wrapper actually runs, so the merge has to live here too --
+        # otherwise a run scored through /root/score_all.sh keeps K5/K6/K7
+        # pending even though `final` carries fix_exit.  Measurement only.
+        try:
+            from scripts import node_telemetry
+            patch["nodes"] = node_telemetry.merge_score_nodes(
+                row.get("nodes") or {}, result.get("final"),
+                result.get("status"), result.get("reason"))
+        except Exception as exc:                  # noqa: BLE001 - diagnostic
+            print(f"[score] WARN: node telemetry failed: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
         if result.get("status") == evidence.STATUS_OK and result.get("success") is not None:
             n_decided += 1
             n_success += 1 if result.get("success") else 0
